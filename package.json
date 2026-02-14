@@ -16,7 +16,9 @@
     "demo:1": "node demo.js 1",
     "demo:2": "node demo.js 2",
     "demo:3": "node demo.js 3",
-    "demo:4": "node demo.js 4"
+    "demo:4": "node demo.js 4",
+    "ui": "cd frontend && npm run dev",
+    "ui:build": "cd frontend && npm run build"
   },
   "dependencies": {
     "axios": "^1.13.5",

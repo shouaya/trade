@@ -1,0 +1,54 @@
+.chart-component {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+}
+
+.chart-container-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  height: 100%;
+  width: 100%;
+}
+
+.main-chart,
+.indicator-chart {
+  position: relative;
+  width: 100%;
+}
+
+.main-chart {
+  flex: 1;
+  min-height: 0;
+}
+
+.indicator-chart {
+  flex-shrink: 0;
+}
+
+.chart-title {
+  color: #d1d4dc;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+  padding-left: 0.3rem;
+}
+
+.chart-container {
+  width: 100%;
+  height: 100%;
+}
+
+.chart-container-small {
+  width: 100%;
+  height: 120px;
+}
+
+@media (max-width: 1024px) {
+  .chart-container-small {
+    height: 100px;
+  }
+}

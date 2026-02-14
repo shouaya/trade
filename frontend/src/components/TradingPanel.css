@@ -1,0 +1,232 @@
+.trading-panel {
+  color: #d1d4dc;
+}
+
+.trading-panel h2 {
+  margin: 0 0 1.5rem 0;
+  color: #fff;
+  font-size: 1.5rem;
+}
+
+.trading-panel h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.2rem;
+}
+
+.active-trade {
+  background: #2b2b43;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.trade-info,
+.result-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-row.large {
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.info-row span:first-child {
+  color: #888;
+}
+
+.direction.long {
+  color: #26a69a;
+  font-weight: 600;
+}
+
+.direction.short {
+  color: #ef5350;
+  font-weight: 600;
+}
+
+.stop-loss {
+  color: #ef5350;
+}
+
+.take-profit {
+  color: #26a69a;
+}
+
+.trade-result {
+  background: #2b2b43;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  border: 2px solid;
+}
+
+.trade-result.profit {
+  border-color: #26a69a;
+}
+
+.trade-result.loss {
+  border-color: #ef5350;
+}
+
+.trade-result .pnl {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.trade-result.profit .pnl {
+  color: #26a69a;
+}
+
+.trade-result.loss .pnl {
+  color: #ef5350;
+}
+
+.trade-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-group label {
+  color: #d1d4dc;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.form-group input[type="number"],
+.form-group input[type="text"] {
+  background: #2b2b43;
+  color: #d1d4dc;
+  border: 1px solid #485c7b;
+  padding: 0.6rem;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: #26a69a;
+}
+
+.current-price {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #26a69a;
+  font-family: 'Courier New', monospace;
+}
+
+.direction-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.direction-btn {
+  background: #2b2b43;
+  color: #d1d4dc;
+  border: 2px solid #485c7b;
+  padding: 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.direction-btn:hover {
+  transform: translateY(-2px);
+}
+
+.direction-btn.long.active {
+  background: #26a69a;
+  border-color: #26a69a;
+  color: white;
+}
+
+.direction-btn.short.active {
+  background: #ef5350;
+  border-color: #ef5350;
+  color: white;
+}
+
+.checkbox-group {
+  background: #2b2b43;
+  padding: 0.8rem;
+  border-radius: 6px;
+}
+
+.checkbox-group > label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.checkbox-group input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.sub-input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  margin-left: 1.5rem;
+}
+
+.sub-input input {
+  flex: 1;
+}
+
+.sub-input .hint {
+  color: #888;
+  font-size: 0.85rem;
+  font-family: 'Courier New', monospace;
+}
+
+.submit-btn {
+  background: #26a69a;
+  color: white;
+  border: none;
+  padding: 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  font-weight: 700;
+  transition: all 0.2s;
+  margin-top: 0.5rem;
+}
+
+.submit-btn:hover:not(:disabled) {
+  background: #2ebfa6;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(38, 166, 154, 0.3);
+}
+
+.submit-btn:disabled {
+  background: #485c7b;
+  cursor: not-allowed;
+  transform: none;
+}
