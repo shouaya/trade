@@ -127,7 +127,17 @@ router.post('/', async (req, res) => {
       actualHoldMinutes,
       strategyName,
       notes,
-      symbol = 'USDJPY'
+      symbol = 'USDJPY',
+      // 入场指标值
+      entryRsi,
+      entryMacd,
+      entryMacdSignal,
+      entryMacdHistogram,
+      // 出场指标值
+      exitRsi,
+      exitMacd,
+      exitMacdSignal,
+      exitMacdHistogram
     } = req.body;
 
     // 验证必填字段
@@ -145,8 +155,10 @@ router.post('/', async (req, res) => {
         lot_size, hold_minutes, stop_loss, take_profit,
         exit_time, exit_price, exit_reason,
         pnl, pips, percent, actual_hold_minutes,
-        strategy_name, notes, symbol
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        strategy_name, notes, symbol,
+        entry_rsi, entry_macd, entry_macd_signal, entry_macd_histogram,
+        exit_rsi, exit_macd, exit_macd_signal, exit_macd_histogram
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const values = [
@@ -167,7 +179,15 @@ router.post('/', async (req, res) => {
       actualHoldMinutes,
       strategyName,
       notes,
-      symbol
+      symbol,
+      entryRsi,
+      entryMacd,
+      entryMacdSignal,
+      entryMacdHistogram,
+      exitRsi,
+      exitMacd,
+      exitMacdSignal,
+      exitMacdHistogram
     ];
 
     const [result] = await db.query(query, values);

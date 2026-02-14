@@ -20,10 +20,12 @@ app.get('/health', (req, res) => {
 const klinesRouter = require('./routes/klines');
 const tradesRouter = require('./routes/trades');
 const strategiesRouter = require('./routes/strategies');
+const importRouter = require('./routes/import');
 
 app.use('/api/klines', klinesRouter);
 app.use('/api/trades', tradesRouter);
 app.use('/api/strategies', strategiesRouter);
+app.use('/api/import', importRouter);
 
 // 错误处理
 app.use((err, req, res, next) => {

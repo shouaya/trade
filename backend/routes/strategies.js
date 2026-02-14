@@ -10,6 +10,9 @@ router.get('/', async (req, res) => {
   try {
     const { active } = req.query;
 
+    // 设置连接字符集
+    await db.query("SET NAMES 'utf8mb4'");
+
     let query = 'SELECT * FROM strategies';
     const params = [];
 

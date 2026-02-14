@@ -3,6 +3,7 @@ import ChartComponent from '../components/ChartComponent';
 import TradingPanel from '../components/TradingPanel';
 import PlaybackControls from '../components/PlaybackControls';
 import { klinesAPI, tradesAPI } from '../api/api';
+import { calculateRSI, calculateMACD } from '../utils/indicators';
 import './SimulatorPage.css';
 
 function SimulatorPage({ replayTrade }) {
@@ -16,7 +17,7 @@ function SimulatorPage({ replayTrade }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // 加载数据 - 从后端 API 获取
+  // 加载数据 - 仅从后端 API 获取
   useEffect(() => {
     async function loadKlineData() {
       try {
@@ -37,33 +38,13 @@ function SimulatorPage({ replayTrade }) {
           setCurrentIndex(Math.min(35, response.data.length - 1));
           console.log(`✅ 加载了 ${response.data.length} 条 K 线数据`);
         } else {
-          // 如果 API 没有数据，fallback 到本地 JSON
-          console.warn('⚠️ API 没有数据，使用本地文件');
-          const localResponse = await fetch('/data/sample_data.json');
-          const data = await localResponse.json();
-          setKlineData(data);
-          if (data.length > 0) {
-            setStartTime(new Date(parseInt(data[0].openTime)));
-            setCurrentIndex(Math.min(35, data.length - 1));
-          }
+          // API 没有数据
+          setError('数据库中没有 K 线数据，请先使用"数据导入"页面导入数据');
+          console.warn('⚠️ 数据库中没有数据');
         }
       } catch (err) {
         console.error('❌ 加载数据失败:', err);
-        setError('无法加载 K 线数据');
-
-        // Fallback 到本地数据
-        try {
-          const localResponse = await fetch('/data/sample_data.json');
-          const data = await localResponse.json();
-          setKlineData(data);
-          if (data.length > 0) {
-            setStartTime(new Date(parseInt(data[0].openTime)));
-            setCurrentIndex(Math.min(35, data.length - 1));
-          }
-          console.log('✅ 使用本地数据');
-        } catch (localErr) {
-          console.error('本地数据也加载失败:', localErr);
-        }
+        setError(`无法加载 K 线数据: ${err.message}`);
       } finally {
         setLoading(false);
       }
@@ -101,17 +82,62 @@ function SimulatorPage({ replayTrade }) {
     ? new Date(parseInt(currentKline.openTime))
     : startTime;
 
+  // 获取指定索引位置的指标值
+  const getIndicatorValues = (index) => {
+    if (index < 0 || index >= klineData.length) return null;
+
+    const indicators = {
+      rsi: null,
+      macd: null,
+      macdSignal: null,
+      macdHistogram: null
+    };
+
+    // 计算 RSI（需要至少 15 根K线）
+    if (index >= 14 && klineData.length > 14) {
+      const rsiData = calculateRSI(klineData, 14);
+      const currentTime = parseInt(klineData[index].openTime) / 1000;
+      const rsiPoint = rsiData.find(item => item.time === currentTime);
+      if (rsiPoint) {
+        indicators.rsi = rsiPoint.value;
+      }
+    }
+
+    // 计算 MACD（需要至少 35 根K线）
+    if (index >= 34 && klineData.length > 35) {
+      const macdData = calculateMACD(klineData, 12, 26, 9);
+      const currentTime = parseInt(klineData[index].openTime) / 1000;
+      const macdPoint = macdData.macd.find(item => item.time === currentTime);
+      const signalPoint = macdData.signal.find(item => item.time === currentTime);
+      const histogramPoint = macdData.histogram.find(item => item.time === currentTime);
+
+      if (macdPoint) indicators.macd = macdPoint.value;
+      if (signalPoint) indicators.macdSignal = signalPoint.value;
+      if (histogramPoint) indicators.macdHistogram = histogramPoint.value;
+    }
+
+    return indicators;
+  };
+
   // 开始交易
   const handleStartTrade = (tradeParams) => {
     const entryTime = parseInt(klineData[currentIndex].openTime);
     // 使用传入的自定义价格，如果没有则使用当前K线收盘价
     const entryPrice = tradeParams.entryPrice || parseFloat(klineData[currentIndex].close);
 
+    // 获取入场时的指标值
+    const entryIndicators = getIndicatorValues(currentIndex);
+
     setTrade({
       ...tradeParams,
       entryTime,
       entryPrice,
       entryIndex: currentIndex,
+      // 保存入场时的指标值
+      entryRsi: entryIndicators?.rsi,
+      entryMacd: entryIndicators?.macd,
+      entryMacdSignal: entryIndicators?.macdSignal,
+      entryMacdHistogram: entryIndicators?.macdHistogram,
     });
 
     setTradeResult(null);
@@ -165,6 +191,9 @@ function SimulatorPage({ replayTrade }) {
       const pnl = pips * 10 * (trade.lotSize || 1);
       const percent = (priceDiff / trade.entryPrice) * 100;
 
+      // 获取出场时的指标值
+      const exitIndicators = getIndicatorValues(currentIndex);
+
       const result = {
         exitTime: currentTime,
         exitPrice,
@@ -173,6 +202,11 @@ function SimulatorPage({ replayTrade }) {
         pips: parseFloat(pips.toFixed(2)),
         percent: parseFloat(percent.toFixed(4)),
         holdMinutes: Math.round(elapsedMinutes),
+        // 保存出场时的指标值
+        exitRsi: exitIndicators?.rsi,
+        exitMacd: exitIndicators?.macd,
+        exitMacdSignal: exitIndicators?.macdSignal,
+        exitMacdHistogram: exitIndicators?.macdHistogram,
       };
 
       setTradeResult(result);
@@ -204,7 +238,17 @@ function SimulatorPage({ replayTrade }) {
         percent: result.percent,
         actualHoldMinutes: result.holdMinutes,
         strategyName: tradeData.strategyName || '手动交易',
-        symbol: 'USDJPY'
+        symbol: 'USDJPY',
+        // 入场时的指标值
+        entryRsi: tradeData.entryRsi,
+        entryMacd: tradeData.entryMacd,
+        entryMacdSignal: tradeData.entryMacdSignal,
+        entryMacdHistogram: tradeData.entryMacdHistogram,
+        // 出场时的指标值
+        exitRsi: result.exitRsi,
+        exitMacd: result.exitMacd,
+        exitMacdSignal: result.exitMacdSignal,
+        exitMacdHistogram: result.exitMacdHistogram,
       };
 
       const response = await tradesAPI.createTrade(tradeRecord);
