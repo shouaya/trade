@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node tests/playback-control.test.js",
+    "test:playback": "node tests/playback-control.test.js",
+    "test:legacy": "node test-playback.js"
   },
   "dependencies": {
     "axios": "^1.13.5",

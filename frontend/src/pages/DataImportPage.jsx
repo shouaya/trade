@@ -37,29 +37,51 @@ function DataImportPage() {
     setProgress({ message: '正在从 GMO Coin 获取数据...', current: 0, total: 0 });
 
     try {
-      // 这里应该调用后端 API 来触发数据获取和导入
-      // 暂时使用前端模拟（实际应该在后端完成）
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/import/gmocoin`, {
+      // 转换日期格式: YYYY-MM-DD -> YYYYMMDD
+      const formatDateForAPI = (dateStr) => dateStr.replace(/-/g, '');
+
+      // 转换 symbol 格式: USDJPY -> USD_JPY
+      const gmoSymbol = symbol === 'USDJPY' ? 'USD_JPY' :
+                        symbol === 'BTCJPY' ? 'BTC_JPY' :
+                        symbol === 'ETHJPY' ? 'ETH_JPY' :
+                        symbol === 'EURJPY' ? 'EUR_JPY' :
+                        symbol === 'GBPJPY' ? 'GBP_JPY' : symbol;
+
+      // 转换 interval 格式: 1m -> 1min
+      const gmoInterval = interval.replace('m', 'min').replace('h', 'hour').replace('d', 'day');
+
+      const response = await fetch(`${import.meta.env.VITE_API_URL || '/api'}/import/gmocoin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          symbol,
-          interval,
-          startDate,
-          endDate
+          symbol: gmoSymbol,
+          interval: gmoInterval,
+          priceType: 'BID',
+          startDate: formatDateForAPI(startDate),
+          endDate: formatDateForAPI(endDate)
         })
       });
 
-      if (response.ok) {
-        const result = await response.json();
+      const result = await response.json();
+
+      if (result.success) {
+        const totalImported = result.imported || 0;
+        const skipped = result.skipped || 0;
+        const errors = result.errors || [];
+
+        let message = `✅ 导入完成！新增 ${totalImported} 条，跳过 ${skipped} 条`;
+        if (errors.length > 0) {
+          message += `\n⚠️ ${errors.length} 个日期导入失败`;
+        }
+
         setProgress({
-          message: `✅ 导入完成！共导入 ${result.count} 条数据`,
-          current: result.count,
-          total: result.count
+          message,
+          current: totalImported,
+          total: totalImported + skipped
         });
         loadStats();
       } else {
-        throw new Error('导入失败');
+        throw new Error(result.message || result.error || '导入失败');
       }
     } catch (error) {
       console.error('导入失败:', error);

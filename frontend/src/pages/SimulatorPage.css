@@ -23,11 +23,50 @@
   color: #fff;
 }
 
+.header-info {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.data-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.data-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #5a6f8f;
+}
+
+.data-range {
+  font-size: 0.8rem;
+  color: #485c7b;
+}
+
 .current-time {
   font-size: 1rem;
   font-weight: 600;
   color: #26a69a;
   font-family: 'Courier New', monospace;
+}
+
+.change-data-button {
+  padding: 0.5rem 1rem;
+  background: #2b2b43;
+  color: #d1d4dc;
+  border: 1px solid #485c7b;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.change-data-button:hover {
+  background: #363a4f;
+  border-color: #5a6f8f;
 }
 
 .simulator-content {
@@ -96,6 +135,174 @@
   }
 }
 
+/* 数据选择器样式 */
+.data-selector {
+  max-width: 1000px;
+  margin: 3rem auto;
+  padding: 2rem;
+  background: #1e222d;
+  border-radius: 8px;
+  border: 1px solid #2b2b43;
+  max-height: calc(100vh - 6rem);
+  overflow-y: auto;
+}
+
+.data-selector h2 {
+  margin: 0 0 0.5rem 0;
+  color: #fff;
+  font-size: 1.5rem;
+}
+
+.selector-description {
+  margin: 0 0 2rem 0;
+  color: #9099a8;
+  font-size: 0.95rem;
+}
+
+.selector-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-group label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #d1d4dc;
+}
+
+.form-group select,
+.form-group input {
+  padding: 0.75rem;
+  background: #0f1419;
+  border: 1px solid #485c7b;
+  border-radius: 4px;
+  color: #d1d4dc;
+  font-size: 0.95rem;
+  transition: border-color 0.2s;
+}
+
+.form-group input[type="date"],
+.form-group input[type="time"] {
+  color-scheme: dark;
+  cursor: pointer;
+}
+
+.form-group input[type="date"]::-webkit-calendar-picker-indicator,
+.form-group input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.8);
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: 0.2rem;
+}
+
+.form-group select:focus,
+.form-group input:focus {
+  outline: none;
+  border-color: #26a69a;
+}
+
+.form-group select option {
+  background: #1e222d;
+  color: #d1d4dc;
+}
+
+/* 数据范围信息 */
+.data-range-info {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: rgba(38, 166, 154, 0.1);
+  border: 1px solid #26a69a;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.data-range-info.warning {
+  background: rgba(255, 152, 0, 0.1);
+  border-color: #ff9800;
+}
+
+.data-range-info .info-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.data-range-info .info-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.data-range-info .info-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #26a69a;
+}
+
+.data-range-info.warning .info-title {
+  color: #ff9800;
+}
+
+.data-range-info .info-details {
+  font-size: 0.85rem;
+  color: #9099a8;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.data-range-info .separator {
+  color: #485c7b;
+}
+
+.error-message {
+  padding: 1rem;
+  background: rgba(239, 83, 80, 0.1);
+  border: 1px solid #ef5350;
+  border-radius: 4px;
+  color: #ef5350;
+  font-size: 0.9rem;
+}
+
+.load-button {
+  padding: 1rem 2rem;
+  background: #26a69a;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.load-button:hover:not(:disabled) {
+  background: #2bbbad;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(38, 166, 154, 0.3);
+}
+
+.load-button:disabled {
+  background: #485c7b;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 @media (max-width: 768px) {
   .simulator-header h2 {
     font-size: 1.1rem;
@@ -107,5 +314,24 @@
 
   .simulator-content {
     grid-template-rows: 50vh 50vh;
+  }
+
+  .data-selector {
+    margin: 1.5rem;
+    padding: 1.5rem;
+  }
+
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .header-info {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .change-data-button {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
   }
 }

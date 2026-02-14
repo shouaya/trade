@@ -128,14 +128,14 @@ async function insertKlineData(symbol, interval, data) {
 
     const insertQuery = `
       INSERT INTO klines (
-        symbol, interval, open_time, open_price, high_price,
-        low_price, close_price, volume
+        symbol, interval_type, open_time, open, high,
+        low, close, volume
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
-        open_price = VALUES(open_price),
-        high_price = VALUES(high_price),
-        low_price = VALUES(low_price),
-        close_price = VALUES(close_price),
+        open = VALUES(open),
+        high = VALUES(high),
+        low = VALUES(low),
+        close = VALUES(close),
         volume = VALUES(volume)
     `;
 

@@ -1,6 +1,10 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+// 使用相对路径，通过 Vite 代理转发到后端
+// 在 Node.js 测试环境中使用环境变量
+const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
+  || process.env.VITE_API_URL
+  || 'http://localhost:3001/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

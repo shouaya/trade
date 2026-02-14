@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import ChartComponent from '../components/ChartComponent';
 import TradingPanel from '../components/TradingPanel';
 import PlaybackControls from '../components/PlaybackControls';
 import { klinesAPI, tradesAPI } from '../api/api';
+import { loadKlineData as loadKlineDataService } from '../services/playbackService';
+import { usePlaybackControl } from '../hooks/usePlaybackControl';
 import { calculateRSI, calculateMACD } from '../utils/indicators';
 import './SimulatorPage.css';
 
@@ -10,71 +12,97 @@ function SimulatorPage({ replayTrade }) {
   const [klineData, setKlineData] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [speed, setSpeed] = useState(1000); // 1秒一根K线
+  const [speed, setSpeed] = useState(1000); // 1秒一根K线（默认速度）
   const [startTime, setStartTime] = useState(null);
   const [trade, setTrade] = useState(null);
   const [tradeResult, setTradeResult] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // 加载数据 - 仅从后端 API 获取
+  // 使用 ref 避免闭包问题
+  const klineDataRef = useRef([]);
+  const isPlayingRef = useRef(false);
+
+  // 数据源选择
+  const [symbol, setSymbol] = useState('USDJPY');
+  const [interval, setInterval] = useState('1m');
+  const [startDate, setStartDate] = useState('');
+  const [startTimeInput, setStartTimeInput] = useState('00:00');
+  const [endDate, setEndDate] = useState('');
+  const [endTimeInput, setEndTimeInput] = useState('23:59');
+  const [showDataSelector, setShowDataSelector] = useState(true);
+  const [dataRangeInfo, setDataRangeInfo] = useState(null);
+
+  // 加载数据源的时间范围信息
   useEffect(() => {
-    async function loadKlineData() {
+    async function loadDataRange() {
       try {
-        setLoading(true);
-        setError(null);
+        // 检查 interval 是否有效
+        if (!interval) {
+          return;
+        }
 
-        // 从 API 获取 K 线数据
-        const response = await klinesAPI.getKlines({
-          symbol: 'USDJPY',
-          interval: '1m',
-          limit: 5000
-        });
+        const response = await klinesAPI.getStats();
+        if (response.success && response.data) {
+          // 转换 interval 格式以匹配数据库: 1m -> 1min, 1h -> 1hour, 1d -> 1day
+          const dbInterval = interval
+            .replace(/^(\d+)m$/, '$1min')
+            .replace(/^(\d+)h$/, '$1hour')
+            .replace(/^(\d+)d$/, '$1day');
 
-        if (response.success && response.data.length > 0) {
-          setKlineData(response.data);
-          setStartTime(new Date(parseInt(response.data[0].openTime)));
-          // 从第35根K线开始，这样RSI和MACD都能立即显示
-          setCurrentIndex(Math.min(35, response.data.length - 1));
-          console.log(`✅ 加载了 ${response.data.length} 条 K 线数据`);
-        } else {
-          // API 没有数据
-          setError('数据库中没有 K 线数据，请先使用"数据导入"页面导入数据');
-          console.warn('⚠️ 数据库中没有数据');
+          // 找到当前选择的数据源信息
+          const info = response.data.find(
+            item => item.symbol === symbol && item.interval_type === dbInterval
+          );
+          setDataRangeInfo(info);
         }
       } catch (err) {
-        console.error('❌ 加载数据失败:', err);
-        setError(`无法加载 K 线数据: ${err.message}`);
-      } finally {
-        setLoading(false);
+        console.error('获取数据范围失败:', err);
       }
     }
+    loadDataRange();
+  }, [symbol, interval]);
 
-    loadKlineData();
-  }, []);
+  // 加载数据 - 调用业务代码
+  const loadKlineData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-  // 播放控制
-  useEffect(() => {
-    if (!isPlaying || currentIndex >= klineData.length) {
-      if (currentIndex >= klineData.length) {
-        setIsPlaying(false);
+      // 构建参数
+      const params = {
+        symbol,
+        interval,
+        limit: 5000
+      };
+
+      // 如果指定了时间范围
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.startTime = startTimeInput;
+        params.endDate = endDate;
+        params.endTime = endTimeInput;
       }
-      return;
+
+      // 调用业务代码加载数据
+      const data = await loadKlineDataService(params);
+
+      setKlineData(data);
+      klineDataRef.current = data; // 同步到 ref
+      setStartTime(new Date(parseInt(data[0].openTime)));
+      // 从第35根K线开始，这样RSI和MACD都能立即显示
+      setCurrentIndex(Math.min(35, data.length - 1));
+      setShowDataSelector(false);
+    } catch (err) {
+      console.error('❌ 加载数据失败:', err);
+      setError(`无法加载 K 线数据: ${err.message}`);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    const timer = setInterval(() => {
-      setCurrentIndex(prev => {
-        const next = prev + 1;
-        if (next >= klineData.length) {
-          setIsPlaying(false);
-          return prev;
-        }
-        return next;
-      });
-    }, speed);
-
-    return () => clearInterval(timer);
-  }, [isPlaying, currentIndex, klineData.length, speed]);
+  // 使用播放控制 Hook（和测试使用同一套代码）
+  usePlaybackControl(isPlaying, speed, klineData, setCurrentIndex, setIsPlaying);
 
   // 当前K线和时间
   const currentKline = klineData[currentIndex];
@@ -260,12 +288,172 @@ function SimulatorPage({ replayTrade }) {
     }
   };
 
+  // 显示数据选择器
+  if (showDataSelector || klineData.length === 0) {
+    return (
+      <div className="simulator-page">
+        <div className="data-selector">
+          <h2>📊 选择模拟数据源</h2>
+          <p className="selector-description">
+            选择交易对、时间间隔和时间范围来加载历史数据进行模拟交易
+          </p>
+
+          <div className="selector-form">
+            <div className="form-row">
+              <div className="form-group">
+                <label>交易对</label>
+                <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
+                  <option value="USDJPY">USD/JPY</option>
+                  <option value="BTCJPY">BTC/JPY</option>
+                  <option value="ETHJPY">ETH/JPY</option>
+                  <option value="EURJPY">EUR/JPY</option>
+                  <option value="GBPJPY">GBP/JPY</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>时间间隔</label>
+                <select value={interval} onChange={(e) => setInterval(e.target.value)}>
+                  <option value="1m">1 分钟</option>
+                  <option value="5m">5 分钟</option>
+                  <option value="15m">15 分钟</option>
+                  <option value="1h">1 小时</option>
+                  <option value="4h">4 小时</option>
+                  <option value="1d">1 天</option>
+                </select>
+              </div>
+            </div>
+
+            {dataRangeInfo && (
+              <div className="data-range-info">
+                <div className="info-icon">ℹ️</div>
+                <div className="info-content">
+                  <div className="info-title">可用数据范围</div>
+                  <div className="info-details">
+                    <span>共 {dataRangeInfo.count.toLocaleString()} 条数据</span>
+                    <span className="separator">•</span>
+                    <span>
+                      {new Date(parseInt(dataRangeInfo.earliest)).toLocaleString('zh-CN', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: false
+                      })}
+                      {' 至 '}
+                      {new Date(parseInt(dataRangeInfo.latest)).toLocaleString('zh-CN', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: false
+                      })}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!dataRangeInfo && (
+              <div className="data-range-info warning">
+                <div className="info-icon">⚠️</div>
+                <div className="info-content">
+                  <div className="info-title">暂无数据</div>
+                  <div className="info-details">
+                    该数据源暂无可用数据，请先到"数据导入"页面导入数据
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>开始日期（可选）</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  max={endDate || undefined}
+                  min={dataRangeInfo ? new Date(parseInt(dataRangeInfo.earliest)).toISOString().split('T')[0] : undefined}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>开始时间</label>
+                <input
+                  type="time"
+                  value={startTimeInput}
+                  onChange={(e) => setStartTimeInput(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>结束日期（可选）</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  min={startDate || undefined}
+                  max={dataRangeInfo ? new Date(parseInt(dataRangeInfo.latest)).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>结束时间</label>
+                <input
+                  type="time"
+                  value={endTimeInput}
+                  onChange={(e) => setEndTimeInput(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {error && <div className="error-message">{error}</div>}
+
+            <button
+              className="load-button"
+              onClick={loadKlineData}
+              disabled={loading}
+            >
+              {loading ? '⏳ 加载中...' : '🚀 开始模拟'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="simulator-page">
       <div className="simulator-header">
         <h2>💹 实时交易模拟</h2>
-        <div className="current-time">
-          {currentTime && currentTime.toISOString().replace('T', ' ').slice(0, 19)}
+        <div className="header-info">
+          <div className="data-info">
+            <span className="data-label">{symbol} • {interval}</span>
+            {startDate && endDate && (
+              <span className="data-range"> • {startDate} 至 {endDate}</span>
+            )}
+          </div>
+          <div className="current-time">
+            {currentTime && currentTime.toISOString().replace('T', ' ').slice(0, 19)}
+          </div>
+          <button
+            className="change-data-button"
+            onClick={() => {
+              setShowDataSelector(true);
+              setIsPlaying(false);
+              setTrade(null);
+              setTradeResult(null);
+            }}
+          >
+            🔄 切换数据源
+          </button>
         </div>
       </div>
 
@@ -286,7 +474,7 @@ function SimulatorPage({ replayTrade }) {
             onPlay={() => setIsPlaying(true)}
             onPause={() => setIsPlaying(false)}
             onReset={() => {
-              setCurrentIndex(0);
+              setCurrentIndex(Math.min(35, klineData.length - 1));
               setIsPlaying(false);
               setTrade(null);
               setTradeResult(null);

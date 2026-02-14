@@ -12,11 +12,13 @@ function PlaybackControls({
   onSeek,
 }) {
   const speedOptions = [
-    { value: 2000, label: '0.5x' },
-    { value: 1000, label: '1x' },
-    { value: 500, label: '2x' },
-    { value: 250, label: '4x' },
-    { value: 100, label: '10x' },
+    { value: 1000, label: '1x (1秒/根) - 默认速度' },
+    { value: 500, label: '2x (1秒/2根)' },
+    { value: 200, label: '5x (1秒/5根)' },
+    { value: 100, label: '10x (1秒/10根)' },
+    { value: 50, label: '20x (1秒/20根)' },
+    { value: 25, label: '40x (1秒/40根)' },
+    { value: 10, label: '100x (1秒/100根)' },
   ];
 
   const progress = totalLength > 0 ? (currentIndex / totalLength) * 100 : 0;
