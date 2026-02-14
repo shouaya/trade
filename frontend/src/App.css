@@ -23,102 +23,22 @@ body {
   background: #1e222d;
   padding: 0.8rem 1.5rem;
   border-bottom: 2px solid #2b2b43;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   width: 100%;
 }
 
 .app-header h1 {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: 1.8rem;
   color: #fff;
 }
 
-.current-time {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #26a69a;
-  font-family: 'Courier New', monospace;
-}
-
-.app-content {
-  display: grid;
-  grid-template-columns: 1fr 350px;
-  gap: 0;
-  width: 100%;
-  height: calc(100vh - 60px);
+.app-main {
+  flex: 1;
   overflow: hidden;
-}
-
-.chart-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  height: 100%;
-  overflow: hidden;
-  background: #1e222d;
-  padding: 0.5rem;
-}
-
-.trading-section {
-  background: #1e222d;
-  border-left: 2px solid #2b2b43;
-  padding: 1rem;
-  overflow-y: auto;
-  height: 100%;
-}
-
-.trading-section::-webkit-scrollbar {
-  width: 8px;
-}
-
-.trading-section::-webkit-scrollbar-track {
-  background: #0f1419;
-}
-
-.trading-section::-webkit-scrollbar-thumb {
-  background: #485c7b;
-  border-radius: 4px;
-}
-
-.trading-section::-webkit-scrollbar-thumb:hover {
-  background: #5a6f8f;
-}
-
-@media (max-width: 1400px) {
-  .app-content {
-    grid-template-columns: 1fr 320px;
-  }
-}
-
-@media (max-width: 1024px) {
-  .app-content {
-    grid-template-columns: 1fr;
-    grid-template-rows: 60vh 40vh;
-    height: calc(100vh - 60px);
-  }
-
-  .trading-section {
-    border-left: none;
-    border-top: 2px solid #2b2b43;
-  }
-
-  .chart-section {
-    height: 100%;
-  }
 }
 
 @media (max-width: 768px) {
   .app-header h1 {
-    font-size: 1.2rem;
-  }
-
-  .current-time {
-    font-size: 0.9rem;
-  }
-
-  .app-content {
-    grid-template-rows: 50vh 50vh;
+    font-size: 1.3rem;
   }
 }

@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # MySQL 数据库
+  mysql:
+    image: mysql:8.0
+    container_name: money-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: trading
+      MYSQL_USER: trader
+      MYSQL_PASSWORD: traderpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - trading-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Adminer - 数据库管理界面
+  adminer:
+    image: adminer:latest
+    container_name: money-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks:
+      - trading-network
+    depends_on:
+      - mysql
+
+  # Express API 后端
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: money-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: trader
+      DB_PASSWORD: traderpass
+      DB_NAME: trading
+      PORT: 3001
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - trading-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command: npm run dev
+
+volumes:
+  mysql_data:
+
+networks:
+  trading-network:
+    driver: bridge

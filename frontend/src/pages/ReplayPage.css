@@ -1,0 +1,284 @@
+.replay-page {
+  width: 100%;
+  height: calc(100vh - 110px);
+  overflow-y: auto;
+  background: #0f1419;
+  padding: 2rem;
+}
+
+.stats-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.stat-card-mini {
+  background: #1e222d;
+  border-radius: 8px;
+  padding: 1.25rem;
+  text-align: center;
+  border: 2px solid #2b2b43;
+}
+
+.stat-card-mini.success {
+  border-color: #26a69a;
+}
+
+.stat-card-mini.error {
+  border-color: #ef5350;
+}
+
+.stat-label {
+  color: #8892a6;
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.stat-value {
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.filter-bar {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  padding: 1rem;
+  background: #1e222d;
+  border-radius: 8px;
+}
+
+.filter-bar select {
+  flex: 1;
+  padding: 0.75rem;
+  background: #0f1419;
+  border: 1px solid #2b2b43;
+  border-radius: 6px;
+  color: #d1d4dc;
+  font-size: 0.95rem;
+}
+
+.filter-bar select:focus {
+  outline: none;
+  border-color: #26a69a;
+}
+
+.refresh-btn {
+  padding: 0.75rem 1.5rem;
+  background: #26a69a;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.refresh-btn:hover {
+  background: #2bc5b4;
+}
+
+.trades-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(450px, 1fr));
+  gap: 1.5rem;
+}
+
+.loading,
+.no-trades {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 4rem;
+  color: #8892a6;
+  font-size: 1.1rem;
+}
+
+.trade-card {
+  background: #1e222d;
+  border-radius: 12px;
+  padding: 1.5rem;
+  border-left: 4px solid #2b2b43;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.trade-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.trade-card.profit {
+  border-left-color: #26a69a;
+}
+
+.trade-card.loss {
+  border-left-color: #ef5350;
+}
+
+.trade-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #2b2b43;
+}
+
+.trade-id {
+  color: #8892a6;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.trade-direction {
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.trade-direction.long {
+  background: rgba(38, 166, 154, 0.2);
+  color: #26a69a;
+}
+
+.trade-direction.short {
+  background: rgba(239, 83, 80, 0.2);
+  color: #ef5350;
+}
+
+.trade-strategy {
+  color: #d1d4dc;
+  font-size: 0.85rem;
+}
+
+.trade-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.trade-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.trade-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.trade-col .label {
+  color: #8892a6;
+  font-size: 0.85rem;
+}
+
+.trade-col .value {
+  color: #d1d4dc;
+  font-weight: 500;
+}
+
+.trade-col .value.stop-loss {
+  color: #ef5350;
+}
+
+.trade-col .value.take-profit {
+  color: #26a69a;
+}
+
+.trade-results {
+  display: flex;
+  justify-content: space-around;
+  padding: 1rem;
+  background: #0f1419;
+  border-radius: 8px;
+  margin-top: 1rem;
+}
+
+.result-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.result-label {
+  color: #8892a6;
+  font-size: 0.85rem;
+}
+
+.result-value {
+  color: #d1d4dc;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.result-value.pnl.profit {
+  color: #26a69a;
+}
+
+.result-value.pnl.loss {
+  color: #ef5350;
+}
+
+.trade-notes {
+  padding: 0.75rem;
+  background: #0f1419;
+  border-radius: 6px;
+  margin-top: 0.5rem;
+}
+
+.trade-notes .label {
+  color: #8892a6;
+  font-size: 0.85rem;
+  margin-right: 0.5rem;
+}
+
+.trade-notes .value {
+  color: #d1d4dc;
+}
+
+.trade-actions {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #2b2b43;
+}
+
+.replay-button {
+  width: 100%;
+  padding: 0.75rem;
+  background: #2b2b43;
+  color: #d1d4dc;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.replay-button:hover {
+  background: #3a3f52;
+  color: #fff;
+}
+
+@media (max-width: 768px) {
+  .trades-list {
+    grid-template-columns: 1fr;
+  }
+
+  .filter-bar {
+    flex-wrap: wrap;
+  }
+
+  .filter-bar select {
+    flex: 1 1 45%;
+  }
+
+  .refresh-btn {
+    flex: 1 1 100%;
+  }
+}
