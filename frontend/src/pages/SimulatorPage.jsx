@@ -23,6 +23,9 @@ function SimulatorPage({ replayTrade }) {
   const klineDataRef = useRef([]);
   const isPlayingRef = useRef(false);
 
+  // 复盘模式标识
+  const isReplayMode = !!replayTrade;
+
   // 数据源选择
   const [symbol, setSymbol] = useState('USDJPY');
   const [interval, setInterval] = useState('1m');
@@ -30,7 +33,7 @@ function SimulatorPage({ replayTrade }) {
   const [startTimeInput, setStartTimeInput] = useState('00:00');
   const [endDate, setEndDate] = useState('');
   const [endTimeInput, setEndTimeInput] = useState('23:59');
-  const [showDataSelector, setShowDataSelector] = useState(true);
+  const [showDataSelector, setShowDataSelector] = useState(!isReplayMode); // 复盘模式不显示数据选择器
   const [dataRangeInfo, setDataRangeInfo] = useState(null);
 
   // 加载数据源的时间范围信息
@@ -103,6 +106,84 @@ function SimulatorPage({ replayTrade }) {
 
   // 使用播放控制 Hook（和测试使用同一套代码）
   usePlaybackControl(isPlaying, speed, klineData, setCurrentIndex, setIsPlaying);
+
+  // 复盘模式：自动加载数据并开始播放
+  useEffect(() => {
+    if (isReplayMode && replayTrade) {
+      const autoLoadAndPlay = async () => {
+        try {
+          setLoading(true);
+          setError(null);
+
+          // 解析交易数据
+          const entryTime = parseInt(replayTrade.entry_time);
+          const exitTime = parseInt(replayTrade.exit_time);
+          const entryPrice = parseFloat(replayTrade.entry_price);
+          const exitPrice = parseFloat(replayTrade.exit_price);
+
+          // 计算时间范围：从入场时间到出场时间 + 10分钟
+          const tenMinutesInMs = 10 * 60 * 1000;
+          const startTimestamp = entryTime;
+          const endTimestamp = exitTime + tenMinutesInMs;
+
+          // 转换为日期时间格式（使用UTC时间，因为数据库存储的是UTC时间戳）
+          const startDateTime = new Date(startTimestamp);
+          const endDateTime = new Date(endTimestamp);
+
+          // 使用 ISO 格式并提取日期和时间部分（UTC）
+          const startISO = startDateTime.toISOString(); // "2025-02-09T22:41:00.000Z"
+          const endISO = endDateTime.toISOString();
+
+          const params = {
+            symbol: replayTrade.symbol || 'USDJPY',
+            interval: '1m', // 复盘默认使用1分钟图
+            startDate: startISO.split('T')[0], // "2025-02-09"
+            startTime: startISO.split('T')[1].slice(0, 5), // "22:41"
+            endDate: endISO.split('T')[0],
+            endTime: endISO.split('T')[1].slice(0, 5),
+          };
+
+          console.log('📊 复盘模式加载数据:', params);
+
+          // 加载数据
+          const data = await loadKlineDataService(params);
+
+          setKlineData(data);
+          klineDataRef.current = data;
+          setStartTime(new Date(parseInt(data[0].openTime)));
+          setCurrentIndex(0); // 复盘模式从第一根K线开始
+
+          // 设置交易标记（转换为ChartComponent期望的格式）
+          setTrade({
+            direction: replayTrade.direction,
+            entryTime: entryTime,
+            entryPrice: entryPrice,
+            stopLoss: replayTrade.stop_loss ? parseFloat(replayTrade.stop_loss) : null,
+            takeProfit: replayTrade.take_profit ? parseFloat(replayTrade.take_profit) : null,
+          });
+
+          // 设置交易结果
+          setTradeResult({
+            exitTime: exitTime,
+            exitPrice: exitPrice,
+            pnl: parseFloat(replayTrade.pnl),
+            exitReason: replayTrade.exit_reason,
+          });
+
+          // 数据加载完成后自动开始播放
+          setTimeout(() => {
+            setIsPlaying(true);
+          }, 500);
+        } catch (err) {
+          console.error('❌ 复盘模式加载数据失败:', err);
+          setError(`复盘数据加载失败: ${err.message}`);
+        } finally {
+          setLoading(false);
+        }
+      };
+      autoLoadAndPlay();
+    }
+  }, []);
 
   // 当前K线和时间
   const currentKline = klineData[currentIndex];
@@ -484,15 +565,18 @@ function SimulatorPage({ replayTrade }) {
           />
         </div>
 
-        <div className="trading-section">
-          <TradingPanel
-            currentPrice={currentKline ? parseFloat(currentKline.close) : 0}
-            onStartTrade={handleStartTrade}
-            trade={trade}
-            tradeResult={tradeResult}
-            disabled={!currentKline || currentIndex === 0}
-          />
-        </div>
+        {/* 复盘模式下不显示交易面板 */}
+        {!isReplayMode && (
+          <div className="trading-section">
+            <TradingPanel
+              currentPrice={currentKline ? parseFloat(currentKline.close) : 0}
+              onStartTrade={handleStartTrade}
+              trade={trade}
+              tradeResult={tradeResult}
+              disabled={!currentKline || currentIndex === 0}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

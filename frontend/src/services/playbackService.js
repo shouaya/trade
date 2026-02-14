@@ -36,8 +36,9 @@ export async function loadKlineData(params) {
 
   // 如果指定了时间范围
   if (startDate && endDate) {
-    const startTimestamp = new Date(`${startDate}T${startTime}:00`).getTime();
-    const endTimestamp = new Date(`${endDate}T${endTime}:59`).getTime();
+    // 使用 'Z' 后缀明确指定为UTC时间，避免浏览器转换为本地时区
+    const startTimestamp = new Date(`${startDate}T${startTime}:00Z`).getTime();
+    const endTimestamp = new Date(`${endDate}T${endTime}:59Z`).getTime();
     apiParams.start = startTimestamp;
     apiParams.end = endTimestamp;
   }
