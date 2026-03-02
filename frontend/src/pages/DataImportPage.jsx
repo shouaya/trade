@@ -4,7 +4,7 @@ import './DataImportPage.css';
 
 function DataImportPage() {
   const [symbol, setSymbol] = useState('USDJPY');
-  const [interval, setInterval] = useState('1m');
+  const [interval, setInterval] = useState('1min');
   const [startDate, setStartDate] = useState('2025-01-01');
   const [endDate, setEndDate] = useState('2025-02-14');
   const [importing, setImporting] = useState(false);
@@ -47,8 +47,8 @@ function DataImportPage() {
                         symbol === 'EURJPY' ? 'EUR_JPY' :
                         symbol === 'GBPJPY' ? 'GBP_JPY' : symbol;
 
-      // 转换 interval 格式: 1m -> 1min
-      const gmoInterval = interval.replace('m', 'min').replace('h', 'hour').replace('d', 'day');
+      // interval 已经是正确格式 (1min, 15min, 30min, 1hour, 4hour)
+      const gmoInterval = interval;
 
       const response = await fetch(`${import.meta.env.VITE_API_URL || '/api'}/import/gmocoin`, {
         method: 'POST',
@@ -126,12 +126,11 @@ function DataImportPage() {
               <div className="form-group">
                 <label>时间间隔 (Interval)</label>
                 <select value={interval} onChange={(e) => setInterval(e.target.value)}>
-                  <option value="1m">1 分钟</option>
-                  <option value="5m">5 分钟</option>
-                  <option value="15m">15 分钟</option>
-                  <option value="1h">1 小时</option>
-                  <option value="4h">4 小时</option>
-                  <option value="1d">1 天</option>
+                  <option value="1min">1 分钟</option>
+                  <option value="15min">15 分钟</option>
+                  <option value="30min">30 分钟</option>
+                  <option value="1hour">1 小时</option>
+                  <option value="4hour">4 小时</option>
                 </select>
               </div>
             </div>
