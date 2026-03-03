@@ -5,6 +5,7 @@
 
 const SignalGenerator = require('./signal-generator');
 const { initializeGrid } = require('./indicators/grid');
+const { TradingSchedule } = require('./trading-schedule');
 
 class StrategyExecutor {
   constructor(strategy, klines) {
@@ -19,6 +20,10 @@ class StrategyExecutor {
       this.grid = initializeGrid(klines, strategy.parameters.grid);
     }
 
+    // 初始化交易时间表 (如果设置了)
+    const scheduleExpr = strategy.parameters.tradingSchedule || 'AVOID_SPREAD';
+    this.tradingSchedule = new TradingSchedule(scheduleExpr);
+
     // 初始化信号生成器(传递klines以预计算RSI/MACD)
     this.signalGenerator = new SignalGenerator(strategy, this.grid, klines);
   }
@@ -32,14 +37,20 @@ class StrategyExecutor {
     // 遍历每根K线
     for (let i = 0; i < this.klines.length; i++) {
       const kline = this.klines[i];
+      const currentTime = new Date(parseInt(kline.open_time));
 
-      // 1. 先检查持仓是否需要平仓
+      // 1. 先检查持仓是否需要平仓 (包括不隔夜/不隔周检查)
       this.checkExitConditions(i, kline);
 
-      // 2. 生成入场信号
+      // 2. 检查是否在允许交易的时段
+      if (!this.isTradingAllowed(currentTime)) {
+        continue; // 跳过此K线,不产生新信号
+      }
+
+      // 3. 生成入场信号
       const signals = this.signalGenerator.generate(this.klines, i, this.positions);
 
-      // 3. 判断是否可以开仓
+      // 4. 判断是否可以开仓
       if (signals.combined && signals.combined.action) {
         if (signals.combined.action === 'BUY' && this.canOpenPosition('long')) {
           this.openPosition('long', i, kline, signals);
@@ -59,6 +70,16 @@ class StrategyExecutor {
       trades: this.closedTrades,
       stats
     };
+  }
+
+  /**
+   * 判断当前时间是否允许交易
+   * 使用trading Schedule进行灵活配置
+   * @param {Date} currentTime - 当前时间
+   * @returns {boolean}
+   */
+  isTradingAllowed(currentTime) {
+    return this.tradingSchedule.isAllowed(currentTime);
   }
 
   /**
@@ -82,9 +103,9 @@ class StrategyExecutor {
     const params = this.strategy.parameters;
     const entryPrice = parseFloat(kline.close);
 
-    // 计算止损止盈
-    const stopLoss = this.calculateStopLoss(entryPrice, direction, params.risk.stopLossPips);
-    const takeProfit = this.calculateTakeProfit(entryPrice, direction, params.risk.takeProfitPips);
+    // 计算止损止盈 (支持百分比或pips)
+    const stopLoss = this.calculateStopLoss(entryPrice, direction, params.risk);
+    const takeProfit = this.calculateTakeProfit(entryPrice, direction, params.risk);
 
     const position = {
       direction,
@@ -115,6 +136,7 @@ class StrategyExecutor {
   checkExitConditions(index, kline) {
     const currentPrice = parseFloat(kline.close);
     const currentTime = parseInt(kline.open_time);
+    const currentDate = new Date(currentTime);
 
     for (let i = this.positions.length - 1; i >= 0; i--) {
       const position = this.positions[i];
@@ -149,6 +171,37 @@ class StrategyExecutor {
         if (holdMinutes >= position.hold_minutes) {
           shouldExit = true;
           exitReason = 'hold_time_reached';
+        }
+      }
+
+      // 4. 不隔夜检查 - 如果当前K线的日期与入场日期不同,立即平仓
+      if (!shouldExit) {
+        const entryDate = new Date(position.entry_time);
+        const entryDay = entryDate.getUTCDate();
+        const currentDay = currentDate.getUTCDate();
+        const entryMonth = entryDate.getUTCMonth();
+        const currentMonth = currentDate.getUTCMonth();
+        const entryYear = entryDate.getUTCFullYear();
+        const currentYear = currentDate.getUTCFullYear();
+
+        // 如果年、月、日中任何一个不同,说明跨日了
+        if (entryYear !== currentYear || entryMonth !== currentMonth || entryDay !== currentDay) {
+          shouldExit = true;
+          exitReason = 'no_overnight';
+        }
+      }
+
+      // 5. 不隔周检查 - 周五必须平仓
+      if (!shouldExit) {
+        const dayOfWeek = currentDate.getUTCDay();
+        // 如果是周五 (5) 且接近收盘 (比如UTC 20:00之后),强制平仓
+        // 或者如果是周六/周日,立即平仓 (虽然理论上不应该有持仓到周末)
+        if (dayOfWeek === 5 && currentDate.getUTCHours() >= 20) {
+          shouldExit = true;
+          exitReason = 'no_weekend';
+        } else if (dayOfWeek === 0 || dayOfWeek === 6) {
+          shouldExit = true;
+          exitReason = 'weekend_forced_close';
         }
       }
 
@@ -211,33 +264,61 @@ class StrategyExecutor {
   /**
    * 计算止损价格
    */
-  calculateStopLoss(entryPrice, direction, stopLossPips) {
-    if (!stopLossPips) return null;
+  calculateStopLoss(entryPrice, direction, riskParams) {
+    // 优先使用百分比,向后兼容pips
+    const stopLossPercent = riskParams.stopLossPercent;
+    const stopLossPips = riskParams.stopLossPips;
 
-    const pipValue = 0.01; // USD/JPY 1 pip = 0.01
-    const stopLossDistance = stopLossPips * pipValue;
-
-    if (direction === 'long') {
-      return entryPrice - stopLossDistance;
-    } else {
-      return entryPrice + stopLossDistance;
+    if (stopLossPercent != null) {
+      // 使用百分比计算
+      const stopLossDistance = entryPrice * (stopLossPercent / 100);
+      if (direction === 'long') {
+        return entryPrice - stopLossDistance;
+      } else {
+        return entryPrice + stopLossDistance;
+      }
+    } else if (stopLossPips != null) {
+      // 向后兼容: 使用pips计算
+      const pipValue = 0.01; // USD/JPY 1 pip = 0.01
+      const stopLossDistance = stopLossPips * pipValue;
+      if (direction === 'long') {
+        return entryPrice - stopLossDistance;
+      } else {
+        return entryPrice + stopLossDistance;
+      }
     }
+
+    return null;
   }
 
   /**
    * 计算止盈价格
    */
-  calculateTakeProfit(entryPrice, direction, takeProfitPips) {
-    if (!takeProfitPips) return null;
+  calculateTakeProfit(entryPrice, direction, riskParams) {
+    // 优先使用百分比,向后兼容pips
+    const takeProfitPercent = riskParams.takeProfitPercent;
+    const takeProfitPips = riskParams.takeProfitPips;
 
-    const pipValue = 0.01;
-    const takeProfitDistance = takeProfitPips * pipValue;
-
-    if (direction === 'long') {
-      return entryPrice + takeProfitDistance;
-    } else {
-      return entryPrice - takeProfitDistance;
+    if (takeProfitPercent != null) {
+      // 使用百分比计算
+      const takeProfitDistance = entryPrice * (takeProfitPercent / 100);
+      if (direction === 'long') {
+        return entryPrice + takeProfitDistance;
+      } else {
+        return entryPrice - takeProfitDistance;
+      }
+    } else if (takeProfitPips != null) {
+      // 向后兼容: 使用pips计算
+      const pipValue = 0.01;
+      const takeProfitDistance = takeProfitPips * pipValue;
+      if (direction === 'long') {
+        return entryPrice + takeProfitDistance;
+      } else {
+        return entryPrice - takeProfitDistance;
+      }
     }
+
+    return null;
   }
 
   /**

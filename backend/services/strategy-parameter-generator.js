@@ -14,27 +14,27 @@ const PARAMETER_SPACE = {
     profitPerGrid: [0.1, 0.2, 0.3]
   },
 
-  // RSI参数
+  // RSI参数 (只保留标准14周期)
   rsi: {
-    period: [7, 14, 21],
+    period: [14],
     oversold: [20, 25, 30],
     overbought: [70, 75, 80]
   },
 
-  // MACD参数
+  // MACD参数 (仅用于记录，不作为策略条件)
   macd: {
-    fastPeriod: [8, 12],
-    slowPeriod: [21, 26],
-    signalPeriod: [7, 9]
+    fastPeriod: [12],    // 标准参数
+    slowPeriod: [26],    // 标准参数
+    signalPeriod: [9]    // 标准参数
   },
 
-  // 风控参数
+  // 风控参数 (优化版 - 使用百分比代替pips)
   risk: {
-    maxPositions: [1, 3, 5],
+    maxPositions: [1],   // 只保留单仓位
     lotSize: [0.1],
-    stopLossPips: [null, 30, 50],
-    takeProfitPips: [null, 60, 100],
-    maxHoldMinutes: [60, 240, 1440]
+    stopLossPercent: [null, 0.1, 0.15, 0.2, 0.25, 0.3],     // 6种: 无, 0.1%, 0.15%, 0.2%, 0.25%, 0.3%
+    takeProfitPercent: [null, 0.2, 0.3, 0.5, 0.7, 1.0, 1.5], // 7种: 无, 0.2%, 0.3%, 0.5%, 0.7%, 1.0%, 1.5%
+    maxHoldMinutes: [30, 60, 120, 180, 240, 360, 480, 720]  // 8种: 0.5h~12h (去掉1440避免小样本)
   }
 };
 
@@ -63,8 +63,8 @@ function generateStrategyCombinations(options = {}) {
       for (const range of PARAMETER_SPACE.grid.rangePercent) {
         for (const profit of PARAMETER_SPACE.grid.profitPerGrid) {
           for (const maxPos of PARAMETER_SPACE.risk.maxPositions) {
-            for (const sl of PARAMETER_SPACE.risk.stopLossPips) {
-              for (const tp of PARAMETER_SPACE.risk.takeProfitPips) {
+            for (const sl of PARAMETER_SPACE.risk.stopLossPercent) {
+              for (const tp of PARAMETER_SPACE.risk.takeProfitPercent) {
                 for (const hold of PARAMETER_SPACE.risk.maxHoldMinutes) {
                   strategies.push({
                     id: id++,
@@ -77,8 +77,8 @@ function generateStrategyCombinations(options = {}) {
                       risk: {
                         maxPositions: maxPos,
                         lotSize: 0.1,
-                        stopLossPips: sl,
-                        takeProfitPips: tp,
+                        stopLossPercent: sl,
+                        takeProfitPercent: tp,
                         maxHoldMinutes: hold
                       }
                     }
@@ -101,8 +101,8 @@ function generateStrategyCombinations(options = {}) {
 
           for (const maxPos of PARAMETER_SPACE.risk.maxPositions) {
             for (const hold of PARAMETER_SPACE.risk.maxHoldMinutes) {
-              for (const sl of PARAMETER_SPACE.risk.stopLossPips) {
-                for (const tp of PARAMETER_SPACE.risk.takeProfitPips) {
+              for (const sl of PARAMETER_SPACE.risk.stopLossPercent) {
+                for (const tp of PARAMETER_SPACE.risk.takeProfitPercent) {
                   strategies.push({
                     id: id++,
                     name: `RSI-P${period}-OS${oversold}-OB${overbought}-MP${maxPos}-H${hold}-SL${sl}-TP${tp}`,
@@ -114,8 +114,8 @@ function generateStrategyCombinations(options = {}) {
                       risk: {
                         maxPositions: maxPos,
                         lotSize: 0.1,
-                        stopLossPips: sl,
-                        takeProfitPips: tp,
+                        stopLossPercent: sl,
+                        takeProfitPercent: tp,
                         maxHoldMinutes: hold
                       }
                     }
@@ -136,8 +136,8 @@ function generateStrategyCombinations(options = {}) {
         for (const signal of PARAMETER_SPACE.macd.signalPeriod) {
           for (const maxPos of PARAMETER_SPACE.risk.maxPositions) {
             for (const hold of PARAMETER_SPACE.risk.maxHoldMinutes) {
-              for (const sl of PARAMETER_SPACE.risk.stopLossPips) {
-                for (const tp of PARAMETER_SPACE.risk.takeProfitPips) {
+              for (const sl of PARAMETER_SPACE.risk.stopLossPercent) {
+                for (const tp of PARAMETER_SPACE.risk.takeProfitPercent) {
                   strategies.push({
                     id: id++,
                     name: `MACD-F${fast}-S${slow}-Sig${signal}-MP${maxPos}-H${hold}-SL${sl}-TP${tp}`,
@@ -149,8 +149,8 @@ function generateStrategyCombinations(options = {}) {
                       risk: {
                         maxPositions: maxPos,
                         lotSize: 0.1,
-                        stopLossPips: sl,
-                        takeProfitPips: tp,
+                        stopLossPercent: sl,
+                        takeProfitPercent: tp,
                         maxHoldMinutes: hold
                       }
                     }
@@ -176,8 +176,8 @@ function generateStrategyCombinations(options = {}) {
               for (const signal of PARAMETER_SPACE.macd.signalPeriod) {
                 for (const maxPos of PARAMETER_SPACE.risk.maxPositions) {
                   for (const hold of PARAMETER_SPACE.risk.maxHoldMinutes) {
-                    for (const sl of PARAMETER_SPACE.risk.stopLossPips) {
-                      for (const tp of PARAMETER_SPACE.risk.takeProfitPips) {
+                    for (const sl of PARAMETER_SPACE.risk.stopLossPercent) {
+                      for (const tp of PARAMETER_SPACE.risk.takeProfitPercent) {
                         strategies.push({
                           id: id++,
                           name: `RSI${rsiPeriod}_AND_MACD${fast}-${slow}-MP${maxPos}-H${hold}-SL${sl}-TP${tp}`,
@@ -189,8 +189,8 @@ function generateStrategyCombinations(options = {}) {
                             risk: {
                               maxPositions: maxPos,
                               lotSize: 0.1,
-                              stopLossPips: sl,
-                              takeProfitPips: tp,
+                              stopLossPercent: sl,
+                              takeProfitPercent: tp,
                               maxHoldMinutes: hold
                             },
                             entryLogic: 'AND'
@@ -220,8 +220,8 @@ function generateStrategyCombinations(options = {}) {
               for (const signal of PARAMETER_SPACE.macd.signalPeriod) {
                 for (const maxPos of PARAMETER_SPACE.risk.maxPositions) {
                   for (const hold of PARAMETER_SPACE.risk.maxHoldMinutes) {
-                    for (const sl of PARAMETER_SPACE.risk.stopLossPips) {
-                      for (const tp of PARAMETER_SPACE.risk.takeProfitPips) {
+                    for (const sl of PARAMETER_SPACE.risk.stopLossPercent) {
+                      for (const tp of PARAMETER_SPACE.risk.takeProfitPercent) {
                         strategies.push({
                           id: id++,
                           name: `RSI${rsiPeriod}_OR_MACD${fast}-${slow}-MP${maxPos}-H${hold}-SL${sl}-TP${tp}`,
@@ -233,8 +233,8 @@ function generateStrategyCombinations(options = {}) {
                             risk: {
                               maxPositions: maxPos,
                               lotSize: 0.1,
-                              stopLossPips: sl,
-                              takeProfitPips: tp,
+                              stopLossPercent: sl,
+                              takeProfitPercent: tp,
                               maxHoldMinutes: hold
                             },
                             entryLogic: 'OR'
