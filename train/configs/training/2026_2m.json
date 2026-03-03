@@ -1,0 +1,11 @@
+{
+  "startTimeMs": 1767337200000,
+  "endTimeMs": 1772323140000,
+  "symbol": "USDJPY",
+  "intervalType": "1min",
+  "tableName": "backtest_results_2026_2m",
+  "topN": 10,
+  "retainDays": 1,
+  "strategyNamePrefix": "2026-2M-",
+  "descriptionPrefix": "2026前2月训练 | "
+}
