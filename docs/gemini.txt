@@ -1,5 +1,0 @@
-改善建议：如何让策略具备“实战性”？1. 增加趋势过滤器 (The "Compass")不要在 200 日均线下方尝试做多（即使 RSI < 25）。优化逻辑：$$\text{Signal} = (\text{RSI} < \text{OS}) \text{ AND } (\text{Price} > \text{SMA}_{200})$$这样可以确保你是在上升趋势的回调中买入，而不是在坠落的飞刀中接盘。2. 优化盈亏比：从“刷单”转向“布局”目前你的止盈（TP 0.2%）设置太近，导致利润无法覆盖风险。建议：引入 ATR（平均真实波幅）来动态设置止损止盈。公式：$$\text{Stop Loss} = \text{Entry} - (2 \times \text{ATR}_{14})$$$$\text{Take Profit} = \text{Entry} + (3 \times \text{ATR}_{14})$$这能让你的策略适应市场波动的剧烈程度，而不是死守一个固定的百分比。3. 加入“点差敏感度”模拟在 strategy-executor.js 中，建议强行加入一个 0.5 - 0.8 pips 的随机滑点损失。如果加了滑点后策略曲线依然向上，那它才是真的能在实盘中活下来的策略。4. 考虑多时间框架 (MTF) 确认逻辑：在 H1 周期确认目前是多头趋势，在 M1 周期寻找 RSI 超卖点入场。优点：这能极大地提升胜率，并减少无效的低期望值交易。🛠️ 技术实现改进建议（代码层面）针对你的 StrategyExecutor，建议在退出逻辑中增加一个动态移动止损（Trailing Stop），以锁住已经到手的利润，而不是死等 60 分钟到期。JavaScript// 建议增加的逻辑：当利润达到0.1%后，将止损移至成本价（平保）
-if (!shouldExit && currentProfitPercent >= 0.1) {
-  position.stopLossPrice = position.entry_price; // 保护本金
-}
-💡 下一步建议你想让我针对“趋势过滤器”帮你重写一部分 Node.js 逻辑，还是想让我帮你重新计算一下加上滑点后的收益预期？
