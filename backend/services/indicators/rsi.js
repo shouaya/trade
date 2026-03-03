@@ -54,6 +54,17 @@ function calculateRSI(prices, period = 14) {
 }
 
 /**
+ * 预计算所有K线的RSI值 (性能优化)
+ * @param {Array} klines - K线数据数组
+ * @param {number} period - RSI周期
+ * @returns {Array} RSI值数组
+ */
+function precalculateRSI(klines, period = 14) {
+  const prices = klines.map(k => parseFloat(k.close));
+  return calculateRSI(prices, period);
+}
+
+/**
  * 获取指定索引的RSI值
  * @param {Array} klines - K线数据数组
  * @param {number} index - 当前索引
@@ -94,6 +105,7 @@ function generateRSISignal(rsi, config) {
 
 module.exports = {
   calculateRSI,
+  precalculateRSI,
   getRSIAtIndex,
   generateRSISignal
 };

@@ -42,10 +42,10 @@ async function main() {
     // 清空旧数据
     await db.query('DELETE FROM backtest_results WHERE created_at < DATE_SUB(NOW(), INTERVAL 1 DAY)');
 
-    // 2. 加载K线数据
+    // 2. 加载K线数据 (2024年)
     console.log('\n📊 加载K线数据...');
-    const startTime = new Date('2025-01-02T07:00:00Z').getTime();
-    const endTime = new Date('2025-12-31T23:59:00Z').getTime();
+    const startTime = new Date('2024-01-01T22:00:00Z').getTime();
+    const endTime = new Date('2024-12-31T20:59:00Z').getTime();
 
     const [klines] = await db.query(`
       SELECT * FROM klines
@@ -227,13 +227,14 @@ async function main() {
         const rerunResult = await executor.execute();
         const trades = rerunResult.trades;
 
-        // 保存策略
+        // 保存策略 (添加2024-前缀)
+        const strategyName = `2024-${strategy.name}`;
         const [strategyResult] = await db.query(`
           INSERT INTO strategies (name, description, parameters, is_active)
           VALUES (?, ?, ?, ?)
         `, [
-          strategy.name,
-          `Rank #${i + 1} | ${strategy.type} | 胜率:${(result.win_rate * 100).toFixed(2)}% | 盈亏:$${parseFloat(result.total_pnl).toFixed(2)} | 夏普:${parseFloat(result.sharpe_ratio).toFixed(2)}`,
+          strategyName,
+          `2024训练 | Rank #${i + 1} | ${strategy.type} | 胜率:${(result.win_rate * 100).toFixed(2)}% | 盈亏:$${parseFloat(result.total_pnl).toFixed(2)} | 夏普:${parseFloat(result.sharpe_ratio).toFixed(2)}`,
           JSON.stringify(strategy.parameters),
           false  // 默认不激活
         ]);
@@ -266,7 +267,7 @@ async function main() {
             t.pips,
             t.percent,
             t.actual_hold_minutes,
-            strategy.name,
+            strategyName,  // 使用带前缀的策略名
             'USDJPY'
           ]);
 
@@ -282,13 +283,13 @@ async function main() {
             ) VALUES ?
           `, [tradeValues]);
 
-          console.log(`   ✅ #${i + 1} ${strategy.name}: 保存 ${trades.length} 条交易记录`);
+          console.log(`   ✅ #${i + 1} ${strategyName}: 保存 ${trades.length} 条交易记录`);
         } else {
           console.log(`   ⚠️  #${i + 1} ${strategy.name}: 无交易记录`);
         }
 
       } catch (error) {
-        console.error(`   ❌ #${i + 1} ${strategy.name}: 保存失败 - ${error.message}`);
+        console.error(`   ❌ #${i + 1} 2024-${strategy.name}: 保存失败 - ${error.message}`);
       }
     }
 

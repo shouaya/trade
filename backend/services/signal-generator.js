@@ -3,15 +3,38 @@
  * 整合RSI、MACD、网格等多种信号源
  */
 
-const { getRSIAtIndex, generateRSISignal } = require('./indicators/rsi');
-const { getMACDAtIndex, generateMACDSignal } = require('./indicators/macd');
+const { precalculateRSI, generateRSISignal } = require('./indicators/rsi');
+const { precalculateMACD, generateMACDSignal } = require('./indicators/macd');
 const { generateGridSignal } = require('./indicators/grid');
 
 class SignalGenerator {
-  constructor(strategy, grid = null) {
+  constructor(strategy, grid = null, klines = null) {
     this.strategy = strategy;
     this.grid = grid;
     this.previousMACD = null;
+
+    // 预计算RSI和MACD值以提升性能
+    this.cachedRSI = null;
+    this.cachedMACD = null;
+
+    if (klines) {
+      const params = strategy.parameters;
+
+      // 如果策略需要RSI,预计算所有RSI值
+      if (params.rsi && params.rsi.enabled) {
+        this.cachedRSI = precalculateRSI(klines, params.rsi.period);
+      }
+
+      // 如果策略需要MACD,预计算所有MACD值
+      if (params.macd && params.macd.enabled) {
+        this.cachedMACD = precalculateMACD(
+          klines,
+          params.macd.fastPeriod,
+          params.macd.slowPeriod,
+          params.macd.signalPeriod
+        );
+      }
+    }
   }
 
   /**
@@ -32,7 +55,8 @@ class SignalGenerator {
 
     // 1. 生成RSI信号
     if (params.rsi && params.rsi.enabled) {
-      const rsiValue = getRSIAtIndex(klines, index, params.rsi.period);
+      // 使用预计算的RSI值
+      const rsiValue = this.cachedRSI ? this.cachedRSI[index] : null;
       const rsiSignal = generateRSISignal(rsiValue, {
         oversold: params.rsi.oversold,
         overbought: params.rsi.overbought
@@ -46,23 +70,27 @@ class SignalGenerator {
 
     // 2. 生成MACD信号
     if (params.macd && params.macd.enabled) {
-      const currentMACD = getMACDAtIndex(
-        klines,
-        index,
-        params.macd.fastPeriod,
-        params.macd.slowPeriod,
-        params.macd.signalPeriod
-      );
+      // 使用预计算的MACD值
+      const currentMACD = this.cachedMACD ? {
+        macd: this.cachedMACD.macd[index],
+        signal: this.cachedMACD.signal[index],
+        histogram: this.cachedMACD.histogram[index]
+      } : null;
 
-      const macdSignal = generateMACDSignal(currentMACD, this.previousMACD);
+      const previousMACD = (this.cachedMACD && index > 0) ? {
+        macd: this.cachedMACD.macd[index - 1],
+        signal: this.cachedMACD.signal[index - 1],
+        histogram: this.cachedMACD.histogram[index - 1]
+      } : this.previousMACD;
+
+      const macdSignal = generateMACDSignal(currentMACD, previousMACD);
 
       signals.macd = {
-        value: currentMACD.macd,
-        signal: currentMACD.signal,
-        histogram: currentMACD.histogram,
-        crossSignal: macdSignal
+        current: currentMACD,
+        signal: macdSignal
       };
 
+      // 更新上一个MACD值
       this.previousMACD = currentMACD;
     }
 

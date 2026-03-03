@@ -19,8 +19,8 @@ class StrategyExecutor {
       this.grid = initializeGrid(klines, strategy.parameters.grid);
     }
 
-    // 初始化信号生成器
-    this.signalGenerator = new SignalGenerator(strategy, this.grid);
+    // 初始化信号生成器(传递klines以预计算RSI/MACD)
+    this.signalGenerator = new SignalGenerator(strategy, this.grid, klines);
   }
 
   /**
@@ -92,9 +92,9 @@ class StrategyExecutor {
       entry_price: entryPrice,
       entry_index: index,
       entry_rsi: signals.rsi ? signals.rsi.value : null,
-      entry_macd: signals.macd ? signals.macd.value : null,
-      entry_macd_signal: signals.macd ? signals.macd.signal : null,
-      entry_macd_histogram: signals.macd ? signals.macd.histogram : null,
+      entry_macd: signals.macd ? signals.macd.current.macd : null,
+      entry_macd_signal: signals.macd ? signals.macd.current.signal : null,
+      entry_macd_histogram: signals.macd ? signals.macd.current.histogram : null,
       lot_size: params.risk.lotSize,
       stop_loss: stopLoss,
       take_profit: takeProfit,
@@ -185,9 +185,9 @@ class StrategyExecutor {
       exit_time: exitTime,
       exit_price: exitPrice,
       exit_rsi: signals.rsi ? signals.rsi.value : null,
-      exit_macd: signals.macd ? signals.macd.value : null,
-      exit_macd_signal: signals.macd ? signals.macd.signal : null,
-      exit_macd_histogram: signals.macd ? signals.macd.histogram : null,
+      exit_macd: signals.macd ? signals.macd.current.macd : null,
+      exit_macd_signal: signals.macd ? signals.macd.current.signal : null,
+      exit_macd_histogram: signals.macd ? signals.macd.current.histogram : null,
       exit_reason: exitReason,
       pnl: parseFloat(pnl.toFixed(2)),
       pips: parseFloat(pips.toFixed(2)),
@@ -308,15 +308,16 @@ class StrategyExecutor {
     const stdDev = Math.sqrt(variance);
     const sharpeRatio = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(252) : 0;
 
-    // 计算最大回撤
-    let peak = 0;
+    // 计算最大回撤 (使用初始资金10000作为基准)
+    const INITIAL_CAPITAL = 10000; // 初始资金
+    let peak = INITIAL_CAPITAL;
     let maxDrawdown = 0;
-    let cumPnl = 0;
+    let equity = INITIAL_CAPITAL;
 
     trades.forEach(t => {
-      cumPnl += t.pnl;
-      if (cumPnl > peak) peak = cumPnl;
-      const drawdown = (peak - cumPnl) / (Math.abs(peak) || 1);
+      equity += t.pnl;
+      if (equity > peak) peak = equity;
+      const drawdown = (peak - equity) / peak;
       if (drawdown > maxDrawdown) maxDrawdown = drawdown;
     });
 

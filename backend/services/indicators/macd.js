@@ -87,6 +87,19 @@ function calculateMACD(prices, fastPeriod = 12, slowPeriod = 26, signalPeriod = 
 }
 
 /**
+ * 预计算所有K线的MACD值 (性能优化)
+ * @param {Array} klines - K线数据数组
+ * @param {number} fastPeriod - 快速周期
+ * @param {number} slowPeriod - 慢速周期
+ * @param {number} signalPeriod - 信号周期
+ * @returns {Object} { macd, signal, histogram } 数组
+ */
+function precalculateMACD(klines, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
+  const prices = klines.map(k => parseFloat(k.close));
+  return calculateMACD(prices, fastPeriod, slowPeriod, signalPeriod);
+}
+
+/**
  * 获取指定索引的MACD值
  * @param {Array} klines - K线数据数组
  * @param {number} index - 当前索引
@@ -142,6 +155,7 @@ function generateMACDSignal(current, previous) {
 module.exports = {
   calculateEMA,
   calculateMACD,
+  precalculateMACD,
   getMACDAtIndex,
   generateMACDSignal
 };
