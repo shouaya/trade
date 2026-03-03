@@ -1,4 +1,4 @@
-const db = require('./config/database');
+﻿const db = require('./configs/database');
 const StrategyExecutor = require('./services/strategy-executor');
 
 function inferStrategyType(parameters = {}) {

@@ -2,7 +2,7 @@
  * 保存Top 3策略到strategies表
  */
 
-const db = require('../config/database');
+const db = require('../configs/database');
 const { loadNamedConfig } = require('./_config');
 
 async function main() {

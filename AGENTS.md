@@ -27,7 +27,7 @@ Key train entry points:
 
 ## Data & Integrations
 - MySQL is the primary data store.
-- Train DB config: `train/config/database.js`.
+- Train DB config: `train/configs/database.js`.
 - Env files:
   - `train/.env` (preferred for train local/container runs)
   - `backend/.env` (legacy fallback)

@@ -3,7 +3,7 @@
  * 从现有的 backtest_results 表中提取去重后的 Top 10 策略并保存
  */
 
-const db = require('../config/database');
+const db = require('../configs/database');
 const StrategyExecutor = require('../services/strategy-executor');
 const { loadNamedConfig } = require('./_config');
 

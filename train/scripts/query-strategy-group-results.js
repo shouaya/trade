@@ -1,4 +1,4 @@
-const db = require('../config/database');
+﻿const db = require('../configs/database');
 
 function parseCliArgs(argv) {
   const args = argv.slice(2);
