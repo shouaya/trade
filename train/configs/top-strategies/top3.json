@@ -1,0 +1,53 @@
+[
+  {
+    "name": "RSI-P14-OS25-OB70-MP1-H60-SLnull-TPnull",
+    "type": "rsi_only",
+    "description": "综合第一名 - 无止损止盈版本",
+    "parameters": {
+      "grid": { "enabled": false },
+      "rsi": { "enabled": true, "period": 14, "oversold": 25, "overbought": 70 },
+      "macd": { "enabled": false },
+      "risk": {
+        "maxPositions": 1,
+        "lotSize": 0.1,
+        "stopLossPercent": null,
+        "takeProfitPercent": null,
+        "maxHoldMinutes": 60
+      }
+    }
+  },
+  {
+    "name": "RSI-P14-OS25-OB70-MP1-H60-SL0.3-TP1.5",
+    "type": "rsi_only",
+    "description": "带止损止盈版本 (1:5风险回报)",
+    "parameters": {
+      "grid": { "enabled": false },
+      "rsi": { "enabled": true, "period": 14, "oversold": 25, "overbought": 70 },
+      "macd": { "enabled": false },
+      "risk": {
+        "maxPositions": 1,
+        "lotSize": 0.1,
+        "stopLossPercent": 0.3,
+        "takeProfitPercent": 1.5,
+        "maxHoldMinutes": 60
+      }
+    }
+  },
+  {
+    "name": "RSI-P14-OS30-OB70-MP1-H30-SL0.3-TP0.2",
+    "type": "rsi_only",
+    "description": "高频交易版本 - 30分钟持仓",
+    "parameters": {
+      "grid": { "enabled": false },
+      "rsi": { "enabled": true, "period": 14, "oversold": 30, "overbought": 70 },
+      "macd": { "enabled": false },
+      "risk": {
+        "maxPositions": 1,
+        "lotSize": 0.1,
+        "stopLossPercent": 0.3,
+        "takeProfitPercent": 0.2,
+        "maxHoldMinutes": 30
+      }
+    }
+  }
+]

@@ -1,44 +1,57 @@
-﻿/**
- * 查询策略分组回测的最终结果
- * 从backtest_results_2025_full表中提取Top 10策略
- */
-
 const db = require('../config/database');
 
+function parseCliArgs(argv) {
+  const args = argv.slice(2);
+  const parsed = {
+    year: new Date().getUTCFullYear(),
+    tableName: null,
+    expectedTotal: 560196
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith('--year=')) parsed.year = parseInt(arg.split('=')[1], 10);
+    else if (arg === '--year') parsed.year = parseInt(args[++i], 10);
+    else if (arg.startsWith('--table=')) parsed.tableName = arg.split('=')[1];
+    else if (arg === '--table') parsed.tableName = args[++i];
+    else if (arg.startsWith('--expectedTotal=')) parsed.expectedTotal = parseInt(arg.split('=')[1], 10);
+    else if (arg === '--expectedTotal') parsed.expectedTotal = parseInt(args[++i], 10);
+  }
+
+  return parsed;
+}
+
 async function main() {
+  const { year, tableName: tableNameArg, expectedTotal } = parseCliArgs(process.argv);
+  const tableName = tableNameArg || `backtest_results_${year}_full`;
+  const strategyPrefix = `${year}-FULL-`;
+
   console.log('='.repeat(80));
-  console.log('📊 2025年策略分组回测 - 结果查询');
+  console.log(`📊 ${year}年策略分组回测 - 结果查询`);
   console.log('='.repeat(80));
   console.log('');
 
   try {
-    // 1. 检查表是否存在
-    const [tables] = await db.query(`SHOW TABLES LIKE 'backtest_results_2025_full'`);
-
+    const [tables] = await db.query(`SHOW TABLES LIKE ?`, [tableName]);
     if (tables.length === 0) {
-      console.error('❌ 结果表 backtest_results_2025_full 不存在!');
-      console.log('\n请先运行回测: bash scripts/launch-strategy-group-backtest.sh\n');
+      console.error(`❌ 结果表 ${tableName} 不存在!`);
       process.exit(1);
     }
 
-    // 2. 统计总记录数
-    const [countResult] = await db.query(`
-      SELECT COUNT(*) as total FROM backtest_results_2025_full
-    `);
+    const [countResult] = await db.query(`SELECT COUNT(*) as total FROM ${tableName}`);
     const totalRecords = countResult[0].total;
 
-    console.log(`📦 数据库统计:`);
-    console.log(`   总记录数: ${totalRecords.toLocaleString()} / 560,196`);
-    console.log(`   完成度: ${((totalRecords / 560196) * 100).toFixed(2)}%\n`);
+    console.log('📦 数据库统计:');
+    console.log(`   总记录数: ${totalRecords.toLocaleString()} / ${expectedTotal.toLocaleString()}`);
+    console.log(`   完成度: ${((totalRecords / expectedTotal) * 100).toFixed(2)}%\n`);
 
-    // 3. 按策略类型统计
     const [typeStats] = await db.query(`
       SELECT
         strategy_type,
         COUNT(*) as count,
         AVG(score) as avg_score,
         MAX(score) as max_score
-      FROM backtest_results_2025_full
+      FROM ${tableName}
       GROUP BY strategy_type
       ORDER BY avg_score DESC
     `);
@@ -52,9 +65,8 @@ async function main() {
       console.log('');
     });
 
-    // 4. Top 10策略
     console.log('='.repeat(80));
-    console.log('\n🏆 2025年全年Top 10策略:\n');
+    console.log(`\n🏆 ${year}年Top 10策略:\n`);
     console.log('='.repeat(80));
     console.log('');
 
@@ -69,7 +81,7 @@ async function main() {
         ROUND(profit_factor, 2) as profit_factor,
         ROUND(max_drawdown * 100, 2) as max_drawdown_pct,
         ROUND(score, 2) as score
-      FROM backtest_results_2025_full
+      FROM ${tableName}
       WHERE total_trades >= 10
       ORDER BY score DESC
       LIMIT 10
@@ -91,30 +103,28 @@ async function main() {
         console.log('');
       });
 
-      // 5. 保存到strategies表
-      if (totalRecords >= 560196) {
+      if (totalRecords >= expectedTotal) {
         console.log('='.repeat(80));
         console.log('\n💾 保存Top 10到strategies表...\n');
 
-        await db.query(`DELETE FROM strategies WHERE name LIKE '2025-FULL-%'`);
+        await db.query(`DELETE FROM strategies WHERE name LIKE ?`, [`${strategyPrefix}%`]);
 
         for (let i = 0; i < top10.length; i++) {
           const strategy = top10[i];
+          const description = `${year}年: 交易${strategy.total_trades}次, 胜率${strategy.win_rate_pct}%, ` +
+            `总盈亏$${strategy.total_pnl}, 夏普${strategy.sharpe_ratio}, 回撤${strategy.max_drawdown_pct}%`;
 
-          const description = `2025全年: 交易${strategy.total_trades}次, 胜率${strategy.win_rate_pct}%, ` +
-                             `总盈亏$${strategy.total_pnl}, 夏普${strategy.sharpe_ratio}, ` +
-                             `回撤${strategy.max_drawdown_pct}%`;
+          const [paramRow] = await db.query(
+            `SELECT parameters FROM ${tableName} WHERE strategy_name = ?`,
+            [strategy.strategy_name]
+          );
 
-          const [paramRow] = await db.query(`
-            SELECT parameters FROM backtest_results_2025_full WHERE strategy_name = ?
-          `, [strategy.strategy_name]);
+          await db.query(
+            `INSERT INTO strategies (name, description, parameters) VALUES (?, ?, ?)`,
+            [`${strategyPrefix}${strategy.strategy_name}`, description, paramRow[0].parameters]
+          );
 
-          await db.query(`
-            INSERT INTO strategies (name, description, parameters)
-            VALUES (?, ?, ?)
-          `, [`2025-FULL-${strategy.strategy_name}`, description, paramRow[0].parameters]);
-
-          console.log(`  ${i + 1}. 2025-FULL-${strategy.strategy_name}`);
+          console.log(`  ${i + 1}. ${strategyPrefix}${strategy.strategy_name}`);
         }
 
         console.log('\n✅ Top 10策略已保存到strategies表\n');
@@ -123,16 +133,12 @@ async function main() {
 
     console.log('='.repeat(80));
     console.log('');
-
     process.exit(0);
-
   } catch (error) {
-    console.error('\n❌ 查询失败:', error);
+    console.error('\n❌ 查询失败:', error.message);
     console.error(error.stack);
     process.exit(1);
   }
 }
 
 main();
-
-

@@ -3,16 +3,16 @@
 本文档说明如何通过 `docker compose` 统一执行训练、回测、分组并行和结果查询。
 
 命令组织规范：
-- `train/package.json` 维护训练域内的原生命令（如 `backtest:2025`、`group:run`）。
+- `train/package.json` 维护训练域内的原生命令（如 `backtest`、`validate`、`group:run`）。
 - 训练与验证参数统一放在 `train/configs/*.json`，脚本只做通用执行入口。
-- 推荐统一使用：`train:backtest:*` 与 `train:group:*`。
+- 通过参数传入年份/配置，不使用年份脚本名。
 
 ## 1. 前置条件
 
 - 启动基础服务（推荐）：
   - `docker compose up -d mysql api frontend adminer`
 - 建议使用一次性容器执行 train 命令（无需常驻 train 容器）
-- 已导入 K 线数据（至少覆盖 2024/2025 回测区间）
+- 已导入目标配置对应的 K 线数据区间
 
 ## 2. 快速开始
 
@@ -24,31 +24,25 @@
 docker compose run --rm train npm install
 ```
 
-### 2.1 2025 批量训练回测
+### 2.1 批量训练回测
 
 ```bash
-docker compose run --rm train npm run backtest:2025
+docker compose run --rm train npm run backtest
 ```
 
 带参数示例：
 
 ```bash
-docker compose run --rm train npm run backtest:2025 -- -- --limit 500 --types rsi_only,rsi_and_macd --topN 20 --retainDays 3
+docker compose run --rm train npm run backtest -- -- --config 2025 --limit 500 --types rsi_only,rsi_and_macd --topN 20 --retainDays 3
 ```
 
-### 2.2 2024 批量训练回测
+切换年份配置示例：
 
 ```bash
-docker compose run --rm train npm run backtest:2024
+docker compose run --rm train npm run backtest -- -- --config 2024 --limit 800 --types rsi_only --topN 10
 ```
 
-带参数示例：
-
-```bash
-docker compose run --rm train npm run backtest:2024 -- -- --limit 800 --types rsi_only --topN 10
-```
-
-## 3. 策略分组并行回测（2025）
+## 3. 策略分组并行回测
 
 ### 3.1 启动 10 组并行
 
@@ -74,6 +68,12 @@ docker compose run --rm train npm run group:stop
 docker compose run --rm train npm run group:query
 ```
 
+按年份查询示例：
+
+```bash
+docker compose run --rm train npm run group:query -- --year 2025
+```
+
 ## 4. 单组调试（参数化入口）
 
 运行第 1 组（10 组切分）：
@@ -88,6 +88,12 @@ docker compose run --rm train npm run group:run -- -- --group 1 --groups 10
 docker compose run --rm train npm run group:run -- -- --group 3 --startIndex 2000 --endIndex 3999 --batchSize 20
 ```
 
+按年份运行示例：
+
+```bash
+docker compose run --rm train npm run group:run -- -- --year 2025 --group 1 --groups 10
+```
+
 ## 5. 结果查询与验证
 
 查询多维 Top10：
@@ -99,11 +105,11 @@ docker compose run --rm train npm run query:top10
 验证脚本：
 
 ```bash
-docker compose run --rm train npm run validate:2024
-docker compose run --rm train npm run validate:2025
-docker compose run --rm train npm run validate:2026
-docker compose run --rm train npm run validate:2024:top3
-docker compose run --rm train npm run validate:2026:top3
+docker compose run --rm train npm run validate -- -- --config 2025
+docker compose run --rm train npm run validate -- -- --config 2024
+docker compose run --rm train npm run validate -- -- --config 2026
+docker compose run --rm train npm run validate:top -- -- --config 2024
+docker compose run --rm train npm run validate:top -- -- --config 2026
 ```
 
 保存策略：
@@ -115,17 +121,18 @@ docker compose run --rm train npm run save:top3
 
 ## 6. 参数说明
 
-`backtest:2024` / `backtest:2025` 支持：
+`backtest` 支持：
 
 - `--limit`：限制策略数量
 - `--types`：策略类型列表（逗号分隔）
 - `--topN`：入库 Top N
 - `--retainDays`：保留回测中间表历史天数
+- `--config`：训练配置名（如 `2024`、`2025`）
 
 训练配置文件：
 - `configs/training/2024.json`
 - `configs/training/2025.json`
-- 通用入口：`node scripts/run-training.js --config 2025`
+- 通用入口：`node scripts/backtest.js --config 2025`
 
 `group:run` 支持：
 
@@ -133,21 +140,23 @@ docker compose run --rm train npm run save:top3
 - `--groups`：总分组数（默认 10）
 - `--startIndex`、`--endIndex`：覆盖自动分组范围
 - `--batchSize`：每批落库数量
+- `--year`：目标年份（用于自动推导默认表名和时间区间）
+- `--resultTable`：结果表名（可选）
 
 验证配置文件：
 - `configs/validation/2024.json`
 - `configs/validation/2025.json`
 - `configs/validation/2026.json`
-- 通用入口：`node scripts/run-validation.js --config 2026`
+- 通用入口：`node scripts/validate.js --config 2026`
 
 ## 7. 常见问题
 
 - `error during connect ... EOF`
-  - 先重试单服务命令：`docker compose run --rm train npm run backtest:2025`
+  - 先重试单服务命令：`docker compose run --rm train npm run backtest`
   - 若仍失败，重启 Docker Desktop 后再试。
 - 参数被吞掉 / 出现 `Unknown cli config "--limit"` 警告
   - 在当前 npm 版本下，带 `--xxx` 参数建议使用三段分隔：
-  - 形如：`npm run backtest:2024 -- -- --limit 500 --types rsi_only`
+  - 形如：`npm run backtest -- -- --config 2024 --limit 500 --types rsi_only`
 - `bash: command not found`
   - `group:launch/monitor/stop` 依赖 `bash`；当前 `train` 镜像为 `node:22`，默认可用。
 - 回测报“没有找到K线数据”

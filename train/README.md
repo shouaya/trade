@@ -7,7 +7,9 @@
 配置驱动约定：
 - 训练参数: `configs/training/*.json`
 - 验证参数: `configs/validation/*.json`
-- 通用入口: `scripts/run-training.js`、`scripts/run-validation.js`
+- 分组参数: `configs/group-backtest/*.json`
+- Top策略参数: `configs/top-strategies/*.json` + `configs/validation-top-strategies/*.json`
+- 通用入口: `scripts/backtest.js`、`scripts/validate.js`、`scripts/group-backtest.js`
 
 ## 核心文件
 
@@ -20,16 +22,17 @@
 
 ## 使用方式
 
-通过 `docker compose` 入口调用：
+通过 `docker compose` 入口调用（年份通过参数传入）：
 
-- `scripts/run-multi-strategy-backtest.js` (2025 配置)
-- `scripts/run-backtest-2024.js` (2024 配置，策略名带 `2024-` 前缀)
+- `scripts/backtest.js`
+- `scripts/validate.js`
+- `scripts/group-backtest.js`
 
 示例参数：
 
-- `docker compose run --rm train npm run backtest:2025 -- -- --limit 500 --types rsi_only,rsi_and_macd`
-- `docker compose run --rm train npm run backtest:2024 -- -- --topN 20 --retainDays 3`
+- `docker compose run --rm train npm run backtest -- -- --config 2025 --limit 500 --types rsi_only,rsi_and_macd`
+- `docker compose run --rm train npm run backtest -- -- --config 2024 --topN 20 --retainDays 3`
 
 ## 后续迁移建议
 
-可将其它批量脚本（如 `run-backtest-2025-m*.js`、`run-backtest-2025-group*.js`）逐步改为复用本目录 service，避免重复维护。
+可将其它批量脚本继续迁移为“单脚本 + JSON 参数”模式，避免重复维护。

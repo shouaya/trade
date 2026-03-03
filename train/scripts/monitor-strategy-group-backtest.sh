@@ -6,14 +6,15 @@
 
 cd "$(dirname "$0")/.." || exit 1
 
-LOGDIR="logs/strategy-group-backtest-2025"
+YEAR="${YEAR:-$(date +%Y)}"
+LOGDIR="logs/strategy-group-backtest-${YEAR}"
 START_TIME_FILE="$LOGDIR/start_time.txt"
 
 # 清屏
 clear
 
 echo "================================================================================"
-echo "📊 2025年策略分组并行回测 - 实时进度监控"
+echo "📊 ${YEAR}年策略分组并行回测 - 实时进度监控"
 echo "================================================================================"
 echo ""
 

@@ -2,7 +2,7 @@ const { runTrainingBacktest } = require('../backtest-training-service');
 const { parseTrainCliArgs } = require('./_common');
 const { loadNamedConfig, extractConfigArg } = require('./_config');
 
-async function runTrainingByConfig(configName = '2025', argv = process.argv) {
+async function runTrainingByConfig(configName = 'default', argv = process.argv) {
   const { configName: resolvedConfigName, passthroughArgv } = extractConfigArg(argv, configName);
   const config = loadNamedConfig('training', resolvedConfigName);
   const { limit, types, topN, retainDays } = parseTrainCliArgs(passthroughArgv);
@@ -18,7 +18,7 @@ async function runTrainingByConfig(configName = '2025', argv = process.argv) {
 
 async function main() {
   try {
-    await runTrainingByConfig('2025', process.argv);
+    await runTrainingByConfig('default', process.argv);
     process.exit(0);
   } catch (error) {
     console.error('\n❌ 执行失败:', error.message);

@@ -1,0 +1,11 @@
+{
+  "year": 2025,
+  "symbol": "USDJPY",
+  "intervalType": "1min",
+  "warmupDays": 60,
+  "resultTable": "backtest_results_2025_full",
+  "startIso": "2025-01-01T00:00:00Z",
+  "endIso": "2025-12-31T23:59:59Z",
+  "totalGroups": 10,
+  "batchSize": 10
+}

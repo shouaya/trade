@@ -1,22 +1,7 @@
-﻿/**
- * 2025年按策略分组的并行回测脚本（参数化）
- * 用法:
- *   node scripts/run-backtest-2025-group.js --group 1 --groups 10
- *   node scripts/run-backtest-2025-group.js --group 3 --startIndex 2000 --endIndex 3999
- */
-
 const db = require('../config/database');
 const StrategyExecutor = require('../services/strategy-executor');
 const { generateStrategyCombinations } = require('../services/strategy-parameter-generator');
-
-const DEFAULT_GROUPS = 10;
-const DEFAULT_BATCH_SIZE = 10;
-const SYMBOL = 'USDJPY';
-const INTERVAL = '1min';
-const WARMUP_DAYS = 60;
-const YEAR_START = '2025-01-01T00:00:00Z';
-const YEAR_END = '2025-12-31T23:59:59Z';
-const RESULT_TABLE = 'backtest_results_2025_full';
+const { loadNamedConfig, extractConfigArg } = require('./_config');
 
 function parseArgInt(raw, fallback) {
   if (raw === undefined || raw === null || raw === '') return fallback;
@@ -27,29 +12,47 @@ function parseArgInt(raw, fallback) {
 function parseCliArgs(argv) {
   const args = argv.slice(2);
   const config = {
+    year: null,
     groupNumber: 1,
-    totalGroups: DEFAULT_GROUPS,
+    totalGroups: null,
     startIndex: null,
     endIndex: null,
-    batchSize: DEFAULT_BATCH_SIZE
+    batchSize: null,
+    resultTable: null,
+    startIso: null,
+    endIso: null
   };
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
-    if (arg.startsWith('--group=')) config.groupNumber = parseArgInt(arg.split('=')[1], 1);
+    if (arg.startsWith('--year=')) config.year = parseArgInt(arg.split('=')[1], null);
+    else if (arg === '--year') config.year = parseArgInt(args[++i], null);
+    else if (arg.startsWith('--group=')) config.groupNumber = parseArgInt(arg.split('=')[1], 1);
     else if (arg === '--group') config.groupNumber = parseArgInt(args[++i], 1);
-    else if (arg.startsWith('--groups=')) config.totalGroups = parseArgInt(arg.split('=')[1], DEFAULT_GROUPS);
-    else if (arg === '--groups') config.totalGroups = parseArgInt(args[++i], DEFAULT_GROUPS);
+    else if (arg.startsWith('--groups=')) config.totalGroups = parseArgInt(arg.split('=')[1], null);
+    else if (arg === '--groups') config.totalGroups = parseArgInt(args[++i], null);
     else if (arg.startsWith('--startIndex=')) config.startIndex = parseArgInt(arg.split('=')[1], null);
     else if (arg === '--startIndex') config.startIndex = parseArgInt(args[++i], null);
     else if (arg.startsWith('--endIndex=')) config.endIndex = parseArgInt(arg.split('=')[1], null);
     else if (arg === '--endIndex') config.endIndex = parseArgInt(args[++i], null);
-    else if (arg.startsWith('--batchSize=')) config.batchSize = parseArgInt(arg.split('=')[1], DEFAULT_BATCH_SIZE);
-    else if (arg === '--batchSize') config.batchSize = parseArgInt(args[++i], DEFAULT_BATCH_SIZE);
+    else if (arg.startsWith('--batchSize=')) config.batchSize = parseArgInt(arg.split('=')[1], null);
+    else if (arg === '--batchSize') config.batchSize = parseArgInt(args[++i], null);
+    else if (arg.startsWith('--resultTable=')) config.resultTable = arg.split('=')[1];
+    else if (arg === '--resultTable') config.resultTable = args[++i];
+    else if (arg.startsWith('--startIso=')) config.startIso = arg.split('=')[1];
+    else if (arg === '--startIso') config.startIso = args[++i];
+    else if (arg.startsWith('--endIso=')) config.endIso = arg.split('=')[1];
+    else if (arg === '--endIso') config.endIso = args[++i];
   }
 
   return config;
+}
+
+function assertSafeIdentifier(identifier, fieldName) {
+  if (!/^[A-Za-z0-9_]+$/.test(identifier)) {
+    throw new Error(`${fieldName} contains invalid characters: ${identifier}`);
+  }
 }
 
 function calculateGroupRange(totalStrategies, groupNumber, totalGroups) {
@@ -59,13 +62,31 @@ function calculateGroupRange(totalStrategies, groupNumber, totalGroups) {
   return { startIndex, endIndex };
 }
 
+function deriveDefaultsFromYear(baseConfig, year) {
+  if (!Number.isInteger(year)) return baseConfig;
+  return {
+    ...baseConfig,
+    year,
+    resultTable: baseConfig.resultTable || `backtest_results_${year}_full`,
+    startIso: baseConfig.startIso || `${year}-01-01T00:00:00Z`,
+    endIso: baseConfig.endIso || `${year}-12-31T23:59:59Z`
+  };
+}
+
 async function runGroupBacktest(config = {}) {
   const merged = {
+    year: config.year,
+    symbol: config.symbol || 'USDJPY',
+    intervalType: config.intervalType || '1min',
+    warmupDays: Number.isInteger(config.warmupDays) ? config.warmupDays : 60,
+    startIso: config.startIso,
+    endIso: config.endIso,
+    resultTable: config.resultTable,
     groupNumber: config.groupNumber ?? 1,
-    totalGroups: config.totalGroups ?? DEFAULT_GROUPS,
+    totalGroups: config.totalGroups ?? 10,
     startIndex: config.startIndex ?? null,
     endIndex: config.endIndex ?? null,
-    batchSize: config.batchSize ?? DEFAULT_BATCH_SIZE
+    batchSize: config.batchSize ?? 10
   };
 
   if (!Number.isInteger(merged.groupNumber) || merged.groupNumber < 1) {
@@ -77,18 +98,25 @@ async function runGroupBacktest(config = {}) {
   if (!Number.isInteger(merged.batchSize) || merged.batchSize < 1) {
     throw new Error(`invalid batchSize: ${merged.batchSize}`);
   }
+  if (!merged.startIso || !merged.endIso) {
+    throw new Error('startIso and endIso are required');
+  }
+  if (!merged.resultTable) {
+    throw new Error('resultTable is required');
+  }
+  assertSafeIdentifier(merged.resultTable, 'resultTable');
 
   console.log(`\n${'='.repeat(80)}`);
-  console.log(`🚀 2025年策略组${merged.groupNumber}并行回测`);
+  console.log(`🚀 ${merged.year || '目标'}年策略组${merged.groupNumber}并行回测`);
 
   const overallStartTime = Date.now();
 
   try {
-    console.log(`📊 加载2025年完整K线数据 (含${WARMUP_DAYS}天预热期)...\n`);
+    console.log(`📊 加载K线数据 (含${merged.warmupDays}天预热期)...\n`);
 
-    const yearStartTime = new Date(YEAR_START).getTime();
-    const yearEndTime = new Date(YEAR_END).getTime();
-    const warmupStartTime = yearStartTime - (WARMUP_DAYS * 24 * 60 * 60 * 1000);
+    const yearStartTime = new Date(merged.startIso).getTime();
+    const yearEndTime = new Date(merged.endIso).getTime();
+    const warmupStartTime = yearStartTime - (merged.warmupDays * 24 * 60 * 60 * 1000);
 
     const [klines] = await db.query(
       `
@@ -97,11 +125,11 @@ async function runGroupBacktest(config = {}) {
         AND open_time >= ? AND open_time <= ?
       ORDER BY open_time ASC
       `,
-      [SYMBOL, INTERVAL, warmupStartTime, yearEndTime]
+      [merged.symbol, merged.intervalType, warmupStartTime, yearEndTime]
     );
 
     if (klines.length === 0) {
-      throw new Error('没有找到2025年的K线数据');
+      throw new Error('没有找到对应区间的K线数据');
     }
 
     const yearStartIndex = klines.findIndex(k => parseInt(k.open_time, 10) >= yearStartTime);
@@ -111,7 +139,7 @@ async function runGroupBacktest(config = {}) {
     console.log(`   完整范围: ${new Date(parseInt(klines[0].open_time, 10)).toISOString()}`);
     console.log(`            ~ ${new Date(parseInt(klines[klines.length - 1].open_time, 10)).toISOString()}`);
     console.log(`   预热期: ${warmupBars.toLocaleString()} 根K线`);
-    console.log(`   2025年有效数据: ${(klines.length - warmupBars).toLocaleString()} 根K线\n`);
+    console.log(`   有效数据: ${(klines.length - warmupBars).toLocaleString()} 根K线\n`);
 
     console.log('🔧 生成策略组合...');
     const allStrategies = generateStrategyCombinations();
@@ -134,7 +162,7 @@ async function runGroupBacktest(config = {}) {
     console.log(`📦 当前组策略数: ${strategies.length.toLocaleString()}\n`);
 
     await db.query(`
-      CREATE TABLE IF NOT EXISTS ${RESULT_TABLE} (
+      CREATE TABLE IF NOT EXISTS ${merged.resultTable} (
         id INT AUTO_INCREMENT PRIMARY KEY,
         strategy_id INT NOT NULL,
         strategy_name VARCHAR(255) NOT NULL,
@@ -154,12 +182,12 @@ async function runGroupBacktest(config = {}) {
         UNIQUE KEY unique_strategy_name (strategy_name)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
-    console.log(`✅ 结果表 ${RESULT_TABLE} 已准备\n`);
+    console.log(`✅ 结果表 ${merged.resultTable} 已准备\n`);
 
     const placeholders = strategies.map(() => '?').join(',');
     const [completedStrategies] = await db.query(
       `
-      SELECT strategy_name FROM ${RESULT_TABLE}
+      SELECT strategy_name FROM ${merged.resultTable}
       WHERE strategy_name IN (${placeholders})
       `,
       strategies.map(s => s.name)
@@ -220,7 +248,7 @@ async function runGroupBacktest(config = {}) {
         if (results.length > 0) {
           await db.query(
             `
-            INSERT IGNORE INTO ${RESULT_TABLE}
+            INSERT IGNORE INTO ${merged.resultTable}
             (strategy_id, strategy_name, strategy_type, parameters,
              total_trades, win_rate, total_pnl, avg_pnl,
              sharpe_ratio, profit_factor, max_drawdown, score)
@@ -254,45 +282,6 @@ async function runGroupBacktest(config = {}) {
     console.log(`   有效策略: ${validCount}/${strategies.length}`);
     console.log(`   失败策略: ${errorCount}`);
     console.log(`   跳过策略: ${skippedCount}`);
-
-    const strategyNames = strategies.map(s => s.name);
-    const topPlaceholders = strategyNames.map(() => '?').join(',');
-    const [top10] = await db.query(
-      `
-      SELECT
-        strategy_name,
-        strategy_type,
-        total_trades,
-        ROUND(win_rate * 100, 2) as win_rate_pct,
-        ROUND(total_pnl, 2) as total_pnl,
-        ROUND(sharpe_ratio, 3) as sharpe_ratio,
-        ROUND(profit_factor, 2) as profit_factor,
-        ROUND(max_drawdown * 100, 2) as max_drawdown_pct,
-        ROUND(score, 2) as score
-      FROM ${RESULT_TABLE}
-      WHERE strategy_name IN (${topPlaceholders})
-        AND total_trades >= 10
-      ORDER BY score DESC
-      LIMIT 10
-      `,
-      strategyNames
-    );
-
-    console.log(`\n🏆 组${merged.groupNumber} Top 10策略:\n`);
-    top10.forEach((row, index) => {
-      console.log(`${index + 1}. ${row.strategy_name}`);
-      console.log(`   类型: ${row.strategy_type}`);
-      console.log(`   交易次数: ${row.total_trades}`);
-      console.log(`   胜率: ${row.win_rate_pct}%`);
-      console.log(`   总盈亏: $${row.total_pnl}`);
-      console.log(`   夏普比率: ${row.sharpe_ratio}`);
-      console.log(`   盈利因子: ${row.profit_factor}`);
-      console.log(`   最大回撤: ${row.max_drawdown_pct}%`);
-      console.log(`   综合评分: ${row.score}\n`);
-    });
-
-    const totalElapsedMin = (Date.now() - overallStartTime) / 60000;
-    console.log(`✨ 组${merged.groupNumber} 总耗时: ${totalElapsedMin.toFixed(2)} 分钟 (${(totalElapsedMin / 60).toFixed(2)} 小时)\n`);
   } catch (error) {
     console.error(`\n❌ 组${merged.groupNumber} 回测失败: ${error.message}`);
     throw error;
@@ -300,8 +289,16 @@ async function runGroupBacktest(config = {}) {
 }
 
 if (require.main === module) {
-  const config = parseCliArgs(process.argv);
-  runGroupBacktest(config)
+  const { configName, passthroughArgv } = extractConfigArg(process.argv, 'default');
+  const baseConfig = loadNamedConfig('group-backtest', configName);
+  const cli = parseCliArgs(passthroughArgv);
+  const withYearDefaults = deriveDefaultsFromYear(baseConfig, cli.year || baseConfig.year);
+  const finalConfig = {
+    ...withYearDefaults,
+    ...Object.fromEntries(Object.entries(cli).filter(([, v]) => v !== null))
+  };
+
+  runGroupBacktest(finalConfig)
     .then(() => process.exit(0))
     .catch(err => {
       console.error(err.stack);
@@ -313,4 +310,3 @@ module.exports = {
   runGroupBacktest,
   parseCliArgs
 };
-

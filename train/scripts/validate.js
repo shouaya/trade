@@ -1,6 +1,6 @@
 const { runValidationByConfig } = require('./run-validation');
 
-runValidationByConfig('2025', process.argv)
+runValidationByConfig('default', process.argv)
   .then(() => process.exit(0))
   .catch(error => {
     console.error('\n❌ 执行失败:', error.message);

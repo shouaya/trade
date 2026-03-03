@@ -5,24 +5,27 @@
 
 const db = require('../config/database');
 const StrategyExecutor = require('../services/strategy-executor');
+const { loadNamedConfig } = require('./_config');
 
 async function main() {
   console.log('🚀 保存去重后的 Top 10 策略');
   console.log('='.repeat(80));
 
   try {
+    const period = loadNamedConfig('periods', 'default');
+
     // 1. 加载K线数据
     console.log('\n📊 加载K线数据...');
-    const startTime = new Date('2026-01-02T07:00:00Z').getTime();
-    const endTime = new Date('2026-02-28T05:59:00Z').getTime();
+    const startTime = new Date(period.startIso).getTime();
+    const endTime = new Date(period.endIso).getTime();
 
     const [klines] = await db.query(`
       SELECT * FROM klines
-      WHERE symbol = 'USDJPY'
-        AND interval_type = '1min'
+      WHERE symbol = ?
+        AND interval_type = ?
         AND open_time >= ? AND open_time <= ?
       ORDER BY open_time ASC
-    `, [startTime, endTime]);
+    `, [period.symbol || 'USDJPY', period.intervalType || '1min', startTime, endTime]);
 
     console.log(`✅ 加载了 ${klines.length} 条K线数据`);
 
@@ -132,7 +135,7 @@ async function main() {
             t.percent,
             t.actual_hold_minutes,
             strategy.name,
-            'USDJPY'
+            period.symbol || 'USDJPY'
           ]);
 
           await db.query(`

@@ -10,7 +10,8 @@ echo "==========================================================================
 echo ""
 
 # 方法1: 通过PID文件停止
-LOGDIR="logs/strategy-group-backtest-2025"
+YEAR="${YEAR:-$(date +%Y)}"
+LOGDIR="logs/strategy-group-backtest-${YEAR}"
 PID_FILE="$LOGDIR/pids.txt"
 
 if [ -f "$PID_FILE" ]; then
@@ -26,11 +27,11 @@ fi
 
 # 方法2: 通过进程名停止 (备用)
 echo "🔍 查找并停止所有回测进程..."
-pkill -9 -f 'run-backtest-2025-group' 2>/dev/null || true
+pkill -9 -f 'group-backtest' 2>/dev/null || true
 echo ""
 
 # 检查是否还有进程在运行
-REMAINING=$(pgrep -f 'run-backtest-2025-group' | wc -l)
+REMAINING=$(pgrep -f 'group-backtest' | wc -l)
 
 if [ "$REMAINING" -eq 0 ]; then
   echo "✅ 所有进程已停止"
@@ -38,7 +39,7 @@ else
   echo "⚠️  仍有 $REMAINING 个进程在运行"
   echo ""
   echo "运行中的进程:"
-  ps aux | grep 'run-backtest-2025-group' | grep -v grep
+  ps aux | grep 'group-backtest' | grep -v grep
 fi
 
 echo ""
