@@ -3,7 +3,7 @@
  * 从backtest_results_2025_full表中提取Top 10策略
  */
 
-const db = require('../../backend/config/database');
+const db = require('../config/database');
 
 async function main() {
   console.log('='.repeat(80));
@@ -134,4 +134,5 @@ async function main() {
 }
 
 main();
+
 

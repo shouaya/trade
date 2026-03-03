@@ -1,0 +1,28 @@
+{
+  "name": "trade-train",
+  "private": true,
+  "version": "1.0.0",
+  "type": "commonjs",
+  "scripts": {
+    "backtest": "npm run backtest:2025",
+    "backtest:2025": "node scripts/run-multi-strategy-backtest.js",
+    "backtest:2024": "node scripts/run-backtest-2024.js",
+    "group": "npm run group:run",
+    "group:run": "node scripts/run-backtest-2025-group.js",
+    "group:launch": "bash scripts/launch-strategy-group-backtest.sh",
+    "group:monitor": "bash scripts/monitor-strategy-group-backtest.sh",
+    "group:stop": "bash scripts/stop-strategy-group-backtest.sh",
+    "group:query": "node scripts/query-strategy-group-results.js",
+    "query:top10": "node scripts/query-multi-dimension-top10.js",
+    "validate:2024": "node scripts/validate-2024.js",
+    "validate:2026": "node scripts/validate-2026.js",
+    "validate:2024:top3": "node scripts/validate-2024-top3.js",
+    "validate:2026:top3": "node scripts/validate-2026-top3.js",
+    "save:top10": "node scripts/save-top10-deduplicated.js",
+    "save:top3": "node scripts/save-top3-strategies.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "mysql2": "^3.6.5"
+  }
+}

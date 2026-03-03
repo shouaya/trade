@@ -2,7 +2,7 @@
 
 本目录承载“策略训练 / 回测 / 入库”的业务编排逻辑，目标是把这部分能力从 `scripts/` 中解耦出来，脚本仅保留参数入口职责。
 
-详细使用方式见: `train/TRAIN_MANUAL.md`
+详细使用方式见: `train/TRAIN_MANUAL.md`（已统一为 `docker compose run --rm train ...`）
 
 ## 核心文件
 
@@ -15,15 +15,15 @@
 
 ## 使用方式
 
-通过脚本入口调用：
+通过 `docker compose` 入口调用：
 
 - `scripts/run-multi-strategy-backtest.js` (2025 配置)
 - `scripts/run-backtest-2024.js` (2024 配置，策略名带 `2024-` 前缀)
 
 示例参数：
 
-- `node train/scripts/run-multi-strategy-backtest.js --limit 500 --types rsi_only,rsi_and_macd`
-- `node train/scripts/run-backtest-2024.js --topN 20 --retainDays 3`
+- `docker compose run --rm train npm run backtest:2025 -- --limit 500 --types rsi_only,rsi_and_macd`
+- `docker compose run --rm train npm run backtest:2024 -- --topN 20 --retainDays 3`
 
 ## 后续迁移建议
 

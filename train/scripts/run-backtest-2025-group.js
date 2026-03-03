@@ -1,11 +1,11 @@
-/**
+﻿/**
  * 2025年按策略分组的并行回测脚本（参数化）
  * 用法:
  *   node scripts/run-backtest-2025-group.js --group 1 --groups 10
  *   node scripts/run-backtest-2025-group.js --group 3 --startIndex 2000 --endIndex 3999
  */
 
-const db = require('../../backend/config/database');
+const db = require('../config/database');
 const StrategyExecutor = require('../services/strategy-executor');
 const { generateStrategyCombinations } = require('../services/strategy-parameter-generator');
 
@@ -313,3 +313,4 @@ module.exports = {
   runGroupBacktest,
   parseCliArgs
 };
+

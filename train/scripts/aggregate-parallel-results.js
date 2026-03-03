@@ -3,7 +3,7 @@
  * 从12个月度结果表中提取Top策略,计算全年综合表现
  */
 
-const db = require('../../backend/config/database');
+const db = require('../config/database');
 
 const MONTHS = [
   { number: 1, suffix: '2025_01' },
@@ -243,4 +243,5 @@ async function main() {
 
 // 运行
 main();
+
 

@@ -1,4 +1,4 @@
-const db = require('../backend/config/database');
+﻿const db = require('./config/database');
 const StrategyExecutor = require('./services/strategy-executor');
 const {
   generateStrategyCombinations,
@@ -383,3 +383,4 @@ async function runTrainingBacktest({
 module.exports = {
   runTrainingBacktest
 };
+

@@ -3,7 +3,7 @@
  * 这些策略已经在2024、2025、2026年验证通过
  */
 
-const db = require('../../backend/config/database');
+const db = require('../config/database');
 
 const TOP_3_STRATEGIES = [
   {
@@ -135,4 +135,5 @@ async function main() {
 }
 
 main();
+
 

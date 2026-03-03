@@ -80,8 +80,31 @@ services:
       - api
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
 
+  # Train worker
+  train:
+    image: node:22
+    restart: "no"
+    working_dir: /app
+    environment:
+      NODE_ENV: development
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: trader
+      DB_PASSWORD: traderpass
+      DB_NAME: trading
+    volumes:
+      - ./train:/app
+      - train_node_modules:/app/node_modules
+    networks:
+      - trading-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command: sh -c "npm install && tail -f /dev/null"
+
 volumes:
   mysql_data:
+  train_node_modules:
 
 networks:
   trading-network:

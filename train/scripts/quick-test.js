@@ -3,7 +3,7 @@
  * 快速测试少量策略,验证系统是否正常工作
  */
 
-const db = require('../../backend/config/database');
+const db = require('../config/database');
 const StrategyExecutor = require('../services/strategy-executor');
 const { generateStrategyCombinations } = require('../services/strategy-parameter-generator');
 
@@ -89,4 +89,5 @@ async function main() {
 }
 
 main();
+
 

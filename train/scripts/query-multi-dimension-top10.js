@@ -3,7 +3,7 @@
  * 分别按胜率、盈亏比(总盈亏)、综合评分选出Top 10
  */
 
-const db = require('../../backend/config/database');
+const db = require('../config/database');
 
 async function main() {
   console.log('='.repeat(80));
@@ -285,4 +285,5 @@ async function main() {
 }
 
 main();
+
 

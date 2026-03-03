@@ -2,7 +2,7 @@
  * 在2024年数据上验证2025年Top 3策略
  */
 
-const db = require('../../backend/config/database');
+const db = require('../config/database');
 const StrategyExecutor = require('../services/strategy-executor');
 
 const SYMBOL = 'USDJPY';
@@ -221,4 +221,5 @@ async function main() {
 }
 
 main();
+
 

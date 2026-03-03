@@ -3,7 +3,7 @@
  * 使用在2025年训练的Top 10策略,在2026年数据上进行验证
  */
 
-const db = require('../../backend/config/database');
+const db = require('../config/database');
 const StrategyExecutor = require('../services/strategy-executor');
 
 /**
@@ -182,4 +182,5 @@ async function main() {
 
 // 运行
 main();
+
 

@@ -3,7 +3,7 @@
  * 使用数据库中已保存的Top 10策略,在2025年数据上进行回测验证
  */
 
-const db = require('../../backend/config/database');
+const db = require('../config/database');
 const StrategyExecutor = require('../services/strategy-executor');
 
 /**
@@ -193,4 +193,5 @@ async function main() {
 
 // 运行
 main();
+
 

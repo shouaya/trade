@@ -1,4 +1,4 @@
-function parseList(value) {
+﻿function parseList(value) {
   if (!value) return null;
   return value
     .split(',')
@@ -41,3 +41,4 @@ function parseTrainCliArgs(argv) {
 module.exports = {
   parseTrainCliArgs
 };
+

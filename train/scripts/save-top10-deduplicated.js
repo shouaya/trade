@@ -3,7 +3,7 @@
  * 从现有的 backtest_results 表中提取去重后的 Top 10 策略并保存
  */
 
-const db = require('../../backend/config/database');
+const db = require('../config/database');
 const StrategyExecutor = require('../services/strategy-executor');
 
 async function main() {
@@ -169,4 +169,5 @@ async function main() {
 
 // 运行
 main();
+
 
