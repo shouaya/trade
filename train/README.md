@@ -4,6 +4,11 @@
 
 详细使用方式见: `train/TRAIN_MANUAL.md`（已统一为 `docker compose run --rm train ...`）
 
+配置驱动约定：
+- 训练参数: `configs/training/*.json`
+- 验证参数: `configs/validation/*.json`
+- 通用入口: `scripts/run-training.js`、`scripts/run-validation.js`
+
 ## 核心文件
 
 - `backtest-training-service.js`
@@ -22,8 +27,8 @@
 
 示例参数：
 
-- `docker compose run --rm train npm run backtest:2025 -- --limit 500 --types rsi_only,rsi_and_macd`
-- `docker compose run --rm train npm run backtest:2024 -- --topN 20 --retainDays 3`
+- `docker compose run --rm train npm run backtest:2025 -- -- --limit 500 --types rsi_only,rsi_and_macd`
+- `docker compose run --rm train npm run backtest:2024 -- -- --topN 20 --retainDays 3`
 
 ## 后续迁移建议
 

@@ -1,36 +1,56 @@
-﻿# AGENTS.md
+# AGENTS.md
 
-This file describes how Codex (and other agents) should work in this repo.
-Keep it short, specific, and up to date.
+This file defines how Codex (and other agents) should work in this repository.
 
 ## Purpose
-- Explain what this project is and who it’s for.
-- List the agent’s primary responsibilities in this repo.
+- Build and maintain a trading system with `backend`, `frontend`, and `train` domains.
+- Keep training/backtest/storage logic inside `train` and avoid leaking it back into `backend`.
 
 ## Working Agreements
-- Preferred tools (frameworks, libraries) and coding conventions.
-- Required file patterns or directories to touch/avoid.
-- Any do/don’t rules (security, performance, UX, style).
-- PowerShell: when using `Get-Content`, always include `-Encoding utf8` to avoid garbled text.
-- Encoding: all text files must be UTF-8 **without BOM**. Remove any existing BOMs and write new files with UTF-8 (no BOM).
+- PowerShell: when using `Get-Content`, always include `-Encoding utf8`.
+- Encoding: all text files must be UTF-8 without BOM.
+- Prefer small, focused refactors; keep backward-compatible script entry files when possible.
+- Do not re-introduce root-level Node package workflow (`/package.json` was removed intentionally).
 
 ## Project Context
-- Repo structure overview (1–3 bullets).
-- Key entry points (files and folders).
-- Local environment assumptions (Node version, package manager, etc.).
+- `backend/`: API server, DB schema/init scripts, runtime backend services only.
+- `frontend/`: Vite app.
+- `train/`: strategy training/backtest/validation/query/save scripts and services.
+
+Key train entry points:
+- `train/scripts/run-training.js` (config-driven training runner)
+- `train/scripts/run-validation.js` (config-driven validation runner)
+- `train/backtest-training-service.js`
+- `train/strategy-validation-service.js`
+- `train/configs/training/*.json`
+- `train/configs/validation/*.json`
 
 ## Data & Integrations
-- External services (e.g., Supabase, APIs) and what they’re used for.
-- Secrets handling and config locations.
+- MySQL is the primary data store.
+- Train DB config: `train/config/database.js`.
+- Env files:
+  - `train/.env` (preferred for train local/container runs)
+  - `backend/.env` (legacy fallback)
 
 ## Testing & Validation
-- How to run tests or builds.
-- Expected commands before PRs.
+- Use Docker Compose as the primary execution path.
+- Start base services:
+  - `docker compose up -d mysql api frontend adminer`
+- Run train commands with one-off container:
+  - `docker compose run --rm train npm run backtest:2025`
+  - `docker compose run --rm train npm run backtest:2024 -- -- --limit 500 --types rsi_only`
+  - `docker compose run --rm train npm run validate:2025`
+  - `docker compose run --rm train npm run group:run -- -- --group 1 --groups 10`
 
 ## Release / Deploy
-- Build output location.
-- Hosting / deployment steps (if any).
+- Local dev stack is orchestrated by `docker-compose.yml`.
+- Keep service names/network compatibility stable (`mysql`, `api`, `frontend`, `adminer`, `train`).
+
+## Do / Don’t
+- Do keep training parameter changes in JSON config files, not hardcoded in many scripts.
+- Do extract duplicated script logic into reusable services/utilities.
+- Don’t add new duplicated year-specific scripts if config-driven runner can handle it.
+- Don’t couple `train` to `backend/config/database`.
 
 ## Contact / Ownership
-- Who to ask for clarifications.
-- Links or internal docs (if any).
+- If ownership is unclear, ask the repository maintainer in the current task thread and update this file.

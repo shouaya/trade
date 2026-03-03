@@ -4,7 +4,7 @@
 
 命令组织规范：
 - `train/package.json` 维护训练域内的原生命令（如 `backtest:2025`、`group:run`）。
-- 根 `package.json` 提供 `train:*` 代理命令，方便在仓库根目录执行。
+- 训练与验证参数统一放在 `train/configs/*.json`，脚本只做通用执行入口。
 - 推荐统一使用：`train:backtest:*` 与 `train:group:*`。
 
 ## 1. 前置条件
@@ -33,7 +33,7 @@ docker compose run --rm train npm run backtest:2025
 带参数示例：
 
 ```bash
-docker compose run --rm train npm run backtest:2025 -- --limit 500 --types rsi_only,rsi_and_macd --topN 20 --retainDays 3
+docker compose run --rm train npm run backtest:2025 -- -- --limit 500 --types rsi_only,rsi_and_macd --topN 20 --retainDays 3
 ```
 
 ### 2.2 2024 批量训练回测
@@ -45,7 +45,7 @@ docker compose run --rm train npm run backtest:2024
 带参数示例：
 
 ```bash
-docker compose run --rm train npm run backtest:2024 -- --limit 800 --types rsi_only --topN 10
+docker compose run --rm train npm run backtest:2024 -- -- --limit 800 --types rsi_only --topN 10
 ```
 
 ## 3. 策略分组并行回测（2025）
@@ -79,13 +79,13 @@ docker compose run --rm train npm run group:query
 运行第 1 组（10 组切分）：
 
 ```bash
-docker compose run --rm train npm run group:run -- --group 1 --groups 10
+docker compose run --rm train npm run group:run -- -- --group 1 --groups 10
 ```
 
 手工指定策略索引范围：
 
 ```bash
-docker compose run --rm train npm run group:run -- --group 3 --startIndex 2000 --endIndex 3999 --batchSize 20
+docker compose run --rm train npm run group:run -- -- --group 3 --startIndex 2000 --endIndex 3999 --batchSize 20
 ```
 
 ## 5. 结果查询与验证
@@ -100,6 +100,7 @@ docker compose run --rm train npm run query:top10
 
 ```bash
 docker compose run --rm train npm run validate:2024
+docker compose run --rm train npm run validate:2025
 docker compose run --rm train npm run validate:2026
 docker compose run --rm train npm run validate:2024:top3
 docker compose run --rm train npm run validate:2026:top3
@@ -121,6 +122,11 @@ docker compose run --rm train npm run save:top3
 - `--topN`：入库 Top N
 - `--retainDays`：保留回测中间表历史天数
 
+训练配置文件：
+- `configs/training/2024.json`
+- `configs/training/2025.json`
+- 通用入口：`node scripts/run-training.js --config 2025`
+
 `group:run` 支持：
 
 - `--group`：组号（从 1 开始）
@@ -128,11 +134,20 @@ docker compose run --rm train npm run save:top3
 - `--startIndex`、`--endIndex`：覆盖自动分组范围
 - `--batchSize`：每批落库数量
 
+验证配置文件：
+- `configs/validation/2024.json`
+- `configs/validation/2025.json`
+- `configs/validation/2026.json`
+- 通用入口：`node scripts/run-validation.js --config 2026`
+
 ## 7. 常见问题
 
 - `error during connect ... EOF`
   - 先重试单服务命令：`docker compose run --rm train npm run backtest:2025`
   - 若仍失败，重启 Docker Desktop 后再试。
+- 参数被吞掉 / 出现 `Unknown cli config "--limit"` 警告
+  - 在当前 npm 版本下，带 `--xxx` 参数建议使用三段分隔：
+  - 形如：`npm run backtest:2024 -- -- --limit 500 --types rsi_only`
 - `bash: command not found`
   - `group:launch/monitor/stop` 依赖 `bash`；当前 `train` 镜像为 `node:22`，默认可用。
 - 回测报“没有找到K线数据”
