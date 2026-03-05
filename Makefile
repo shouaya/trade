@@ -247,39 +247,7 @@ rolling-report:
 # 验证所有月份的数据库结果
 rolling-verify:
 	@echo "🔍 验证所有月份的数据库结果..."
-	@docker-compose run --rm train node -e "\
-		const mysql = require('mysql2/promise'); \
-		require('dotenv').config(); \
-		\
-		(async () => { \
-		  const db = await mysql.createConnection({ \
-		    host: process.env.DB_HOST, \
-		    port: process.env.DB_PORT, \
-		    user: process.env.DB_USER, \
-		    password: process.env.DB_PASSWORD, \
-		    database: process.env.DB_NAME \
-		  }); \
-		  \
-		  const months = ['2025_01','2025_02','2025_03','2025_04','2025_05','2025_06', \
-		                  '2025_07','2025_08','2025_09','2025_10','2025_11','2025_12', \
-		                  '2026_01','2026_02']; \
-		  \
-		  console.log('\\n月份\\t\\t训练策略数\\t验证结果数'); \
-		  console.log('─'.repeat(60)); \
-		  \
-		  for (const month of months) { \
-		    try { \
-		      const [train] = await db.query(\`SELECT COUNT(*) as cnt FROM backtest_results_rolling_\$${month}_train\`); \
-		      const [validate] = await db.query(\`SELECT COUNT(*) as cnt FROM backtest_results_rolling_\$${month}_validate\`); \
-		      console.log(\`\$${month.replace('_','-')}\\t\t\$${train[0].cnt}\\t\\t\$${validate[0].cnt}\`); \
-		    } catch (e) { \
-		      console.log(\`\$${month.replace('_','-')}\\t\\t未执行\\t\\t未执行\`); \
-		    } \
-		  } \
-		  \
-		  await db.end(); \
-		})().catch(console.error); \
-	"
+	@docker-compose run --rm train node scripts/rolling-verify.js
 
 # 查询指定月份的训练Top 10
 rolling-top10:
@@ -357,6 +325,19 @@ rolling-compare:
 rolling-training-report:
 	@echo "📊 生成训练期汇总报告..."
 	@docker-compose run --rm train node scripts/generate-training-summary.js
+
+# 只运行验证步骤（跳过训练）
+rolling-validate-all:
+	@echo "🔄 开始滚动窗口验证（仅验证，跳过训练）..."
+	@echo "⏰ 预计耗时: 1-2小时"
+	@echo "📅 验证月份: 2025-01 至 2026-02 (14个月)"
+	@echo ""
+	@read -p "确认开始验证? [y/N] " confirm; \
+	if [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ]; then \
+		docker-compose run --rm train node scripts/run-validation-only.js; \
+	else \
+		echo "已取消"; \
+	fi
 
 # ============================================================================
 # 结果分析

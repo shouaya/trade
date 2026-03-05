@@ -1,11 +1,6 @@
 /**
- * 滚动窗口训练自动化执行脚本
- *
- * 流程：
- * 1. 读取每个月的训练配置
- * 2. 执行训练，找出最佳策略
- * 3. 使用最佳策略在该月进行验证
- * 4. 保存结果并生成报告
+ * 只运行验证步骤（跳过训练）
+ * 用于在训练数据已存在时，只执行验证
  */
 
 const { exec } = require('child_process');
@@ -20,9 +15,6 @@ const MONTHS = [
   '2025_07', '2025_08', '2025_09', '2025_10', '2025_11', '2025_12',
   '2026_01', '2026_02'
 ];
-
-// 配置路径
-const ROLLING_WINDOW_DIR = path.join(__dirname, '../configs/rolling_window');
 
 /**
  * 执行shell命令
@@ -101,7 +93,7 @@ async function getBestStrategy(month) {
 }
 
 /**
- * 生成验证配置文件（基于最佳策略）
+ * 生成验证配置文件
  */
 function generateValidationConfig(month, bestStrategy) {
   const [year, mo] = month.split('_');
@@ -168,38 +160,32 @@ function generateValidationConfig(month, bestStrategy) {
 }
 
 /**
- * 处理单个月份
+ * 处理单个月份的验证
  */
-async function processMonth(month) {
+async function validateMonth(month) {
   console.log('\n' + '='.repeat(80));
-  console.log(`处理月份: ${month.replace('_', '-')}`);
+  console.log(`验证月份: ${month.replace('_', '-')}`);
   console.log('='.repeat(80));
 
   try {
-    // Step 1: 训练
-    console.log(`\n[1/3] 训练阶段 - 使用过去12个月数据...`);
-    const trainConfig = path.join(ROLLING_WINDOW_DIR, `train_${month}.json`);
-    await runCommand(`node scripts/train.js ${trainConfig}`);
-
-    // Step 2: 获取最佳策略
-    console.log(`\n[2/3] 获取最佳策略...`);
+    // Step 1: 获取最佳策略
+    console.log(`\n[1/2] 获取训练最佳策略...`);
     const bestStrategy = await getBestStrategy(month);
     console.log(`\n✓ 最佳策略: ${bestStrategy.name}`);
     console.log(`  总盈亏: $${bestStrategy.pnl}`);
     console.log(`  交易次数: ${bestStrategy.trades}`);
     console.log(`  胜率: ${(bestStrategy.winRate * 100).toFixed(2)}%`);
-    console.log(`  夏普比率: ${bestStrategy.sharpe}`);
     console.log(`  参数: H${bestStrategy.maxHoldMinutes} SL${bestStrategy.atrSlMultiplier}x TP${bestStrategy.atrTpMultiplier}x`);
 
-    // Step 3: 生成并执行验证配置
-    console.log(`\n[3/3] 验证阶段 - 在${month.replace('_', '-')}月验证...`);
+    // Step 2: 生成并执行验证配置
+    console.log(`\n[2/2] 验证阶段 - 在${month.replace('_', '-')}月验证...`);
     const validateConfig = generateValidationConfig(month, bestStrategy);
-    const validateConfigPath = path.join(ROLLING_WINDOW_DIR, 'validation', `validate_${month}_final.json`);
+    const validateConfigPath = path.join(__dirname, '../configs/rolling_window/validation', `validate_${month}_auto.json`);
     fs.writeFileSync(validateConfigPath, JSON.stringify(validateConfig, null, 2));
 
     await runCommand(`node scripts/train.js ${validateConfigPath}`);
 
-    console.log(`\n✅ ${month.replace('_', '-')} 完成！`);
+    console.log(`\n✅ ${month.replace('_', '-')} 验证完成！`);
     return {
       month: month.replace('_', '-'),
       bestStrategy,
@@ -207,7 +193,7 @@ async function processMonth(month) {
     };
 
   } catch (error) {
-    console.error(`\n❌ ${month.replace('_', '-')} 失败:`, error.message);
+    console.error(`\n❌ ${month.replace('_', '-')} 验证失败:`, error.message);
     return {
       month: month.replace('_', '-'),
       success: false,
@@ -246,7 +232,8 @@ async function generateSummaryReport(results) {
           total_pnl,
           total_trades,
           win_rate,
-          sharpe_ratio
+          sharpe_ratio,
+          profit_factor
         FROM ${tableName}
         ORDER BY total_pnl DESC
         LIMIT 1
@@ -257,10 +244,12 @@ async function generateSummaryReport(results) {
           month: result.month,
           trainStrategy: result.bestStrategy.name,
           trainPnl: result.bestStrategy.pnl,
+          trainWinRate: (result.bestStrategy.winRate * 100).toFixed(1) + '%',
           validatePnl: rows[0].total_pnl,
           validateTrades: rows[0].total_trades,
-          validateWinRate: (rows[0].win_rate * 100).toFixed(2) + '%',
-          validateSharpe: rows[0].sharpe_ratio
+          validateWinRate: (rows[0].win_rate * 100).toFixed(1) + '%',
+          validateSharpe: rows[0].sharpe_ratio,
+          validateProfitFactor: rows[0].profit_factor
         });
       }
     } catch (error) {
@@ -271,51 +260,56 @@ async function generateSummaryReport(results) {
   await db.end();
 
   // 打印汇总表格
-  console.log('\n滚动窗口策略汇总 (2025-01 至 2026-02):');
+  console.log('\n滚动窗口策略汇总 (训练 vs 验证):');
   console.log('─'.repeat(120));
   console.table(summary);
 
   // 计算总体统计
-  const totalValidatePnl = summary.reduce((sum, s) => sum + parseFloat(s.validatePnl), 0);
-  const totalValidateTrades = summary.reduce((sum, s) => sum + s.validateTrades, 0);
-  const avgValidatePnl = totalValidatePnl / summary.length;
+  if (summary.length > 0) {
+    const totalValidatePnl = summary.reduce((sum, s) => sum + parseFloat(s.validatePnl), 0);
+    const totalValidateTrades = summary.reduce((sum, s) => sum + s.validateTrades, 0);
+    const avgValidatePnl = totalValidatePnl / summary.length;
+    const profitableMonths = summary.filter(s => parseFloat(s.validatePnl) > 0).length;
 
-  console.log('\n总体统计:');
-  console.log(`  总验证盈亏: $${totalValidatePnl.toFixed(2)}`);
-  console.log(`  总验证交易数: ${totalValidateTrades}`);
-  console.log(`  平均月度盈亏: $${avgValidatePnl.toFixed(2)}`);
-  console.log(`  月度盈利率: ${summary.filter(s => parseFloat(s.validatePnl) > 0).length}/${summary.length}`);
+    console.log('\n验证期总体统计:');
+    console.log(`  总验证盈亏: $${totalValidatePnl.toFixed(2)}`);
+    console.log(`  总验证交易数: ${totalValidateTrades}`);
+    console.log(`  平均月度盈亏: $${avgValidatePnl.toFixed(2)}`);
+    console.log(`  盈利月份: ${profitableMonths}/${summary.length}`);
+    console.log(`  盈利月份率: ${(profitableMonths / summary.length * 100).toFixed(1)}%`);
 
-  // 保存报告到文件
-  const reportPath = path.join(__dirname, '../reports/rolling_window_summary.json');
-  fs.writeFileSync(reportPath, JSON.stringify({
-    generatedAt: new Date().toISOString(),
-    summary,
-    totals: {
-      totalValidatePnl,
-      totalValidateTrades,
-      avgValidatePnl,
-      profitableMonths: summary.filter(s => parseFloat(s.validatePnl) > 0).length,
-      totalMonths: summary.length
-    }
-  }, null, 2));
+    // 保存报告到文件
+    const reportPath = path.join(__dirname, '../reports/rolling_window_validation_summary.json');
+    fs.writeFileSync(reportPath, JSON.stringify({
+      generatedAt: new Date().toISOString(),
+      summary,
+      totals: {
+        totalValidatePnl,
+        totalValidateTrades,
+        avgValidatePnl,
+        profitableMonths,
+        totalMonths: summary.length
+      }
+    }, null, 2));
 
-  console.log(`\n报告已保存: ${reportPath}`);
+    console.log(`\n报告已保存: ${reportPath}`);
+  }
 }
 
 /**
  * 主函数
  */
 async function main() {
-  console.log('🚀 开始滚动窗口训练流程...');
-  console.log(`   总共 ${MONTHS.length} 个月需要处理`);
-  console.log(`   每个月: 训练(150个策略) -> 找最佳 -> 验证`);
+  console.log('🔄 开始滚动窗口验证流程（仅验证，跳过训练）...');
+  console.log(`   总共 ${MONTHS.length} 个月需要验证`);
+  console.log(`   每个月: 从训练结果提取最佳策略 -> 在当月验证`);
+  console.log(`   预计耗时: 1-2小时`);
 
   const startTime = Date.now();
   const results = [];
 
   for (const month of MONTHS) {
-    const result = await processMonth(month);
+    const result = await validateMonth(month);
     results.push(result);
   }
 
