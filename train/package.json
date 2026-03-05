@@ -1,21 +1,29 @@
 {
   "name": "trade-train",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "commonjs",
   "scripts": {
-    "train": "node scripts/train.js",
-    "analyze": "node scripts/analyze.js",
-    "backtest": "node scripts/backtest.js",
-    "validate": "node scripts/validate.js",
-    "validate:top": "node scripts/validate-top-strategies.js",
-    "query:top10": "node scripts/query-multi-dimension-top10.js",
-    "query:metrics": "node scripts/query-top-by-metrics.js",
-    "save:top10": "node scripts/save-top10-deduplicated.js",
-    "save:top3": "node scripts/save-top3-strategies.js"
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "prebuild": "npm run clean",
+    "type-check": "tsc --noEmit",
+    "init-db": "node dist/scripts/init-db.js",
+    "train": "node dist/scripts/train.js",
+    "validate": "node dist/scripts/train.js",
+    "save-top3": "node dist/scripts/save-top3-strategies.js"
   },
   "dependencies": {
     "dotenv": "^16.3.1",
-    "mysql2": "^3.6.5"
+    "mysql2": "^3.6.5",
+    "tslib": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }

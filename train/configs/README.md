@@ -2,111 +2,124 @@
 
 ## 📁 目录组织
 
+**只有两个标准目录：**
+
 ```
 configs/
-├── training/           # 训练配置 - 寻找最佳策略
-├── validation/         # 验证配置 - 测试已知策略
-└── top-strategies/     # 最佳策略集合
+├── training/           # 所有训练配置（年度 + 滚动窗口）
+└── validation/         # 所有验证配置（年度 + 滚动窗口）
 ```
 
 ---
 
-## 🎯 训练配置 (Training)
+## 🎯 训练配置 (training/)
 
 **目的**: 在历史数据上测试大量策略参数组合，寻找最佳策略
 
-**文件**:
-- `2024_v3_atr_optimization.json` - 2024年ATR优化训练（150个策略组合）
-- `2024_v3_rsi_holdtime.json` - 2024年RSI持仓时间优化训练
+### 年度训练配置
+- `2024_atr.json` - 2024年全年数据训练
+- `2025_atr.json` - 2025年全年数据训练
+
+### 滚动窗口训练配置（14个月）
+- `2025_01_rolling.json` - 使用 2024-01 到 2024-12 数据训练
+- `2025_02_rolling.json` - 使用 2024-02 到 2025-01 数据训练
+- ...
+- `2026_02_rolling.json` - 使用 2025-02 到 2026-01 数据训练
 
 **使用命令**:
 ```bash
-# ATR优化训练
-make train CONFIG=configs/training/2024_v3_atr_optimization.json
+# 年度训练
+make train CONFIG=training/2024_atr
+make train CONFIG=training/2025_atr
 
-# RSI持仓时间优化训练
-make train CONFIG=configs/training/2024_v3_rsi_holdtime.json
+# 滚动窗口训练
+make train CONFIG=training/2025_01_rolling
+make train CONFIG=training/2025_02_rolling
 ```
 
 **特点**:
-- 策略数量多（150+）
-- 运行时间长
+- 策略数量多（150+ 组合）
+- 运行时间长（1-3小时）
 - 用于发现最佳参数组合
 
 ---
 
-## ✅ 验证配置 (Validation)
+## ✅ 验证配置 (validation/)
 
-**目的**: 使用训练阶段找到的最佳策略，在不同年份数据上验证其稳定性
+**目的**: 使用训练阶段找到的最佳策略，在不同时期数据上验证其稳定性
 
-**文件**:
-- `2024_v3_atr_optimization_2025_validation.json` - 用2024最佳策略验证2025年数据
-- `2024_v3_atr_optimization_2026_validation.json` - 用2024最佳策略验证2026年数据
+### 年度验证配置
+- `2024_atr_2025_validation.json` - 用2024最佳策略验证2025年
+- `2024_atr_2026_validation.json` - 用2024最佳策略验证2026年
+- `2025_atr_2024_validation.json` - 用2025最佳策略验证2024年（反向）
+- `2025_atr_2026_validation.json` - 用2025最佳策略验证2026年
+
+### 滚动窗口验证配置（14个月）
+- `2025_01_rolling_2025_01_validation.json` - 验证2025-01月策略
+- `2025_02_rolling_2025_02_validation.json` - 验证2025-02月策略
+- ...
+- `2026_02_rolling_2026_02_validation.json` - 验证2026-02月策略
 
 **使用命令**:
 ```bash
-# 2025年验证
-make train CONFIG=configs/validation/2024_v3_atr_optimization_2025_validation.json
+# 年度验证
+make validate CONFIG=validation/2024_atr_2025_validation
+make validate CONFIG=validation/2024_atr_2026_validation
 
-# 2026年验证
-make train CONFIG=configs/validation/2024_v3_atr_optimization_2026_validation.json
+# 滚动窗口验证
+make validate CONFIG=validation/2025_01_rolling_2025_01_validation
+make validate CONFIG=validation/2025_02_rolling_2025_02_validation
 ```
 
 **特点**:
-- 策略数量少（6个）
-- 运行时间短
-- 验证跨年度稳定性
-
----
-
-## 🏆 最佳策略集合 (Top Strategies)
-
-**目的**: 保存训练和验证后确定的最佳策略配置
-
-**文件**:
-- `2024_v3_atr_top3.json` - 2024年Top 3策略
-- `2024_v3_atr_best.json` - 2024年最佳单一策略
-- `2025_v3_atr_top3.json` - 2025年Top 3策略
-- `2025_v3_atr_best.json` - 2025年最佳单一策略
-
-**用途**:
-- 文档记录
-- 实盘参考
-- 跨年度对比分析
+- 策略数量少（<10个）
+- 运行时间短（5-30分钟）
+- 验证跨时期稳定性
 
 ---
 
 ## 📊 完整工作流程
 
-### 1. 训练阶段（2024年数据）
+### 工作流 1: 年度训练 + 前向验证
+
 ```bash
-# 在2024年数据上测试150个ATR参数组合
-make train CONFIG=configs/training/2024_v3_atr_optimization.json
+# 1. 在2024年数据上训练
+make train CONFIG=training/2024_atr
+
+# 2. 在2025年数据上验证
+make validate CONFIG=validation/2024_atr_2025_validation
+
+# 3. 在2026年数据上验证
+make validate CONFIG=validation/2024_atr_2026_validation
+
+# 4. 保存最佳策略
+make save-top3
 ```
-**输出**: 找到最佳策略 `RSI-P14-OS30-OB70-MP1-H25-ATRSL4-ATRTP5`
 
-### 2. 验证阶段（2025/2026年数据）
+### 工作流 2: 滚动窗口训练
+
 ```bash
-# 用2024最佳策略在2025年数据上验证
-make train CONFIG=configs/validation/2024_v3_atr_optimization_2025_validation.json
+# 每月训练一次，使用过去12个月数据
+make train CONFIG=training/2025_01_rolling  # 2025-01月策略
+make train CONFIG=training/2025_02_rolling  # 2025-02月策略
+# ... 依次训练所有月份
 
-# 用2024最佳策略在2026年数据上验证
-make train CONFIG=configs/validation/2024_v3_atr_optimization_2026_validation.json
+# 验证各月策略
+make validate CONFIG=validation/2025_01_rolling_2025_01_validation
+make validate CONFIG=validation/2025_02_rolling_2025_02_validation
 ```
-**输出**:
-- 2025年: $2,322.50 (+20.9% vs 2024)
-- 2026年: $6,561.00 (持续盈利)
 
-### 3. 查看结果
+### 工作流 3: 批量滚动窗口训练
+
+创建脚本 `scripts/train-all-rolling.sh`:
 ```bash
-# 查看2024训练结果
-docker-compose run --rm train node scripts/query-top-by-metrics.js backtest_results_2024_v3_atr 10
-
-# 查看2025验证结果
-docker-compose run --rm train node scripts/query-top-by-metrics.js backtest_results_2025_v3_atr_validation 10
-
-# 查看2026验证结果
-docker-compose run --rm train node scripts/query-top-by-metrics.js backtest_results_2026_v3_atr_validation 10
+#!/bin/bash
+for i in {01..12}; do
+  make train CONFIG=training/2025_${i}_rolling
+done
+for i in {01..02}; do
+  make train CONFIG=training/2026_${i}_rolling
+done
 ```
 
 ---
@@ -116,36 +129,69 @@ docker-compose run --rm train node scripts/query-top-by-metrics.js backtest_resu
 | 项目 | 训练 (Training) | 验证 (Validation) |
 |------|----------------|------------------|
 | **目的** | 寻找最佳策略 | 测试已知策略 |
-| **策略数** | 很多（150+） | 很少（6个） |
-| **数据** | 较早年份 | 后续年份 |
-| **时间** | 较长 | 较短 |
-| **命名** | `*_optimization.json` | `*_validation.json` |
+| **策略数** | 很多（150+） | 很少（<10） |
+| **数据期** | 训练期 | 验证期（未来） |
+| **时间** | 长（1-3小时） | 短（5-30分钟） |
+| **目录** | `training/` | `validation/` |
 
 ---
 
 ## 📝 命名规范
 
-### 训练配置命名
+### 年度训练配置
 ```
-{年份}_v{版本}_{优化目标}_optimization.json
+{年份}_atr.json
 ```
-示例: `2024_v3_atr_optimization.json`
+示例: `2024_atr.json`, `2025_atr.json`
 
-### 验证配置命名
+### 滚动窗口训练配置
 ```
-{训练年份}_v{版本}_{优化目标}_optimization_{验证年份}_validation.json
+{年份}_{月份}_rolling.json
 ```
-示例: `2024_v3_atr_optimization_2025_validation.json`
+示例: `2025_01_rolling.json`, `2025_12_rolling.json`
 
-这样命名可以清楚地看出：
-- 使用哪个训练结果
-- 在哪一年的数据上验证
+### 年度验证配置
+```
+{训练年份}_atr_{验证年份}_validation.json
+```
+示例: `2024_atr_2025_validation.json`
+
+### 滚动窗口验证配置
+```
+{年份}_{月份}_rolling_{年份}_{月份}_validation.json
+```
+示例: `2025_01_rolling_2025_01_validation.json`
+
+**命名规则**:
+- 年度配置: 使用年份标识
+- 滚动窗口配置: **必须包含 `_rolling` 关键字**
+- 验证配置: **必须包含 `_validation` 后缀**
 
 ---
 
 ## 🎓 简单记忆
 
 - **训练** = 大海捞针，找最佳策略（测试150个参数组合）
-- **验证** = 拿着找到的针，看看在其他地方是否还好用（只测试Top 6）
+- **验证** = 拿着找到的针，看看在其他时期是否还好用（只测试Top策略）
+- **年度** = 整年数据一次训练
+- **滚动窗口** = 每月用过去12个月数据训练，保持策略新鲜度
 
-训练一次，验证多次！
+**核心原则**: 训练一次，验证多次！
+
+---
+
+## 💡 统一命令格式
+
+所有命令使用 `TYPE/NAME` 格式（不含 .json 后缀）：
+
+```bash
+make train CONFIG=training/2024_atr
+make train CONFIG=training/2025_01_rolling
+make validate CONFIG=validation/2024_atr_2025_validation
+make validate CONFIG=validation/2025_01_rolling_2025_01_validation
+```
+
+**优势**:
+- 简洁统一
+- 易于记忆
+- 自动补全友好

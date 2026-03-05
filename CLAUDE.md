@@ -118,29 +118,34 @@ money/
 │   ├── vite.config.js
 │   └── package.json
 │
-├── train/                      # 策略训练引擎
-│   ├── backtest-training-service.js  # 核心回测服务 ⭐
-│   ├── strategy-validation-service.js # 策略验证
-│   ├── configs/               # 配置文件（JSON 驱动）⭐
-│   │   ├── training/
-│   │   │   ├── 2024.json
-│   │   │   ├── 2025.json      # 示例配置
-│   │   │   └── 2026_2m.json
-│   │   ├── validation/
-│   │   └── database.js        # Train 专用数据库配置
-│   ├── scripts/               # 执行脚本
-│   │   ├── run-training.js    # 训练运行器
-│   │   ├── run-validation.js  # 验证运行器
-│   │   ├── backtest.js        # 批量回测
-│   │   ├── group-backtest.js  # 分组并行回测
-│   │   ├── query-*.js         # 结果查询
-│   │   └── save-*.js          # 保存策略
-│   ├── services/              # 核心业务逻辑
-│   │   ├── strategy-executor.js  # 策略执行引擎 ⭐
-│   │   ├── strategy-parameter-generator.js  # 参数生成器 ⭐
-│   │   ├── signal-generator.js
-│   │   └── indicators/        # 指标计算
-│   ├── TRAIN_MANUAL.md        # 训练使用手册
+├── train/                      # 策略训练引擎（TypeScript）
+│   ├── src/                   # TypeScript 源码
+│   │   ├── scripts/           # 执行脚本
+│   │   │   ├── train.ts       # 通用训练/验证入口 ⭐
+│   │   │   ├── save-top3-strategies.ts
+│   │   │   ├── init-db.ts     # 数据库初始化
+│   │   │   ├── _common.ts     # 共享工具函数
+│   │   │   └── _config.ts     # 配置加载器
+│   │   ├── services/          # 核心业务逻辑
+│   │   │   ├── strategy-executor.ts  # 策略执行引擎 ⭐
+│   │   │   ├── strategy-parameter-generator.ts  # 参数生成器 ⭐
+│   │   │   ├── signal-generator.ts
+│   │   │   └── indicators/    # 指标计算
+│   │   ├── types/             # TypeScript 类型定义
+│   │   ├── configs/           # 配置管理
+│   │   └── database/          # 数据库 DDL
+│   ├── configs/               # JSON 配置文件 ⭐
+│   │   ├── training/          # 训练配置（年度 + 滚动窗口）
+│   │   │   ├── 2024_atr.json
+│   │   │   ├── 2025_atr.json
+│   │   │   └── 2025_01_rolling.json  # 14个滚动窗口配置
+│   │   └── validation/        # 验证配置（年度 + 滚动窗口）
+│   │       ├── 2024_atr_2025_validation.json
+│   │       └── 2025_01_rolling_2025_01_validation.json
+│   ├── dist/                  # 编译输出
+│   ├── README.md              # 完整文档
+│   ├── QUICK_START.md         # 快速开始指南
+│   ├── tsconfig.json          # TypeScript 配置
 │   └── package.json
 │
 ├── data/                       # 原始数据文件（CSV 等）
@@ -743,42 +748,61 @@ return {
 };
 ```
 
-### 配置文件驱动 ([train/configs/training/2025.json](train/configs/training/2025.json))
+### 配置文件驱动
+
+所有配置文件位于 `train/configs/` 目录，只有两个标准目录：
+
+**training/** - 训练配置
+- `2024_atr.json` - 2024年度训练
+- `2025_atr.json` - 2025年度训练
+- `2025_01_rolling.json` - 滚动窗口训练（14个月）
+
+**validation/** - 验证配置
+- `2024_atr_2025_validation.json` - 年度验证
+- `2025_01_rolling_2025_01_validation.json` - 滚动窗口验证（14个月）
+
+**示例配置** ([train/configs/training/2025_atr.json](train/configs/training/2025_atr.json)):
 
 ```json
 {
-  "startTimeMs": 1735801200000,        // 2025-01-03 00:00:00 UTC
-  "endTimeMs": 1767225540000,          // 2025-12-31 23:59:00 UTC
-  "symbol": "USDJPY",
-  "intervalType": "1m",
-  "tableName": "backtest_results_2025",
-  "topN": 10,                          // 保留 Top 10 策略
-  "retainDays": 1,                     // 清理 1 天前的数据
-  "strategyNamePrefix": "2025_",       // 策略名前缀
-  "descriptionPrefix": "Trained on 2025 data"
+  "name": "2025_ATR_TRAIN",
+  "description": "2025年全年数据训练",
+  "timeRange": {
+    "startTimeMs": 1735801200000,
+    "endTimeMs": 1767225540000,
+    "startIso": "2025-01-01T00:00:00Z",
+    "endIso": "2025-12-31T23:59:00Z"
+  },
+  "market": {
+    "symbol": "USDJPY",
+    "intervalType": "1min"
+  },
+  "database": {
+    "tableName": "backtest_results_2025_atr"
+  },
+  "strategy": {
+    "types": ["rsi_only"],
+    "parameters": { /* 150+ 组合 */ }
+  }
 }
 ```
 
-### 使用命令
+### 使用命令（统一格式）
 
 ```bash
-# 1. 进入 train 容器
-docker compose run --rm train bash
+# 训练命令（TYPE/NAME 格式，不含 .json）
+make train CONFIG=training/2024_atr           # 年度训练
+make train CONFIG=training/2025_01_rolling    # 滚动窗口训练
 
-# 2. 批量回测（使用配置文件）
-npm run backtest -- -- --config 2025 --limit 1000
+# 验证命令
+make validate CONFIG=validation/2024_atr_2025_validation
+make validate CONFIG=validation/2025_01_rolling_2025_01_validation
 
-# 3. 分组并行回测（推荐）
-npm run group:run -- -- --group 1 --groups 10
+# 保存最佳策略
+make save-top3
 
-# 4. 查询 Top 10 结果
-npm run query:top10
-
-# 5. 保存 Top 3 策略到 strategies 表
-npm run save:top3
-
-# 6. 策略验证（在不同时间段测试）
-npm run validate -- -- --config 2025
+# 数据库初始化
+make db-init
 ```
 
 ---
@@ -826,24 +850,37 @@ curl -X POST http://localhost:3001/api/import/gmocoin \
 docker-compose exec api npm run import
 ```
 
-### 策略训练流程
+### 策略训练流程（简化版）
 
 ```bash
-# 1. 确保 K 线数据已导入
-docker-compose exec api npm run import
+# 1. 初始化数据库（首次运行）
+make db-init
 
-# 2. 运行回测训练
-docker compose run --rm train npm run backtest -- -- --config 2025 --limit 500
+# 2. 年度训练
+make train CONFIG=training/2024_atr
+make train CONFIG=training/2025_atr
 
-# 3. 查询 Top 策略
-docker compose run --rm train npm run query:top10
+# 3. 验证策略
+make validate CONFIG=validation/2024_atr_2025_validation
+make validate CONFIG=validation/2024_atr_2026_validation
 
 # 4. 保存最佳策略
-docker compose run --rm train npm run save:top3
+make save-top3
 
-# 5. 验证策略（可选）
-docker compose run --rm train npm run validate -- -- --config 2025
+# 滚动窗口训练（可选）
+make train CONFIG=training/2025_01_rolling
+make train CONFIG=training/2025_02_rolling
+# ... 或使用批量脚本
+
+# 滚动窗口验证
+make validate CONFIG=validation/2025_01_rolling_2025_01_validation
 ```
+
+**优势**:
+- 统一的 `TYPE/NAME` 格式
+- 自动编译 TypeScript
+- 自动安装依赖
+- 清晰的命令语义
 
 ### 调试技巧
 
