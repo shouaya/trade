@@ -1,0 +1,58 @@
+{
+  "name": "2026_VALIDATION_2025_BEST",
+  "description": "2026年验证 - 使用2025最佳ATR策略",
+  "timeRange": {
+    "startTimeMs": 1767225600000,
+    "endTimeMs": 1798761540000,
+    "startIso": "2026-01-01T00:00:00.000Z",
+    "endIso": "2026-12-31T23:59:00.000Z"
+  },
+  "market": {
+    "symbol": "USDJPY",
+    "intervalType": "1min"
+  },
+  "database": {
+    "tableName": "backtest_results_2025_v3_atr_optimization_2026_validation"
+  },
+  "strategy": {
+    "types": ["rsi_only"],
+    "parameters": {
+      "rsi": {
+        "period": [14],
+        "oversold": [30],
+        "overbought": [70]
+      },
+      "risk": {
+        "maxPositions": [1],
+        "lotSize": [0.1],
+        "maxHoldMinutes": [10]
+      },
+      "atr": {
+        "slMultiplier": [3.5],
+        "tpMultiplier": [5.0, 6.0, 7.0]
+      },
+      "tradingSchedule": "* 0-19 * * 1-5",
+      "tradingTimeRestriction": {
+        "enabled": true,
+        "utcExcludeStart": "19:30",
+        "utcExcludeEnd": "23:59",
+        "description": "排除UTC 19:30-23:59 (只允许周一到周五 00:00-19:29)"
+      }
+    }
+  },
+  "executor": {
+    "version": "v3",
+    "options": {
+      "enableMA200Filter": true,
+      "enableMultiTimeframe": true,
+      "enableATRSizing": true,
+      "enableTrailingStop": true,
+      "enableRSIReversion": true
+    }
+  },
+  "output": {
+    "topN": 10,
+    "strategyNamePrefix": "2025-Best-2026-Val-",
+    "descriptionPrefix": "2025最佳策略在2026年验证"
+  }
+}
