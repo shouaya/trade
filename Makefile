@@ -31,6 +31,12 @@ help:
 	@echo "  make train-group     - 大规模并行训练"
 	@echo "  make train-monitor   - 监控并行训练进度"
 	@echo ""
+	@echo "🔄 滚动窗口训练:"
+	@echo "  make rolling-all     - 执行完整滚动窗口训练（14个月）"
+	@echo "  make rolling-month   - 训练指定月份（需MONTH=2025-01）"
+	@echo "  make rolling-report  - 查看滚动窗口汇总报告"
+	@echo "  make rolling-verify  - 验证所有月份结果"
+	@echo ""
 	@echo "📊 结果分析:"
 	@echo "  make analyze         - 通用分析（需指定表名）"
 	@echo "  make analyze-2024    - 分析2024年V3优化版结果"
@@ -177,6 +183,180 @@ train-monitor:
 train-stop:
 	@echo "⏹  停止并行训练..."
 	docker-compose run --rm train bash scripts/stop-strategy-group-backtest.sh
+
+# ============================================================================
+# 滚动窗口训练
+# ============================================================================
+
+# 执行完整滚动窗口训练（14个月）
+rolling-all:
+	@echo "🔄 开始滚动窗口训练..."
+	@echo "⏰ 预计耗时: 3-5小时"
+	@echo "📅 训练月份: 2025-01 至 2026-02 (14个月)"
+	@echo ""
+	@read -p "确认开始训练? [y/N] " confirm; \
+	if [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ]; then \
+		cd train && node scripts/run-rolling-window-training.js; \
+	else \
+		echo "已取消"; \
+	fi
+
+# 训练指定月份的滚动窗口策略
+rolling-month:
+	@if [ -z "$(MONTH)" ]; then \
+		echo "❌ 请指定月份"; \
+		echo "用法: make rolling-month MONTH=2025-01"; \
+		echo "可用月份: 2025-01 到 2026-02"; \
+		exit 1; \
+	fi
+	@echo "🎯 训练滚动窗口: $(MONTH)"
+	@TRAIN_FILE=train/configs/rolling_window/train_$$(echo $(MONTH) | tr '-' '_').json; \
+	if [ ! -f "$$TRAIN_FILE" ]; then \
+		echo "❌ 配置文件不存在: $$TRAIN_FILE"; \
+		exit 1; \
+	fi; \
+	echo "📄 配置文件: $$TRAIN_FILE"; \
+	docker-compose run --rm train node scripts/train.js $$TRAIN_FILE
+
+# 验证指定月份的最佳策略
+rolling-validate:
+	@if [ -z "$(MONTH)" ]; then \
+		echo "❌ 请指定月份"; \
+		echo "用法: make rolling-validate MONTH=2025-01"; \
+		exit 1; \
+	fi
+	@echo "✅ 验证滚动窗口最佳策略: $(MONTH)"
+	@VALIDATE_FILE=train/configs/rolling_window/validation/validate_$$(echo $(MONTH) | tr '-' '_').json; \
+	if [ ! -f "$$VALIDATE_FILE" ]; then \
+		echo "❌ 配置文件不存在: $$VALIDATE_FILE"; \
+		exit 1; \
+	fi; \
+	docker-compose run --rm train node scripts/train.js $$VALIDATE_FILE
+
+# 查看滚动窗口汇总报告
+rolling-report:
+	@if [ ! -f "train/reports/rolling_window_summary.json" ]; then \
+		echo "❌ 报告文件不存在"; \
+		echo "请先运行: make rolling-all"; \
+		exit 1; \
+	fi
+	@echo "📊 滚动窗口汇总报告"
+	@echo "════════════════════════════════════════════════════════════════"
+	@cat train/reports/rolling_window_summary.json | python3 -m json.tool
+
+# 验证所有月份的数据库结果
+rolling-verify:
+	@echo "🔍 验证所有月份的数据库结果..."
+	@docker-compose run --rm train node -e "\
+		const mysql = require('mysql2/promise'); \
+		require('dotenv').config(); \
+		\
+		(async () => { \
+		  const db = await mysql.createConnection({ \
+		    host: process.env.DB_HOST, \
+		    port: process.env.DB_PORT, \
+		    user: process.env.DB_USER, \
+		    password: process.env.DB_PASSWORD, \
+		    database: process.env.DB_NAME \
+		  }); \
+		  \
+		  const months = ['2025_01','2025_02','2025_03','2025_04','2025_05','2025_06', \
+		                  '2025_07','2025_08','2025_09','2025_10','2025_11','2025_12', \
+		                  '2026_01','2026_02']; \
+		  \
+		  console.log('\\n月份\\t\\t训练策略数\\t验证结果数'); \
+		  console.log('─'.repeat(60)); \
+		  \
+		  for (const month of months) { \
+		    try { \
+		      const [train] = await db.query(\`SELECT COUNT(*) as cnt FROM backtest_results_rolling_\$${month}_train\`); \
+		      const [validate] = await db.query(\`SELECT COUNT(*) as cnt FROM backtest_results_rolling_\$${month}_validate\`); \
+		      console.log(\`\$${month.replace('_','-')}\\t\t\$${train[0].cnt}\\t\\t\$${validate[0].cnt}\`); \
+		    } catch (e) { \
+		      console.log(\`\$${month.replace('_','-')}\\t\\t未执行\\t\\t未执行\`); \
+		    } \
+		  } \
+		  \
+		  await db.end(); \
+		})().catch(console.error); \
+	"
+
+# 查询指定月份的训练Top 10
+rolling-top10:
+	@if [ -z "$(MONTH)" ]; then \
+		echo "❌ 请指定月份"; \
+		echo "用法: make rolling-top10 MONTH=2025-01"; \
+		exit 1; \
+	fi
+	@echo "📊 查询 $(MONTH) 训练Top 10策略"
+	@docker-compose run --rm train node -e "\
+		const mysql = require('mysql2/promise'); \
+		require('dotenv').config(); \
+		\
+		(async () => { \
+		  const db = await mysql.createConnection({ \
+		    host: process.env.DB_HOST, \
+		    port: process.env.DB_PORT, \
+		    user: process.env.DB_USER, \
+		    password: process.env.DB_PASSWORD, \
+		    database: process.env.DB_NAME \
+		  }); \
+		  \
+		  const month = '$(MONTH)'.replace('-', '_'); \
+		  const [results] = await db.query(\`\
+		    SELECT strategy_name, total_pnl, total_trades, win_rate, sharpe_ratio \
+		    FROM backtest_results_rolling_\$${month}_train \
+		    ORDER BY total_pnl DESC \
+		    LIMIT 10 \
+		  \`); \
+		  \
+		  console.table(results); \
+		  await db.end(); \
+		})().catch(console.error); \
+	"
+
+# 查询指定月份的验证结果
+rolling-validate-result:
+	@if [ -z "$(MONTH)" ]; then \
+		echo "❌ 请指定月份"; \
+		echo "用法: make rolling-validate-result MONTH=2025-01"; \
+		exit 1; \
+	fi
+	@echo "📊 查询 $(MONTH) 验证结果"
+	@docker-compose run --rm train node -e "\
+		const mysql = require('mysql2/promise'); \
+		require('dotenv').config(); \
+		\
+		(async () => { \
+		  const db = await mysql.createConnection({ \
+		    host: process.env.DB_HOST, \
+		    port: process.env.DB_PORT, \
+		    user: process.env.DB_USER, \
+		    password: process.env.DB_PASSWORD, \
+		    database: process.env.DB_NAME \
+		  }); \
+		  \
+		  const month = '$(MONTH)'.replace('-', '_'); \
+		  const [results] = await db.query(\`\
+		    SELECT strategy_name, total_pnl, total_trades, win_rate, sharpe_ratio, profit_factor \
+		    FROM backtest_results_rolling_\$${month}_validate \
+		    ORDER BY total_pnl DESC \
+		  \`); \
+		  \
+		  console.table(results); \
+		  await db.end(); \
+		})().catch(console.error); \
+	"
+
+# 对比所有月份验证结果
+rolling-compare:
+	@echo "📊 对比所有月份验证结果..."
+	@docker-compose run --rm train node scripts/rolling-compare.js
+
+# 生成训练汇总报告
+rolling-training-report:
+	@echo "📊 生成训练期汇总报告..."
+	@docker-compose run --rm train node scripts/generate-training-summary.js
 
 # ============================================================================
 # 结果分析
@@ -438,5 +618,40 @@ help-db:
 	@echo "3. 维护:"
 	@echo "   make db-backup      # 备份"
 	@echo "   make db-clean       # 清理旧数据"
+	@echo ""
+	@echo "════════════════════════════════════════════════════════════════"
+
+# 显示滚动窗口命令示例
+help-rolling:
+	@echo "════════════════════════════════════════════════════════════════"
+	@echo "  滚动窗口训练命令示例"
+	@echo "════════════════════════════════════════════════════════════════"
+	@echo ""
+	@echo "📖 什么是滚动窗口策略?"
+	@echo "   每个月使用过去12个月的数据训练最佳策略，然后只在当月验证"
+	@echo "   这样可以让策略始终适应最新的市场环境"
+	@echo ""
+	@echo "🎯 完整流程（推荐）:"
+	@echo "   make rolling-all           # 执行完整14个月训练（3-5小时）"
+	@echo "   make rolling-report        # 查看汇总报告"
+	@echo "   make rolling-compare       # 对比所有月份结果"
+	@echo ""
+	@echo "📅 单月训练:"
+	@echo "   make rolling-month MONTH=2025-01          # 训练指定月份"
+	@echo "   make rolling-validate MONTH=2025-01       # 验证指定月份"
+	@echo "   make rolling-top10 MONTH=2025-01          # 查看训练Top10"
+	@echo "   make rolling-validate-result MONTH=2025-01  # 查看验证结果"
+	@echo ""
+	@echo "🔍 结果查询:"
+	@echo "   make rolling-verify        # 验证所有月份数据"
+	@echo "   make rolling-compare       # 对比所有月份最佳策略"
+	@echo ""
+	@echo "💡 示例工作流:"
+	@echo "   1. make rolling-all                      # 执行完整训练"
+	@echo "   2. make rolling-compare                  # 查看所有月份对比"
+	@echo "   3. make rolling-top10 MONTH=2025-01      # 查看某月训练详情"
+	@echo "   4. make rolling-validate-result MONTH=2025-01  # 查看验证详情"
+	@echo ""
+	@echo "📊 月份范围: 2025-01 至 2026-02 (14个月)"
 	@echo ""
 	@echo "════════════════════════════════════════════════════════════════"

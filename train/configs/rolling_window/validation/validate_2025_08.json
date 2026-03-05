@@ -1,0 +1,66 @@
+{
+  "name": "ROLLING_2025_08_VALIDATE",
+  "description": "2025-08执行月 - 使用该月最佳策略在2025-08验证",
+  "timeRange": {
+    "startTimeMs": 1754006400000,
+    "endTimeMs": 1756684740000,
+    "startIso": "2025-08-01T00:00:00.000Z",
+    "endIso": "2025-08-31T23:59:00.000Z"
+  },
+  "market": {
+    "symbol": "USDJPY",
+    "intervalType": "1min"
+  },
+  "database": {
+    "tableName": "backtest_results_rolling_2025_08_validate"
+  },
+  "strategy": {
+    "types": [
+      "rsi_only"
+    ],
+    "parameters": {
+      "rsi": {
+        "period": [
+          14
+        ],
+        "oversold": [
+          30
+        ],
+        "overbought": [
+          70
+        ]
+      },
+      "risk": {
+        "maxPositions": [
+          1
+        ],
+        "lotSize": [
+          0.1
+        ],
+        "maxHoldMinutes": "{{FROM_TRAINING_RESULT}}"
+      },
+      "atr": {
+        "slMultiplier": "{{FROM_TRAINING_RESULT}}",
+        "tpMultiplier": "{{FROM_TRAINING_RESULT}}"
+      },
+      "tradingSchedule": "* 0-19 * * 1-5",
+      "tradingTimeRestriction": {
+        "enabled": true,
+        "utcExcludeStart": "19:30",
+        "utcExcludeEnd": "23:59"
+      }
+    }
+  },
+  "executor": {
+    "version": "v3",
+    "options": {
+      "enableMA200Filter": true,
+      "enableMultiTimeframe": true,
+      "enableATRSizing": true,
+      "enableTrailingStop": true,
+      "enableRSIReversion": true
+    }
+  },
+  "sourceTrainingTable": "backtest_results_rolling_2025_08_train",
+  "note": "此配置的参数会从训练结果的最佳策略中自动填充"
+}

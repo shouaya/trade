@@ -1,0 +1,89 @@
+{
+  "name": "ROLLING_2026_02_TRAIN",
+  "description": "2026-02执行月 - 使用2025-02到2026-01数据训练",
+  "timeRange": {
+    "startTimeMs": 1738368000000,
+    "endTimeMs": 1769903940000,
+    "startIso": "2025-02-01T00:00:00.000Z",
+    "endIso": "2026-01-31T23:59:00.000Z"
+  },
+  "market": {
+    "symbol": "USDJPY",
+    "intervalType": "1min"
+  },
+  "database": {
+    "tableName": "backtest_results_rolling_2026_02_train"
+  },
+  "strategy": {
+    "types": [
+      "rsi_only"
+    ],
+    "parameters": {
+      "rsi": {
+        "period": [
+          14
+        ],
+        "oversold": [
+          30
+        ],
+        "overbought": [
+          70
+        ]
+      },
+      "risk": {
+        "maxPositions": [
+          1
+        ],
+        "lotSize": [
+          0.1
+        ],
+        "maxHoldMinutes": [
+          5,
+          10,
+          15,
+          20,
+          25,
+          30
+        ]
+      },
+      "atr": {
+        "slMultiplier": [
+          2,
+          2.5,
+          3,
+          3.5,
+          4
+        ],
+        "tpMultiplier": [
+          3,
+          4,
+          5,
+          6,
+          7
+        ]
+      },
+      "tradingSchedule": "* 0-19 * * 1-5",
+      "tradingTimeRestriction": {
+        "enabled": true,
+        "utcExcludeStart": "19:30",
+        "utcExcludeEnd": "23:59",
+        "description": "排除UTC 19:30-23:59"
+      }
+    }
+  },
+  "executor": {
+    "version": "v3",
+    "options": {
+      "enableMA200Filter": true,
+      "enableMultiTimeframe": true,
+      "enableATRSizing": true,
+      "enableTrailingStop": true,
+      "enableRSIReversion": true
+    }
+  },
+  "output": {
+    "topN": 10,
+    "strategyNamePrefix": "Rolling-2026-02-",
+    "descriptionPrefix": "滚动窗口2026-02月策略"
+  }
+}
