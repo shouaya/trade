@@ -15,6 +15,7 @@
     "group:run": "node scripts/group-backtest.js",
     "group:query": "node scripts/query-strategy-group-results.js",
     "query:top10": "node scripts/query-multi-dimension-top10.js",
+    "query:metrics": "node scripts/query-top-by-metrics.js",
     "save:top10": "node scripts/save-top10-deduplicated.js",
     "save:top3": "node scripts/save-top3-strategies.js"
   },

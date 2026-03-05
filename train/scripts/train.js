@@ -73,7 +73,7 @@ function generateStrategies(config) {
   const strategyTypes = config.strategy.types || ['rsi_only'];
   const parameters = config.strategy.parameters || {};
 
-  const strategies = generateStrategyCombinations(strategyTypes, parameters);
+  const strategies = generateStrategyCombinations({ types: strategyTypes, parameters });
 
   console.log(`\n✅ 生成了 ${strategies.length} 个策略组合\n`);
 

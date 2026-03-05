@@ -1,0 +1,55 @@
+{
+  "name": "2024_V3_RSI_HOLDTIME",
+  "description": "2024年V3 RSI策略 - holdtime测试(5-30分钟), UTC 19:30-24:30禁止交易, 周一到周五",
+  "timeRange": {
+    "startTimeMs": 1704067200000,
+    "endTimeMs": 1735689540000,
+    "startIso": "2024-01-01T00:00:00.000Z",
+    "endIso": "2024-12-31T23:59:00.000Z"
+  },
+  "market": {
+    "symbol": "USDJPY",
+    "intervalType": "1min"
+  },
+  "database": {
+    "tableName": "backtest_results_2024_v3_holdtime"
+  },
+  "strategy": {
+    "types": ["rsi_only"],
+    "parameters": {
+      "rsi": {
+        "period": [14],
+        "oversold": [30],
+        "overbought": [70],
+        "multiplier": [1]
+      },
+      "risk": {
+        "stopLossPercent": [null, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4],
+        "takeProfitPercent": [null, 0.2, 0.3, 0.5, 0.7, 1.0, 1.5, 2.0],
+        "maxHoldMinutes": [5, 10, 15, 20, 25, 30]
+      },
+      "tradingSchedule": "* 0-19 * * 1-5",
+      "tradingTimeRestriction": {
+        "enabled": true,
+        "utcExcludeStart": "19:30",
+        "utcExcludeEnd": "23:59",
+        "description": "排除UTC 19:30-23:59 (只允许周一到周五 00:00-19:29)"
+      }
+    }
+  },
+  "executor": {
+    "version": "v3",
+    "options": {
+      "enableMA200Filter": true,
+      "enableMultiTimeframe": true,
+      "enableATRSizing": true,
+      "enableTrailingStop": true,
+      "enableRSIReversion": true
+    }
+  },
+  "output": {
+    "topN": 20,
+    "strategyNamePrefix": "2024-V3-Holdtime-",
+    "descriptionPrefix": "2024年V3 RSI Holdtime测试"
+  }
+}

@@ -35,6 +35,7 @@ help:
 	@echo "  make analyze         - 通用分析（需指定表名）"
 	@echo "  make analyze-2024    - 分析2024年V3优化版结果"
 	@echo "  make query-top10     - 查询多维度Top10策略"
+	@echo "  make query-metrics   - 查询多指标Top策略（需指定表名）"
 	@echo ""
 	@echo "✅ 策略验证:"
 	@echo "  make validate        - 验证策略"
@@ -200,6 +201,16 @@ analyze-2024:
 query-top10:
 	@echo "📊 查询多维度Top10策略..."
 	docker-compose run --rm train npm run query:top10
+
+# 查询多指标Top策略（盈亏、胜率、夏普、盈亏比）
+query-metrics:
+	@if [ -z "$(TABLE)" ]; then \
+		echo "❌ 请指定结果表名"; \
+		echo "用法: make query-metrics TABLE=backtest_results_2024_v3_holdtime"; \
+		exit 1; \
+	fi
+	@echo "📊 查询多指标Top策略: $(TABLE)"
+	docker-compose run --rm train node scripts/query-top-by-metrics.js $(TABLE) $(TOP)
 
 # ============================================================================
 # 策略验证

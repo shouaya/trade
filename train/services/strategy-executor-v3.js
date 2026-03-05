@@ -74,6 +74,9 @@ class StrategyExecutorV3 {
     const scheduleExpr = strategy.parameters.tradingSchedule || '* 0-19 * * 1-5';
     this.tradingSchedule = new TradingSchedule(scheduleExpr);
 
+    // 时间限制配置 (用于排除特定时间段，如UTC 19:30-24:30)
+    this.timeRestriction = strategy.parameters.tradingTimeRestriction || null;
+
     // 计算RSI
     this.rsiValues = this.calculateRSI();
 
@@ -126,7 +129,44 @@ class StrategyExecutorV3 {
    * 检查是否允许在当前时间开仓
    */
   isTradingAllowed(currentTime) {
-    return this.tradingSchedule.isAllowed(currentTime);
+    // 先检查基本的交易时间表
+    if (!this.tradingSchedule.isAllowed(currentTime)) {
+      return false;
+    }
+
+    // 如果配置了时间限制，额外检查
+    if (this.timeRestriction && this.timeRestriction.enabled) {
+      const hour = currentTime.getUTCHours();
+      const minute = currentTime.getUTCMinutes();
+
+      // 解析排除时间段 (例如 "19:30" 和 "24:30")
+      const excludeStart = this.timeRestriction.utcExcludeStart;
+      const excludeEnd = this.timeRestriction.utcExcludeEnd;
+
+      if (excludeStart && excludeEnd) {
+        const [startHour, startMinute] = excludeStart.split(':').map(Number);
+        const [endHour, endMinute] = excludeEnd.split(':').map(Number);
+
+        const currentMinutes = hour * 60 + minute;
+        const startMinutes = startHour * 60 + startMinute;
+        const endMinutes = endHour * 60 + endMinute;
+
+        // 检查是否在排除时间段内
+        if (endMinutes > startMinutes) {
+          // 正常情况: 19:30-24:30
+          if (currentMinutes >= startMinutes && currentMinutes <= endMinutes) {
+            return false;
+          }
+        } else {
+          // 跨天情况: 23:00-02:00
+          if (currentMinutes >= startMinutes || currentMinutes <= endMinutes) {
+            return false;
+          }
+        }
+      }
+    }
+
+    return true;
   }
 
   /**
@@ -261,9 +301,14 @@ class StrategyExecutorV3 {
     if (this.enableATRSizing) {
       const atr = this.atrValues[index];
       if (atr) {
+        // 从策略参数中读取ATR倍数，如果没有则使用默认值
+        const atrConfig = this.strategy.parameters.atr || {};
+        const slMultiplier = atrConfig.slMultiplier || 2.0;
+        const tpMultiplier = atrConfig.tpMultiplier || 3.0;
+
         const sltp = ATRCalculator.calculateDynamicSLTP(atr, entryPrice, direction, {
-          slMultiplier: 2.0,
-          tpMultiplier: 3.0
+          slMultiplier: slMultiplier,
+          tpMultiplier: tpMultiplier
         });
         return sltp.stopLoss;
       }
@@ -289,9 +334,14 @@ class StrategyExecutorV3 {
     if (this.enableATRSizing) {
       const atr = this.atrValues[index];
       if (atr) {
+        // 从策略参数中读取ATR倍数，如果没有则使用默认值
+        const atrConfig = this.strategy.parameters.atr || {};
+        const slMultiplier = atrConfig.slMultiplier || 2.0;
+        const tpMultiplier = atrConfig.tpMultiplier || 3.0;
+
         const sltp = ATRCalculator.calculateDynamicSLTP(atr, entryPrice, direction, {
-          slMultiplier: 2.0,
-          tpMultiplier: 3.0
+          slMultiplier: slMultiplier,
+          tpMultiplier: tpMultiplier
         });
         return sltp.takeProfit;
       }

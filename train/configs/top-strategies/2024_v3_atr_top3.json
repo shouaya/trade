@@ -1,0 +1,130 @@
+{
+  "name": "2024_V3_ATR_TOP3",
+  "description": "2024年ATR优化Top 3策略集合",
+  "trainingDate": "2026-03-05",
+  "backtestPeriod": {
+    "start": "2024-01-01",
+    "end": "2024-12-31"
+  },
+  "strategies": [
+    {
+      "rank": 1,
+      "name": "RSI-P14-OS30-OB70-MP1-H25-ATRSL4-ATRTP5",
+      "description": "盈亏最佳 - 25分钟持仓",
+      "performance": {
+        "totalPnL": 1920.50,
+        "totalTrades": 710,
+        "winRate": 64.9,
+        "sharpeRatio": 0.061,
+        "maxDrawdown": -1224.00,
+        "profitFactor": 1.18
+      },
+      "parameters": {
+        "rsi": { "period": 14, "oversold": 30, "overbought": 70 },
+        "risk": { "maxPositions": 1, "lotSize": 0.1, "maxHoldMinutes": 25 },
+        "atr": { "slMultiplier": 4.0, "tpMultiplier": 5.0 },
+        "tradingSchedule": "* 0-19 * * 1-5",
+        "tradingTimeRestriction": {
+          "enabled": true,
+          "utcExcludeStart": "19:30",
+          "utcExcludeEnd": "23:59"
+        }
+      },
+      "executor": {
+        "version": "v3",
+        "enableMA200Filter": true,
+        "enableMultiTimeframe": true,
+        "enableATRSizing": true,
+        "enableTrailingStop": true,
+        "enableRSIReversion": true
+      }
+    },
+    {
+      "rank": 2,
+      "name": "RSI-P14-OS30-OB70-MP1-H25-ATRSL4-ATRTP4",
+      "description": "盈亏第二 - 25分钟持仓, TP倍数稍低",
+      "performance": {
+        "totalPnL": 1916.50,
+        "totalTrades": 710,
+        "winRate": 64.9,
+        "sharpeRatio": 0.061,
+        "maxDrawdown": -1224.00,
+        "profitFactor": 1.18
+      },
+      "parameters": {
+        "rsi": { "period": 14, "oversold": 30, "overbought": 70 },
+        "risk": { "maxPositions": 1, "lotSize": 0.1, "maxHoldMinutes": 25 },
+        "atr": { "slMultiplier": 4.0, "tpMultiplier": 4.0 },
+        "tradingSchedule": "* 0-19 * * 1-5",
+        "tradingTimeRestriction": {
+          "enabled": true,
+          "utcExcludeStart": "19:30",
+          "utcExcludeEnd": "23:59"
+        }
+      },
+      "executor": {
+        "version": "v3",
+        "enableMA200Filter": true,
+        "enableMultiTimeframe": true,
+        "enableATRSizing": true,
+        "enableTrailingStop": true,
+        "enableRSIReversion": true
+      }
+    },
+    {
+      "rank": 3,
+      "name": "RSI-P14-OS30-OB70-MP1-H30-ATRSL4-ATRTP6",
+      "description": "胜率最佳 - 30分钟持仓, 66.1%胜率",
+      "performance": {
+        "totalPnL": 1773.50,
+        "totalTrades": 708,
+        "winRate": 66.1,
+        "sharpeRatio": 0.056,
+        "maxDrawdown": -1429.50,
+        "profitFactor": 1.17
+      },
+      "parameters": {
+        "rsi": { "period": 14, "oversold": 30, "overbought": 70 },
+        "risk": { "maxPositions": 1, "lotSize": 0.1, "maxHoldMinutes": 30 },
+        "atr": { "slMultiplier": 4.0, "tpMultiplier": 6.0 },
+        "tradingSchedule": "* 0-19 * * 1-5",
+        "tradingTimeRestriction": {
+          "enabled": true,
+          "utcExcludeStart": "19:30",
+          "utcExcludeEnd": "23:59"
+        }
+      },
+      "executor": {
+        "version": "v3",
+        "enableMA200Filter": true,
+        "enableMultiTimeframe": true,
+        "enableATRSizing": true,
+        "enableTrailingStop": true,
+        "enableRSIReversion": true
+      }
+    }
+  ],
+  "summary": {
+    "totalStrategiesTested": 150,
+    "profitableStrategies": 150,
+    "profitableRate": "100.0%",
+    "avgPnL": 1339.75,
+    "avgWinRate": 56.35,
+    "avgSharpe": 0.046,
+    "bestPnL": 1920.50,
+    "bestWinRate": 66.1,
+    "bestSharpe": 0.061
+  },
+  "keyFindings": [
+    "ATR 4×止损 + 5×-6×止盈组合表现最佳",
+    "25-30分钟持仓时间最优",
+    "所有150个策略100%盈利，参数空间非常稳健",
+    "相比固定百分比止损止盈提升25.7%",
+    "相比默认ATR倍数(2×/3×)提升25.7%"
+  ],
+  "recommendations": {
+    "conservative": "使用策略3 (H30-ATRSL4-ATRTP6) - 最高胜率66.1%",
+    "balanced": "使用策略1 (H25-ATRSL4-ATRTP5) - 最佳盈亏和夏普比率",
+    "aggressive": "使用策略1 但可以考虑增加仓位或交易频率"
+  }
+}
