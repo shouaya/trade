@@ -16,6 +16,7 @@
 const path = require('path');
 const fs = require('fs');
 const db = require('../configs/database');
+const { createTaskManager } = require('../services/task-manager');
 
 // 常量
 const PROGRESS_INTERVAL_MS = 10000;
@@ -434,39 +435,63 @@ async function main() {
     process.exit(1);
   }
 
+  let taskManager;
+  let taskId;
+
   try {
-    // 1. 加载配置
+    // 0. 创建任务管理器并清理僵尸任务
     console.log('╔════════════════════════════════════════════════════════════╗');
     console.log('║                    策略训练系统                            ║');
-    console.log('╚════════════════════════════════════════════════════════════╝');
+    console.log('╚════════════════════════════════════════════════════════════╝\n');
 
+    console.log('🔍 检查并清理僵尸任务...');
+    taskManager = await createTaskManager();
+    const cleanupResult = await taskManager.cleanupZombieTasks();
+
+    if (cleanupResult.cleaned > 0) {
+      console.log(`⚠️  清理了 ${cleanupResult.cleaned} 个僵尸任务`);
+      if (cleanupResult.tradesCleared) {
+        console.log('⚠️  trades表已清空（避免数据污染）\n');
+      }
+    }
+
+    // 1. 加载配置
     const config = loadConfig(configPath);
     console.log(`\n📋 训练配置: ${config.name}`);
     console.log(`📝 说明: ${config.description || '无'}`);
 
-    // 2. 确保数据库表
+    // 2. 注册任务
+    taskId = await taskManager.createTask(
+      config.name,
+      config.description || `Training ${config.name}`
+    );
+
+    // 3. 确保数据库表
     await ensureBacktestTable(config.database.tableName);
 
-    // 3. 生成策略
+    // 4. 生成策略
     const strategies = generateStrategies(config);
 
-    // 4. 加载K线数据
+    // 5. 加载K线数据
     const klines = await loadKlines(config);
 
-    // 5. 加载执行器
+    // 6. 加载执行器
     const Executor = loadExecutor(config.executor.version);
 
-    // 6. 执行训练
+    // 7. 执行训练
     await runTraining(config, strategies, klines, Executor);
 
-    // 7. 查询Top策略
+    // 8. 查询Top策略
     const topN = config.output.topN || 10;
     const topResults = await queryTopStrategies(config.database.tableName, topN);
 
-    // 8. 保存Top策略
+    // 9. 保存Top策略
     if (topResults.length > 0) {
       await saveTopStrategies(topResults, config);
     }
+
+    // 10. 标记任务完成
+    await taskManager.completeTask(taskId);
 
     // 完成
     console.log('╔════════════════════════════════════════════════════════════╗');
@@ -482,9 +507,18 @@ async function main() {
   } catch (error) {
     console.error('\n❌ 训练失败:', error.message);
     console.error(error.stack);
+
+    // 标记任务失败
+    if (taskManager && taskId) {
+      await taskManager.failTask(taskId, error);
+    }
+
     process.exit(1);
   } finally {
     await db.end();
+    if (taskManager && taskManager.db) {
+      await taskManager.db.end();
+    }
   }
 }
 
