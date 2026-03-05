@@ -49,20 +49,10 @@ function loadConfig(configPath) {
 
 /**
  * 加载策略执行器
+ * 注意: version参数保留用于向后兼容，但现在只有一个执行器版本
  */
 function loadExecutor(version) {
-  const executorMap = {
-    'v1': '../services/strategy-executor-v1',
-    'v2': '../services/strategy-executor-v2',
-    'v3': '../services/strategy-executor-v3'
-  };
-
-  const executorPath = executorMap[version];
-  if (!executorPath) {
-    throw new Error(`不支持的执行器版本: ${version}`);
-  }
-
-  return require(executorPath);
+  return require('../services/strategy-executor');
 }
 
 /**
