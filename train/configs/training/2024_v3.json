@@ -1,0 +1,25 @@
+{
+  "startTimeMs": 1704067200000,
+  "endTimeMs": 1735689540000,
+  "symbol": "USDJPY",
+  "intervalType": "1min",
+  "tableName": "backtest_results_2024_v3",
+  "topN": 10,
+  "retainDays": 7,
+  "strategyNamePrefix": "2024_V3_",
+  "descriptionPrefix": "Trained on 2024 data with V3 executor",
+  "executorVersion": "v3",
+  "executorOptions": {
+    "enableMA200Filter": true,
+    "enableSlippage": false,
+    "enableMultiTimeframe": true,
+    "enableATRSizing": true,
+    "enableTrailingStop": true,
+    "enableRSIReversion": true,
+    "trailingConfig": {
+      "activationPercent": 0.1,
+      "lockProfitPercent": 0.3,
+      "lockProfitAmount": 0.1
+    }
+  }
+}
