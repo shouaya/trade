@@ -794,12 +794,9 @@ return {
 make train CONFIG=training/2024_atr           # 年度训练
 make train CONFIG=training/2025_01_rolling    # 滚动窗口训练
 
-# 验证命令
+# 验证命令（验证时自动选出并保存 Top 10 策略）
 make validate CONFIG=validation/2024_atr_2025_validation
 make validate CONFIG=validation/2025_01_rolling_2025_01_validation
-
-# 保存最佳策略
-make save-top3
 
 # 数据库初始化
 make db-init
@@ -860,19 +857,15 @@ make db-init
 make train CONFIG=training/2024_atr
 make train CONFIG=training/2025_atr
 
-# 3. 验证策略
+# 3. 验证策略（验证时自动选出并保存 Top 10）
 make validate CONFIG=validation/2024_atr_2025_validation
 make validate CONFIG=validation/2024_atr_2026_validation
 
-# 4. 保存最佳策略
-make save-top3
+# 4. 批量滚动窗口训练+验证（可选）
+make rolling-all
 
-# 滚动窗口训练（可选）
+# 或单独训练和验证
 make train CONFIG=training/2025_01_rolling
-make train CONFIG=training/2025_02_rolling
-# ... 或使用批量脚本
-
-# 滚动窗口验证
 make validate CONFIG=validation/2025_01_rolling_2025_01_validation
 ```
 

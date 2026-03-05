@@ -226,27 +226,27 @@ async function saveTrades(trades: readonly TradeRecord[]): Promise<void> {
   const values = trades.map(t => [
     t.direction,
     t.entry_time,
-    t.entry_price,
+    sanitizeNumber(t.entry_price),
     t.entry_index ?? 0,
-    t.entry_rsi ?? null,
-    t.entry_macd ?? null,
-    t.entry_macd_signal ?? null,
-    t.entry_macd_histogram ?? null,
-    t.lot_size ?? 1.0,
-    t.hold_minutes ?? 0,
-    t.stop_loss ?? null,
-    t.take_profit ?? null,
+    sanitizeNumber(t.entry_rsi ?? null),
+    sanitizeNumber(t.entry_macd ?? null),
+    sanitizeNumber(t.entry_macd_signal ?? null),
+    sanitizeNumber(t.entry_macd_histogram ?? null),
+    sanitizeNumber(t.lot_size ?? 1.0),
+    sanitizeNumber(t.hold_minutes ?? 0),
+    sanitizeNumber(t.stop_loss ?? null),
+    sanitizeNumber(t.take_profit ?? null),
     t.exit_time,
-    t.exit_price,
-    t.exit_rsi ?? null,
-    t.exit_macd ?? null,
-    t.exit_macd_signal ?? null,
-    t.exit_macd_histogram ?? null,
+    sanitizeNumber(t.exit_price),
+    sanitizeNumber(t.exit_rsi ?? null),
+    sanitizeNumber(t.exit_macd ?? null),
+    sanitizeNumber(t.exit_macd_signal ?? null),
+    sanitizeNumber(t.exit_macd_histogram ?? null),
     t.exit_reason,
-    t.pnl,
-    t.pips ?? null,
-    t.percent ?? null,
-    t.actual_hold_minutes ?? t.hold_minutes ?? 0,
+    sanitizeNumber(t.pnl),
+    sanitizeNumber(t.pips ?? null),
+    sanitizeNumber(t.percent ?? null),
+    sanitizeNumber(t.actual_hold_minutes ?? t.hold_minutes ?? 0),
     t.strategy_name,
     t.symbol ?? 'USDJPY',
     null // notes
@@ -282,6 +282,24 @@ function calculateScore(stats: BacktestStats): number {
 }
 
 /**
+ * 辅助函数：将NaN和Infinity转换为null，同时处理非数字类型
+ */
+function sanitizeNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+
+  // 如果是对象或数组，返回null
+  if (typeof value === 'object') return null;
+
+  // 尝试转换为数字
+  const num = Number(value);
+
+  // 如果转换失败或不是有限数，返回null
+  if (isNaN(num) || !isFinite(num)) return null;
+
+  return num;
+}
+
+/**
  * 保存策略结果
  */
 async function saveStrategyResult(
@@ -294,6 +312,18 @@ async function saveStrategyResult(
   const stats = result.stats;
   const score = calculateScore(stats);
 
+  // 计算winning/losing trades
+  const winningTrades = result.trades ? result.trades.filter(t => t.pnl > 0).length : 0;
+  const losingTrades = result.trades ? result.trades.filter(t => t.pnl <= 0).length : 0;
+
+  // 计算gross profit/loss
+  const grossProfit = sanitizeNumber(
+    (stats.avgWin ?? 0) * winningTrades
+  );
+  const grossLoss = sanitizeNumber(
+    (stats.avgLoss ?? 0) * losingTrades
+  );
+
   await db.query(
     `INSERT INTO ${tableName}
      (strategy_name, strategy_type, total_trades, winning_trades, losing_trades,
@@ -305,19 +335,19 @@ async function saveStrategyResult(
       strategy.name,
       strategy.type,
       stats.totalTrades,
-      stats.totalTrades - stats.totalTrades, // winning_trades placeholder
-      stats.totalTrades, // losing_trades placeholder
-      stats.winRate,
-      stats.totalPnl,
-      stats.avgPnl,
-      stats.sharpeRatio,
-      stats.profitFactor,
-      stats.maxDrawdown,
-      stats.avgWin * stats.totalTrades * stats.winRate, // gross_profit
-      stats.avgLoss * stats.totalTrades * (1 - stats.winRate), // gross_loss
-      stats.avgWin ?? 0,
-      stats.avgLoss ?? 0,
-      score,
+      winningTrades,
+      losingTrades,
+      sanitizeNumber(stats.winRate),
+      sanitizeNumber(stats.totalPnl),
+      sanitizeNumber(stats.avgPnl),
+      sanitizeNumber(stats.sharpeRatio),
+      sanitizeNumber(stats.profitFactor),
+      sanitizeNumber(stats.maxDrawdown),
+      grossProfit,
+      grossLoss,
+      sanitizeNumber(stats.avgWin ?? 0),
+      sanitizeNumber(stats.avgLoss ?? 0),
+      sanitizeNumber(score),
       JSON.stringify(strategy.parameters),
       executorVersion,
       JSON.stringify(executorOptions)

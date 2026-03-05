@@ -86,14 +86,11 @@ make validate CONFIG=validation/2025_02_rolling_2025_02_validation
 # 1. 在2024年数据上训练
 make train CONFIG=training/2024_atr
 
-# 2. 在2025年数据上验证
+# 2. 在2025年数据上验证（自动选出并保存 Top 10）
 make validate CONFIG=validation/2024_atr_2025_validation
 
 # 3. 在2026年数据上验证
 make validate CONFIG=validation/2024_atr_2026_validation
-
-# 4. 保存最佳策略
-make save-top3
 ```
 
 ### 工作流 2: 滚动窗口训练

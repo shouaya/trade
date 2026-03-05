@@ -11,8 +11,7 @@
     "type-check": "tsc --noEmit",
     "init-db": "node dist/scripts/init-db.js",
     "train": "node dist/scripts/train.js",
-    "validate": "node dist/scripts/train.js",
-    "save-top3": "node dist/scripts/save-top3-strategies.js"
+    "validate": "node dist/scripts/train.js"
   },
   "dependencies": {
     "dotenv": "^16.3.1",

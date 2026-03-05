@@ -1,4 +1,4 @@
-.PHONY: help up down restart logs logs-train ps shell mysql db-init db-backup db-tables train validate save-top3 clean
+.PHONY: help up down restart logs logs-train ps shell mysql db-init db-backup db-tables train validate rolling-all rolling-train rolling-validate clean
 
 # ============================================================================
 # 默认命令：显示帮助
@@ -31,12 +31,14 @@ help:
 	@echo "     make train CONFIG=training/2025_atr                      # 年度训练"
 	@echo "     make train CONFIG=training/2025_01_rolling               # 滚动窗口"
 	@echo ""
-	@echo "  2. 验证 - 通过 TYPE/CONFIG 格式指定配置文件"
+	@echo "  2. 验证 - 通过 TYPE/CONFIG 格式指定配置文件（自动保存 Top 10）"
 	@echo "     make validate CONFIG=validation/2024_atr_2025_validation     # 年度验证"
 	@echo "     make validate CONFIG=validation/2025_01_rolling_2025_01_validation  # 滚动验证"
 	@echo ""
-	@echo "  3. 保存 - 保存Top策略"
-	@echo "     make save-top3                                         # 保存Top 3"
+	@echo "🔄 批量操作:"
+	@echo "  make rolling-all        # 训练+验证所有滚动窗口（2025-01到2026-02）"
+	@echo "  make rolling-train      # 只训练所有滚动窗口"
+	@echo "  make rolling-validate   # 只验证所有滚动窗口"
 	@echo ""
 	@echo "🧹 清理:"
 	@echo "  make clean           - 清理临时文件"
@@ -144,12 +146,23 @@ validate:
 	docker-compose run --rm train sh -c "npm install && npm run build && npm run validate configs/$$CONFIG_PATH"
 
 # ============================================================================
-# 3. 保存 Top 策略到数据库
+# 3. 批量操作
 # ============================================================================
 
-save-top3:
-	@echo "💾 保存Top 3策略到数据库..."
-	@docker-compose run --rm train sh -c "npm install && npm run build && npm run save-top3"
+# 批量滚动窗口训练+验证（默认：训练+验证全部）
+rolling-all:
+	@echo "🔄 开始批量滚动窗口处理..."
+	@bash train/scripts/run-all-rolling.sh
+
+# 只训练所有滚动窗口
+rolling-train:
+	@echo "🎯 只训练所有滚动窗口..."
+	@bash train/scripts/run-all-rolling.sh --train-only
+
+# 只验证所有滚动窗口
+rolling-validate:
+	@echo "✅ 只验证所有滚动窗口..."
+	@bash train/scripts/run-all-rolling.sh --validate-only
 
 # ============================================================================
 # 清理

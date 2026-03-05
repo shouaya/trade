@@ -22,11 +22,8 @@ make db-init
 # 3. 训练2024年策略
 make train CONFIG=training/2024_atr
 
-# 4. 验证策略
+# 4. 验证策略（自动选出并保存 Top 10）
 make validate CONFIG=validation/2024_atr_2025_validation
-
-# 5. 保存最佳策略
-make save-top3
 ```
 
 ## 🔧 可用命令
@@ -59,11 +56,6 @@ make validate CONFIG=validation/2024_atr_2026_validation
 # 反向验证
 make validate CONFIG=validation/2025_atr_2024_validation
 make validate CONFIG=validation/2025_atr_2026_validation
-```
-
-### 策略管理
-```bash
-make save-top3       # 保存Top 3策略到数据库
 ```
 
 ### 数据库

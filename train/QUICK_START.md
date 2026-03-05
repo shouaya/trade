@@ -33,12 +33,6 @@ make validate CONFIG=validation/2025_atr_2024_validation
 make validate CONFIG=validation/2025_atr_2026_validation
 ```
 
-### 3. 保存策略
-
-```bash
-make save-top3
-```
-
 ## 📁 配置文件目录结构
 
 **只有两个标准目录：**
@@ -67,11 +61,8 @@ configs/
 # 1. 训练 2024 年
 make train CONFIG=training/2024_atr
 
-# 2. 用 2025 年验证
+# 2. 用 2025 年验证（自动选出并保存 Top 10 策略）
 make validate CONFIG=validation/2024_atr_2025_validation
-
-# 3. 保存最佳策略
-make save-top3
 ```
 
 ### 场景 2: 滚动窗口训练
@@ -86,19 +77,30 @@ make train CONFIG=training/2025_02_rolling
 # ... 依次训练所有月份
 ```
 
-### 场景 3: 批量滚动窗口训练
+### 场景 3: 批量滚动窗口训练 + 验证
 
-创建脚本 `scripts/train-all-rolling.sh`：
+使用一键命令训练和验证所有滚动窗口（2025-01 到 2026-02，共14个月）：
 
 ```bash
-#!/bin/bash
-for i in {01..12}; do
-  make train CONFIG=training/2025_${i}_rolling
-done
-for i in {01..02}; do
-  make train CONFIG=training/2026_${i}_rolling
-done
+# 训练 + 验证所有滚动窗口
+make rolling-all
+
+# 只训练所有滚动窗口
+make rolling-train
+
+# 只验证所有滚动窗口
+make rolling-validate
+
+# 高级用法：指定范围（从2025-01到2025-12）
+bash train/scripts/run-all-rolling.sh --start 202501 --end 202512
 ```
+
+**这个命令会自动：**
+1. 依次训练所有滚动窗口配置
+2. 每个训练完成后自动进行验证
+3. 显示实时进度和彩色日志
+4. 统计成功/失败数量
+5. 列出所有失败的配置
 
 ## 💡 常用命令
 

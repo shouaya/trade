@@ -37,11 +37,23 @@
         "lotSize": [
           0.1
         ],
-        "maxHoldMinutes": "{{FROM_TRAINING_RESULT}}"
+        "maxHoldMinutes": [
+          10
+        ]
       },
       "atr": {
-        "slMultiplier": "{{FROM_TRAINING_RESULT}}",
-        "tpMultiplier": "{{FROM_TRAINING_RESULT}}"
+        "slMultiplier": [
+          2,
+          3.5,
+          4
+        ],
+        "tpMultiplier": [
+          3,
+          4,
+          5,
+          6,
+          7
+        ]
       },
       "tradingSchedule": "* 0-19 * * 1-5",
       "tradingTimeRestriction": {
@@ -62,5 +74,10 @@
     }
   },
   "sourceTrainingTable": "backtest_results_rolling_2025_04_train",
-  "note": "此配置的参数会从训练结果的最佳策略中自动填充"
+  "note": "此配置的参数会从训练结果的最佳策略中自动填充",
+  "output": {
+    "topN": 10,
+    "strategyNamePrefix": "ROLLING_2025_04_",
+    "descriptionPrefix": "验证最佳 - 2025-04"
+  }
 }
