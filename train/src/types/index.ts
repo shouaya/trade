@@ -81,22 +81,16 @@ export interface Strategy {
   readonly parameters: StrategyParameters;
 }
 
-export type StrategyType =
-  | 'grid_only'
-  | 'rsi_only'
-  | 'macd_only'
-  | 'rsi_and_macd'
-  | 'rsi_or_macd';
+export type StrategyType = 'rsi_only';
 
 export interface StrategyParameters {
-  readonly grid: GridParameters;
+  readonly grid?: GridParameters;
   readonly rsi: RSIParameters;
-  readonly macd: MACDParameters;
+  readonly macd?: MACDParameters;
   readonly risk: RiskParameters;
   readonly atr?: ATRParameters;
   readonly tradingSchedule?: string;
   readonly tradingTimeRestriction?: TimeRestriction | null;
-  readonly entryLogic?: 'AND' | 'OR';
 }
 
 export interface GridParameters {
@@ -226,20 +220,10 @@ export interface ValidationConfig {
 // ============================================================================
 
 export interface ParameterSpace {
-  readonly grid: {
-    readonly levels: readonly number[];
-    readonly rangePercent: readonly number[];
-    readonly profitPerGrid: readonly number[];
-  };
   readonly rsi: {
     readonly period: readonly number[];
     readonly oversold: readonly number[];
     readonly overbought: readonly number[];
-  };
-  readonly macd: {
-    readonly fastPeriod: readonly number[];
-    readonly slowPeriod: readonly number[];
-    readonly signalPeriod: readonly number[];
   };
   readonly risk: {
     readonly maxPositions: readonly number[];

@@ -1,0 +1,148 @@
+{
+  "caseName": "2025_12_rolling_top3",
+  "configPath": "configs/training/2025_12_rolling.json",
+  "topN": 3,
+  "expectedStrategies": [
+    {
+      "rank": 1,
+      "strategyName": "RSI-P14-OS30-OB70-MP1-LOT0.1-H10-ATRSL3-ATRTP5",
+      "strategyType": "rsi_only",
+      "performance": {
+        "totalTrades": 662,
+        "winRate": 0.5665,
+        "totalPnl": 4119.5,
+        "avgPnl": 6.22,
+        "sharpeRatio": 0.1721,
+        "profitFactor": 1.5939,
+        "maxDrawdown": -358.5,
+        "score": 365.1872
+      },
+      "parameters": {
+        "rsi": {
+          "period": 14,
+          "oversold": 30,
+          "overbought": 70
+        },
+        "risk": {
+          "maxPositions": 1,
+          "lotSize": 0.1,
+          "maxHoldMinutes": 10
+        },
+        "atr": {
+          "slMultiplier": 3,
+          "tpMultiplier": 5
+        },
+        "tradingSchedule": "* 0-19 * * 1-5",
+        "tradingTimeRestriction": {
+          "enabled": true,
+          "utcExcludeStart": "19:30",
+          "utcExcludeEnd": "23:59"
+        }
+      },
+      "executor": {
+        "version": "v3",
+        "options": {
+          "enableATRSizing": true,
+          "enableMA200Filter": true,
+          "enableRSIReversion": true,
+          "enableTrailingStop": true,
+          "enableMultiTimeframe": true
+        }
+      }
+    },
+    {
+      "rank": 2,
+      "strategyName": "RSI-P14-OS30-OB70-MP1-LOT0.1-H10-ATRSL3-ATRTP6",
+      "strategyType": "rsi_only",
+      "performance": {
+        "totalTrades": 662,
+        "winRate": 0.5665,
+        "totalPnl": 4119.5,
+        "avgPnl": 6.22,
+        "sharpeRatio": 0.1721,
+        "profitFactor": 1.5939,
+        "maxDrawdown": -358.5,
+        "score": 365.1872
+      },
+      "parameters": {
+        "rsi": {
+          "period": 14,
+          "oversold": 30,
+          "overbought": 70
+        },
+        "risk": {
+          "maxPositions": 1,
+          "lotSize": 0.1,
+          "maxHoldMinutes": 10
+        },
+        "atr": {
+          "slMultiplier": 3,
+          "tpMultiplier": 6
+        },
+        "tradingSchedule": "* 0-19 * * 1-5",
+        "tradingTimeRestriction": {
+          "enabled": true,
+          "utcExcludeStart": "19:30",
+          "utcExcludeEnd": "23:59"
+        }
+      },
+      "executor": {
+        "version": "v3",
+        "options": {
+          "enableATRSizing": true,
+          "enableMA200Filter": true,
+          "enableRSIReversion": true,
+          "enableTrailingStop": true,
+          "enableMultiTimeframe": true
+        }
+      }
+    },
+    {
+      "rank": 3,
+      "strategyName": "RSI-P14-OS30-OB70-MP1-LOT0.1-H10-ATRSL3-ATRTP7",
+      "strategyType": "rsi_only",
+      "performance": {
+        "totalTrades": 662,
+        "winRate": 0.5665,
+        "totalPnl": 4119.5,
+        "avgPnl": 6.22,
+        "sharpeRatio": 0.1721,
+        "profitFactor": 1.5939,
+        "maxDrawdown": -358.5,
+        "score": 365.1872
+      },
+      "parameters": {
+        "rsi": {
+          "period": 14,
+          "oversold": 30,
+          "overbought": 70
+        },
+        "risk": {
+          "maxPositions": 1,
+          "lotSize": 0.1,
+          "maxHoldMinutes": 10
+        },
+        "atr": {
+          "slMultiplier": 3,
+          "tpMultiplier": 7
+        },
+        "tradingSchedule": "* 0-19 * * 1-5",
+        "tradingTimeRestriction": {
+          "enabled": true,
+          "utcExcludeStart": "19:30",
+          "utcExcludeEnd": "23:59"
+        }
+      },
+      "executor": {
+        "version": "v3",
+        "options": {
+          "enableATRSizing": true,
+          "enableMA200Filter": true,
+          "enableRSIReversion": true,
+          "enableTrailingStop": true,
+          "enableMultiTimeframe": true
+        }
+      }
+    }
+  ]
+}

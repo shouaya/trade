@@ -56,7 +56,7 @@ export class SlippageModel {
    * 检查是否为东京高滑点时段 (JST 5-9点 = UTC 20-24点)
    */
   isTokyoHighSlippageHour(kline: KlineData): boolean {
-    const date = new Date(kline.open_time);
+    const date = new Date(parseInt(kline.open_time, 10));
     const hour = date.getUTCHours();
     return hour >= 20 && hour < 24; // UTC 20:00-23:59 = JST 05:00-08:59
   }

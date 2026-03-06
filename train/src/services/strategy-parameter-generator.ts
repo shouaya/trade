@@ -1,138 +1,120 @@
 /**
- * Strategy Parameter Generator - 策略参数组合生成器
- * 生成大量策略参数组合用于批量回测
+ * Strategy Parameter Generator - RSI-only 参数组合生成器
  */
 
-import type { Strategy, StrategyType, ParameterSpace, GenerateOptions } from '../types';
+import type {
+  Strategy,
+  StrategyType,
+  ParameterSpace,
+  GenerateOptions,
+  TimeRestriction
+} from '../types';
+
+interface StrategyParameterOverrides extends Partial<ParameterSpace> {
+  readonly tradingSchedule?: string;
+  readonly tradingTimeRestriction?: TimeRestriction | null;
+}
+
+const DEFAULT_TYPE: StrategyType = 'rsi_only';
 
 /**
  * 策略参数空间定义
  */
 export const PARAMETER_SPACE: ParameterSpace = {
-  // 网格策略参数
-  grid: {
-    levels: [5, 10, 20],
-    rangePercent: [0.5, 1, 2],
-    profitPerGrid: [0.1, 0.2, 0.3]
-  },
-
-  // RSI参数 (只保留标准14周期)
   rsi: {
     period: [14],
     oversold: [20, 25, 30],
     overbought: [70, 75, 80]
   },
-
-  // MACD参数 (仅用于记录，不作为策略条件)
-  macd: {
-    fastPeriod: [12],    // 标准参数
-    slowPeriod: [26],    // 标准参数
-    signalPeriod: [9]    // 标准参数
-  },
-
-  // 风控参数 (优化版 - 使用百分比代替pips)
   risk: {
-    maxPositions: [1],   // 只保留单仓位
+    maxPositions: [1],
     lotSize: [0.1],
-    stopLossPercent: [null, 0.1, 0.15, 0.2, 0.25, 0.3],     // 6种: 无, 0.1%, 0.15%, 0.2%, 0.25%, 0.3%
-    takeProfitPercent: [null, 0.2, 0.3, 0.5, 0.7, 1.0, 1.5], // 7种: 无, 0.2%, 0.3%, 0.5%, 0.7%, 1.0%, 1.5%
-    maxHoldMinutes: [30, 60, 120, 180, 240, 360, 480, 720]  // 8种: 0.5h~12h (去掉1440避免小样本)
+    stopLossPercent: [null, 0.1, 0.15, 0.2, 0.25, 0.3],
+    takeProfitPercent: [null, 0.2, 0.3, 0.5, 0.7, 1.0, 1.5],
+    maxHoldMinutes: [30, 60, 120, 180, 240, 360, 480, 720]
   }
 } as const;
 
+function normalizeTypes(types: readonly StrategyType[] | null): readonly StrategyType[] {
+  if (!types || types.length === 0) {
+    return [DEFAULT_TYPE];
+  }
+
+  const invalidTypes = types.filter(type => type !== DEFAULT_TYPE);
+  if (invalidTypes.length > 0) {
+    throw new Error(`unsupported strategy types: ${invalidTypes.join(', ')}`);
+  }
+
+  return [DEFAULT_TYPE];
+}
+
+function mergeParameterSpace(parameters: StrategyParameterOverrides | null): {
+  readonly paramSpace: ParameterSpace;
+  readonly tradingSchedule: string | undefined;
+  readonly tradingTimeRestriction: TimeRestriction | null | undefined;
+} {
+  return {
+    paramSpace: {
+      rsi: parameters?.rsi ?? PARAMETER_SPACE.rsi,
+      risk: {
+        maxPositions: parameters?.risk?.maxPositions ?? PARAMETER_SPACE.risk.maxPositions,
+        lotSize: parameters?.risk?.lotSize ?? PARAMETER_SPACE.risk.lotSize,
+        stopLossPercent: parameters?.risk?.stopLossPercent ?? PARAMETER_SPACE.risk.stopLossPercent,
+        takeProfitPercent: parameters?.risk?.takeProfitPercent ?? PARAMETER_SPACE.risk.takeProfitPercent,
+        maxHoldMinutes: parameters?.risk?.maxHoldMinutes ?? PARAMETER_SPACE.risk.maxHoldMinutes
+      },
+      atr: parameters?.atr ?? null
+    },
+    tradingSchedule: parameters?.tradingSchedule,
+    tradingTimeRestriction: parameters?.tradingTimeRestriction
+  };
+}
+
+function withCommonOptions(
+  base: Strategy['parameters'],
+  tradingSchedule: string | undefined,
+  tradingTimeRestriction: TimeRestriction | null | undefined
+): Strategy['parameters'] {
+  return {
+    ...base,
+    ...(tradingSchedule ? { tradingSchedule } : {}),
+    ...(tradingTimeRestriction !== undefined ? { tradingTimeRestriction } : {})
+  };
+}
+
 /**
  * 生成所有策略组合
- * @param options - 选项 { limit: 限制数量, types: 策略类型数组, parameters: 自定义参数 }
- * @returns 策略数组
  */
 export function generateStrategyCombinations(options: GenerateOptions = {}): readonly Strategy[] {
-  const { limit = null, types = null, parameters = null } = options;
+  const { limit = null } = options;
+  normalizeTypes(options.types ?? null);
+  const { paramSpace, tradingSchedule, tradingTimeRestriction } = mergeParameterSpace(
+    (options.parameters ?? null) as StrategyParameterOverrides | null
+  );
+
   const strategies: Strategy[] = [];
   let id = 1;
 
-  // 默认生成所有类型
-  const strategyTypes: readonly StrategyType[] = types ?? [
-    'grid_only',
-    'rsi_only',
-    'macd_only',
-    'rsi_and_macd',
-    'rsi_or_macd'
-  ];
+  if (paramSpace.atr?.slMultiplier && paramSpace.atr?.tpMultiplier) {
+    for (const period of paramSpace.rsi.period) {
+      for (const oversold of paramSpace.rsi.oversold) {
+        for (const overbought of paramSpace.rsi.overbought) {
+          if (overbought <= oversold + 30) continue;
 
-  // 使用自定义参数或默认参数空间
-  const paramSpace: ParameterSpace = parameters ? {
-    grid: parameters.grid ?? PARAMETER_SPACE.grid,
-    rsi: parameters.rsi ?? PARAMETER_SPACE.rsi,
-    macd: parameters.macd ?? PARAMETER_SPACE.macd,
-    risk: {
-      maxPositions: parameters.risk?.maxPositions ?? PARAMETER_SPACE.risk.maxPositions,
-      lotSize: parameters.risk?.lotSize ?? PARAMETER_SPACE.risk.lotSize,
-      stopLossPercent: parameters.risk?.stopLossPercent ?? PARAMETER_SPACE.risk.stopLossPercent,
-      takeProfitPercent: parameters.risk?.takeProfitPercent ?? PARAMETER_SPACE.risk.takeProfitPercent,
-      maxHoldMinutes: parameters.risk?.maxHoldMinutes ?? PARAMETER_SPACE.risk.maxHoldMinutes
-    },
-    atr: parameters.atr ?? null
-  } : PARAMETER_SPACE;
-
-  // 1. 纯网格策略
-  if (strategyTypes.includes('grid_only')) {
-    for (const levels of paramSpace.grid.levels) {
-      for (const range of paramSpace.grid.rangePercent) {
-        for (const profit of paramSpace.grid.profitPerGrid) {
           for (const maxPos of paramSpace.risk.maxPositions) {
-            for (const sl of paramSpace.risk.stopLossPercent) {
-              for (const tp of paramSpace.risk.takeProfitPercent) {
-                for (const hold of paramSpace.risk.maxHoldMinutes) {
-                  strategies.push({
-                    id: id++,
-                    name: `Grid-L${levels}-R${range}-P${profit}-MP${maxPos}-SL${sl}-TP${tp}-H${hold}`,
-                    type: 'grid_only',
-                    parameters: {
-                      grid: { enabled: true, levels, rangePercent: range, profitPerGrid: profit },
-                      rsi: { enabled: false, period: 14 },
-                      macd: { enabled: false },
-                      risk: {
-                        maxPositions: maxPos,
-                        lotSize: 0.1,
-                        stopLossPercent: sl,
-                        takeProfitPercent: tp,
-                        maxHoldMinutes: hold
-                      }
-                    }
-                  });
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // 2. 纯RSI策略
-  if (strategyTypes.includes('rsi_only')) {
-    // 如果配置了ATR倍数，使用ATR模式
-    if (paramSpace.atr?.slMultiplier && paramSpace.atr?.tpMultiplier) {
-      for (const period of paramSpace.rsi.period) {
-        for (const oversold of paramSpace.rsi.oversold) {
-          for (const overbought of paramSpace.rsi.overbought) {
-            if (overbought <= oversold + 30) continue;
-
-            for (const maxPos of paramSpace.risk.maxPositions) {
+            for (const lotSize of paramSpace.risk.lotSize) {
               for (const hold of paramSpace.risk.maxHoldMinutes) {
                 for (const slMult of paramSpace.atr.slMultiplier) {
                   for (const tpMult of paramSpace.atr.tpMultiplier) {
                     strategies.push({
                       id: id++,
-                      name: `RSI-P${period}-OS${oversold}-OB${overbought}-MP${maxPos}-H${hold}-ATRSL${slMult}-ATRTP${tpMult}`,
-                      type: 'rsi_only',
-                      parameters: {
-                        grid: { enabled: false },
+                      name: `RSI-P${period}-OS${oversold}-OB${overbought}-MP${maxPos}-LOT${lotSize}-H${hold}-ATRSL${slMult}-ATRTP${tpMult}`,
+                      type: DEFAULT_TYPE,
+                      parameters: withCommonOptions({
                         rsi: { enabled: true, period, oversold, overbought },
-                        macd: { enabled: false },
                         risk: {
                           maxPositions: maxPos,
-                          lotSize: 0.1,
+                          lotSize,
                           stopLossPercent: null,
                           takeProfitPercent: null,
                           maxHoldMinutes: hold
@@ -141,7 +123,7 @@ export function generateStrategyCombinations(options: GenerateOptions = {}): rea
                           slMultiplier: slMult,
                           tpMultiplier: tpMult
                         }
-                      }
+                      }, tradingSchedule, tradingTimeRestriction)
                     });
                   }
                 }
@@ -150,157 +132,33 @@ export function generateStrategyCombinations(options: GenerateOptions = {}): rea
           }
         }
       }
-    } else {
-      // 固定百分比模式
-      for (const period of paramSpace.rsi.period) {
-        for (const oversold of paramSpace.rsi.oversold) {
-          for (const overbought of paramSpace.rsi.overbought) {
-            if (overbought <= oversold + 30) continue;
+    }
+  } else {
+    for (const period of paramSpace.rsi.period) {
+      for (const oversold of paramSpace.rsi.oversold) {
+        for (const overbought of paramSpace.rsi.overbought) {
+          if (overbought <= oversold + 30) continue;
 
-            for (const maxPos of paramSpace.risk.maxPositions) {
+          for (const maxPos of paramSpace.risk.maxPositions) {
+            for (const lotSize of paramSpace.risk.lotSize) {
               for (const hold of paramSpace.risk.maxHoldMinutes) {
                 for (const sl of paramSpace.risk.stopLossPercent) {
                   for (const tp of paramSpace.risk.takeProfitPercent) {
                     strategies.push({
                       id: id++,
-                      name: `RSI-P${period}-OS${oversold}-OB${overbought}-MP${maxPos}-H${hold}-SL${sl}-TP${tp}`,
-                      type: 'rsi_only',
-                      parameters: {
-                        grid: { enabled: false },
+                      name: `RSI-P${period}-OS${oversold}-OB${overbought}-MP${maxPos}-LOT${lotSize}-H${hold}-SL${sl}-TP${tp}`,
+                      type: DEFAULT_TYPE,
+                      parameters: withCommonOptions({
                         rsi: { enabled: true, period, oversold, overbought },
-                        macd: { enabled: false },
                         risk: {
                           maxPositions: maxPos,
-                          lotSize: 0.1,
+                          lotSize,
                           stopLossPercent: sl,
                           takeProfitPercent: tp,
                           maxHoldMinutes: hold
                         }
-                      }
+                      }, tradingSchedule, tradingTimeRestriction)
                     });
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // 3. 纯MACD策略
-  if (strategyTypes.includes('macd_only')) {
-    for (const fast of paramSpace.macd.fastPeriod) {
-      for (const slow of paramSpace.macd.slowPeriod) {
-        for (const signal of paramSpace.macd.signalPeriod) {
-          for (const maxPos of paramSpace.risk.maxPositions) {
-            for (const hold of paramSpace.risk.maxHoldMinutes) {
-              for (const sl of paramSpace.risk.stopLossPercent) {
-                for (const tp of paramSpace.risk.takeProfitPercent) {
-                  strategies.push({
-                    id: id++,
-                    name: `MACD-F${fast}-S${slow}-Sig${signal}-MP${maxPos}-H${hold}-SL${sl}-TP${tp}`,
-                    type: 'macd_only',
-                    parameters: {
-                      grid: { enabled: false },
-                      rsi: { enabled: false, period: 14 },
-                      macd: { enabled: true, fastPeriod: fast, slowPeriod: slow, signalPeriod: signal },
-                      risk: {
-                        maxPositions: maxPos,
-                        lotSize: 0.1,
-                        stopLossPercent: sl,
-                        takeProfitPercent: tp,
-                        maxHoldMinutes: hold
-                      }
-                    }
-                  });
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // 4. RSI + MACD 组合策略 (AND逻辑)
-  if (strategyTypes.includes('rsi_and_macd')) {
-    for (const rsiPeriod of paramSpace.rsi.period) {
-      for (const oversold of paramSpace.rsi.oversold) {
-        for (const overbought of paramSpace.rsi.overbought) {
-          if (overbought <= oversold + 30) continue;
-
-          for (const fast of paramSpace.macd.fastPeriod) {
-            for (const slow of paramSpace.macd.slowPeriod) {
-              for (const signal of paramSpace.macd.signalPeriod) {
-                for (const maxPos of paramSpace.risk.maxPositions) {
-                  for (const hold of paramSpace.risk.maxHoldMinutes) {
-                    for (const sl of paramSpace.risk.stopLossPercent) {
-                      for (const tp of paramSpace.risk.takeProfitPercent) {
-                        strategies.push({
-                          id: id++,
-                          name: `RSI${rsiPeriod}_AND_MACD${fast}-${slow}-MP${maxPos}-H${hold}-SL${sl}-TP${tp}`,
-                          type: 'rsi_and_macd',
-                          parameters: {
-                            grid: { enabled: false },
-                            rsi: { enabled: true, period: rsiPeriod, oversold, overbought },
-                            macd: { enabled: true, fastPeriod: fast, slowPeriod: slow, signalPeriod: signal },
-                            risk: {
-                              maxPositions: maxPos,
-                              lotSize: 0.1,
-                              stopLossPercent: sl,
-                              takeProfitPercent: tp,
-                              maxHoldMinutes: hold
-                            },
-                            entryLogic: 'AND'
-                          }
-                        });
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // 5. RSI + MACD 组合策略 (OR逻辑)
-  if (strategyTypes.includes('rsi_or_macd')) {
-    for (const rsiPeriod of paramSpace.rsi.period) {
-      for (const oversold of paramSpace.rsi.oversold) {
-        for (const overbought of paramSpace.rsi.overbought) {
-          if (overbought <= oversold + 30) continue;
-
-          for (const fast of paramSpace.macd.fastPeriod) {
-            for (const slow of paramSpace.macd.slowPeriod) {
-              for (const signal of paramSpace.macd.signalPeriod) {
-                for (const maxPos of paramSpace.risk.maxPositions) {
-                  for (const hold of paramSpace.risk.maxHoldMinutes) {
-                    for (const sl of paramSpace.risk.stopLossPercent) {
-                      for (const tp of paramSpace.risk.takeProfitPercent) {
-                        strategies.push({
-                          id: id++,
-                          name: `RSI${rsiPeriod}_OR_MACD${fast}-${slow}-MP${maxPos}-H${hold}-SL${sl}-TP${tp}`,
-                          type: 'rsi_or_macd',
-                          parameters: {
-                            grid: { enabled: false },
-                            rsi: { enabled: true, period: rsiPeriod, oversold, overbought },
-                            macd: { enabled: true, fastPeriod: fast, slowPeriod: slow, signalPeriod: signal },
-                            risk: {
-                              maxPositions: maxPos,
-                              lotSize: 0.1,
-                              stopLossPercent: sl,
-                              takeProfitPercent: tp,
-                              maxHoldMinutes: hold
-                            },
-                            entryLogic: 'OR'
-                          }
-                        });
-                      }
-                    }
                   }
                 }
               }
@@ -313,8 +171,7 @@ export function generateStrategyCombinations(options: GenerateOptions = {}): rea
 
   console.log(`✅ 生成了 ${strategies.length} 个策略组合`);
 
-  // 如果指定了限制,则只返回前N个
-  if (limit && limit < strategies.length) {
+  if (limit !== null && limit < strategies.length) {
     console.log(`⚠️  限制为前 ${limit} 个策略`);
     return strategies.slice(0, limit);
   }
@@ -322,13 +179,8 @@ export function generateStrategyCombinations(options: GenerateOptions = {}): rea
   return strategies;
 }
 
-/**
- * 按策略类型统计
- */
 export function countByType(strategies: readonly Strategy[]): Record<StrategyType, number> {
-  const counts: Partial<Record<StrategyType, number>> = {};
-  strategies.forEach(s => {
-    counts[s.type] = (counts[s.type] ?? 0) + 1;
-  });
-  return counts as Record<StrategyType, number>;
+  return {
+    rsi_only: strategies.filter(strategy => strategy.type === DEFAULT_TYPE).length
+  };
 }

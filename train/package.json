@@ -6,8 +6,21 @@
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",
-    "clean": "rm -rf dist",
+    "clean": "node -e \"require('fs').rmSync('dist',{ recursive: true, force: true })\"",
     "prebuild": "npm run clean",
+    "coverage": "c8 --reporter=text --reporter=lcov --all --include=dist/services/**/*.js --include=dist/scripts/_*.js --include=dist/services/indicators/**/*.js node --experimental-strip-types test/run-tests.ts",
+    "coverage:check": "c8 --check-coverage --lines 90 --functions 90 --statements 90 --reporter=text --all --include=dist/services/**/*.js --include=dist/scripts/_*.js --include=dist/services/indicators/**/*.js node --experimental-strip-types test/run-tests.ts",
+    "test": "node --experimental-strip-types test/run-tests.ts",
+    "test:training-regression": "node dist/scripts/training-regression-suite.js --suite core",
+    "test:training-regression:all": "node dist/scripts/training-regression-suite.js --suite all",
+    "test:training-regression:2024": "node dist/scripts/training-regression.js configs/top-strategies/2024_v3_atr_top3.snapshot.json",
+    "test:training-regression:2025": "node dist/scripts/training-regression.js configs/top-strategies/2025_v3_atr_top3.snapshot.json",
+    "test:training-regression:rolling": "node dist/scripts/training-regression-suite.js --suite rolling",
+    "test:training-regression:update": "node dist/scripts/training-regression-suite.js --suite core --update",
+    "test:training-regression:update:all": "node dist/scripts/training-regression-suite.js --suite all --update",
+    "test:training-regression:update:2024": "node dist/scripts/training-regression.js configs/top-strategies/2024_v3_atr_top3.snapshot.json --update",
+    "test:training-regression:update:2025": "node dist/scripts/training-regression.js configs/top-strategies/2025_v3_atr_top3.snapshot.json --update",
+    "test:training-regression:update:rolling": "node dist/scripts/training-regression-suite.js --suite rolling --update",
     "type-check": "tsc --noEmit",
     "init-db": "node dist/scripts/init-db.js",
     "train": "node dist/scripts/train.js",
@@ -20,6 +33,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "c8": "^11.0.0",
     "typescript": "^5.3.3"
   },
   "engines": {

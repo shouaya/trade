@@ -57,7 +57,7 @@ export class TaskManager {
   }
 
   /**
-   * 清理僵尸任务并清空trades表
+   * 清理僵尸任务
    */
   async cleanupZombieTasks(): Promise<TaskManagerResult> {
     // 1. 查找所有running状态的任务
@@ -89,14 +89,11 @@ export class TaskManager {
 
     console.log(`✅ 已标记 ${zombies.length} 个僵尸任务为失败状态`);
 
-    // 3. 清空trades表（因为可能被污染）
-    console.log('\n🧹 清空trades表以移除可能的污染数据...');
-    await this.db.query('TRUNCATE TABLE trades');
-    console.log('✅ trades表已清空');
+    console.log('ℹ️  保留既有 trades 记录；如需清理，请按 task/run 维度单独处理');
 
     return {
       cleaned: zombies.length,
-      tradesCleared: true,
+      tradesCleared: false,
       tasks: zombies as Task[]
     };
   }

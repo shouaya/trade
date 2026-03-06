@@ -242,7 +242,7 @@ export class StrategyExecutor {
   private getSignal(index: number): SignalDirection {
     const rsi = this.rsiValues[index] ?? null;
     const kline = this.klines[index];
-    if (!kline || !rsi) return 'hold';
+    if (!kline || rsi === null) return 'hold';
 
     const currentPrice = parseFloat(kline.close);
     const oversold = this.strategy.parameters.rsi?.oversold ?? 30;
@@ -261,7 +261,7 @@ export class StrategyExecutor {
         // 如果启用MA200过滤器,额外检查趋势
         if (this.enableMA200Filter && this.ma200) {
           const ma200 = this.ma200[index] ?? null;
-          if (!ma200) return 'hold';
+          if (ma200 === null) return 'hold';
 
           if (mtfSignal === 'long' && currentPrice > ma200) {
             return 'long';
@@ -279,7 +279,7 @@ export class StrategyExecutor {
     // 传统单时间框架信号
     if (this.enableMA200Filter && this.ma200) {
       const ma200 = this.ma200[index] ?? null;
-      if (!ma200) return 'hold';
+      if (ma200 === null) return 'hold';
 
       // 仅在价格高于MA200时做多
       if (rsi < oversold && currentPrice > ma200) {
@@ -660,7 +660,7 @@ export class StrategyExecutor {
       const kline = this.klines[i];
       if (!kline) continue;
 
-      const currentTime = new Date(kline.open_time);
+      const currentTime = new Date(parseInt(kline.open_time, 10));
 
       // 检查退出条件
       this.checkExitConditions(i, kline);

@@ -28,7 +28,9 @@ import type {
   BacktestStats,
   TradeRecord,
   StrategyParameters,
-  StrategyType
+  StrategyType,
+  ParameterSpace,
+  TimeRestriction
 } from '../types';
 
 // Helper function to create task manager instance
@@ -54,10 +56,14 @@ interface TrainingConfig {
   };
   readonly database: {
     readonly tableName: string;
+    readonly resetTableBeforeRun?: boolean;
   };
   readonly strategy: {
     readonly types?: readonly StrategyType[];
-    readonly parameters?: Record<string, unknown>;
+    readonly parameters?: Partial<ParameterSpace> & {
+      readonly tradingSchedule?: string;
+      readonly tradingTimeRestriction?: TimeRestriction | null;
+    };
   };
   readonly executor: {
     readonly version: string;
@@ -67,6 +73,8 @@ interface TrainingConfig {
     readonly topN?: number;
     readonly strategyNamePrefix?: string;
     readonly descriptionPrefix?: string;
+    readonly persistTopStrategies?: boolean;
+    readonly persistTrades?: boolean;
   };
 }
 
@@ -184,6 +192,12 @@ async function ensureBacktestTable(tableName: string): Promise<void> {
   `);
 
   console.log('✅ 结果表准备完成');
+}
+
+async function resetBacktestTable(tableName: string): Promise<void> {
+  console.log(`\n🧹 清空结果表: ${tableName}`);
+  await db.query(`TRUNCATE TABLE ${tableName}`);
+  console.log('✅ 结果表已清空');
 }
 
 /**
@@ -385,6 +399,7 @@ async function runTraining(
 ): Promise<void> {
   const tableName = config.database.tableName;
   const executorVersion = config.executor.version;
+  const persistTrades = config.output.persistTrades ?? true;
 
   console.log(`\n🚀 开始执行 ${strategies.length} 个策略回测...\n`);
 
@@ -414,7 +429,7 @@ async function runTraining(
         allTrades = allTrades.concat(tradesWithName);
 
         // 批量保存交易
-        if (allTrades.length >= TRADE_BATCH_SIZE) {
+        if (persistTrades && allTrades.length >= TRADE_BATCH_SIZE) {
           await saveTrades(allTrades);
           allTrades = [];
         }
@@ -436,7 +451,7 @@ async function runTraining(
   }
 
   // 保存剩余交易
-  if (allTrades.length > 0) {
+  if (persistTrades && allTrades.length > 0) {
     await saveTrades(allTrades);
   }
 
@@ -459,7 +474,7 @@ async function queryTopStrategies(tableName: string, topN: number): Promise<read
   const [results] = await db.query<mysql.RowDataPacket[]>(
     `SELECT * FROM ${tableName}
      WHERE total_trades > 0
-     ORDER BY total_pnl DESC
+     ORDER BY total_pnl DESC, score DESC, strategy_name ASC
      LIMIT ?`,
     [topN]
   );
@@ -573,6 +588,9 @@ async function main(): Promise<void> {
 
     // 3. 确保数据库表
     await ensureBacktestTable(config.database.tableName);
+    if (config.database.resetTableBeforeRun) {
+      await resetBacktestTable(config.database.tableName);
+    }
 
     // 4. 生成策略
     const strategies = generateStrategies(config);
@@ -588,7 +606,7 @@ async function main(): Promise<void> {
     const topResults = await queryTopStrategies(config.database.tableName, topN);
 
     // 8. 保存Top策略
-    if (topResults.length > 0) {
+    if (topResults.length > 0 && (config.output.persistTopStrategies ?? true)) {
       await saveTopStrategies(topResults, config);
     }
 
@@ -630,4 +648,4 @@ if (require.main === module) {
   main();
 }
 
-export { main, loadConfig };
+export { main, loadConfig, queryTopStrategies };
