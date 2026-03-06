@@ -1,0 +1,60 @@
+{
+  "name": "2024_V3_RSI_ATR_DYNAMIC_MA200_ON",
+  "description": "2024年V3 RSI策略 - focused训练: dynamic hold + MA200开启",
+  "timeRange": {
+    "startTimeMs": 1704067200000,
+    "endTimeMs": 1735689540000,
+    "startIso": "2024-01-01T00:00:00.000Z",
+    "endIso": "2024-12-31T23:59:00.000Z"
+  },
+  "market": {
+    "symbol": "USDJPY",
+    "intervalType": "1min"
+  },
+  "database": {
+    "tableName": "backtest_results_2024_v3_dynamic_ma200_on",
+    "resetTableBeforeRun": true
+  },
+  "strategy": {
+    "types": ["rsi_only"],
+    "parameters": {
+      "rsi": {
+        "period": [14],
+        "oversold": [30],
+        "overbought": [70]
+      },
+      "risk": {
+        "maxPositions": [1],
+        "lotSize": [0.1],
+        "maxHoldMinutes": [10, 25, null]
+      },
+      "atr": {
+        "slMultiplier": [3.5, 4.0],
+        "tpMultiplier": [4.0, 5.0, 6.0]
+      },
+      "tradingSchedule": "* 0-19 * * 1-5",
+      "tradingTimeRestriction": {
+        "enabled": true,
+        "utcExcludeStart": "19:30",
+        "utcExcludeEnd": "23:59",
+        "description": "排除UTC 19:30-23:59 (只允许周一到周五 00:00-19:29)"
+      }
+    }
+  },
+  "executor": {
+    "version": "v3",
+    "options": {
+      "enableMA200Filter": true,
+      "enableMultiTimeframe": true,
+      "enableATRSizing": true,
+      "enableTrailingStop": true,
+      "enableRSIReversion": true
+    }
+  },
+  "output": {
+    "topN": 10,
+    "strategyNamePrefix": "2024-Dynamic-MA200-On-",
+    "descriptionPrefix": "2024 focused训练 - dynamic hold + MA200开启",
+    "persistTrades": false
+  }
+}

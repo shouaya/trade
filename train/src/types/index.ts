@@ -230,7 +230,7 @@ export interface ParameterSpace {
     readonly lotSize: readonly number[];
     readonly stopLossPercent: readonly (number | null)[];
     readonly takeProfitPercent: readonly (number | null)[];
-    readonly maxHoldMinutes: readonly number[];
+    readonly maxHoldMinutes: readonly (number | null)[];
   };
   readonly atr?: {
     readonly slMultiplier: readonly number[];

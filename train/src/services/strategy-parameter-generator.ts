@@ -82,6 +82,10 @@ function withCommonOptions(
   };
 }
 
+function formatHoldLabel(hold: number | null): string {
+  return hold === null ? 'dynamic' : String(hold);
+}
+
 /**
  * 生成所有策略组合
  */
@@ -108,7 +112,7 @@ export function generateStrategyCombinations(options: GenerateOptions = {}): rea
                   for (const tpMult of paramSpace.atr.tpMultiplier) {
                     strategies.push({
                       id: id++,
-                      name: `RSI-P${period}-OS${oversold}-OB${overbought}-MP${maxPos}-LOT${lotSize}-H${hold}-ATRSL${slMult}-ATRTP${tpMult}`,
+                      name: `RSI-P${period}-OS${oversold}-OB${overbought}-MP${maxPos}-LOT${lotSize}-H${formatHoldLabel(hold)}-ATRSL${slMult}-ATRTP${tpMult}`,
                       type: DEFAULT_TYPE,
                       parameters: withCommonOptions({
                         rsi: { enabled: true, period, oversold, overbought },
@@ -146,7 +150,7 @@ export function generateStrategyCombinations(options: GenerateOptions = {}): rea
                   for (const tp of paramSpace.risk.takeProfitPercent) {
                     strategies.push({
                       id: id++,
-                      name: `RSI-P${period}-OS${oversold}-OB${overbought}-MP${maxPos}-LOT${lotSize}-H${hold}-SL${sl}-TP${tp}`,
+                      name: `RSI-P${period}-OS${oversold}-OB${overbought}-MP${maxPos}-LOT${lotSize}-H${formatHoldLabel(hold)}-SL${sl}-TP${tp}`,
                       type: DEFAULT_TYPE,
                       parameters: withCommonOptions({
                         rsi: { enabled: true, period, oversold, overbought },

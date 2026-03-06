@@ -17,6 +17,22 @@ interface TableCheckResult {
   readonly exists: boolean;
 }
 
+async function columnExists(tableName: string, columnName: string): Promise<boolean> {
+  const [columns] = await db.query<mysql.RowDataPacket[]>(
+    `SHOW COLUMNS FROM ${tableName} LIKE ?`,
+    [columnName]
+  );
+  return columns.length > 0;
+}
+
+async function indexExists(tableName: string, indexName: string): Promise<boolean> {
+  const [indexes] = await db.query<mysql.RowDataPacket[]>(
+    `SHOW INDEX FROM ${tableName} WHERE Key_name = ?`,
+    [indexName]
+  );
+  return indexes.length > 0;
+}
+
 async function tableExists(tableName: string): Promise<boolean> {
   const [tables] = await db.query<mysql.RowDataPacket[]>(
     `SHOW TABLES LIKE ?`,
@@ -34,6 +50,22 @@ async function createBacktestResultsTable(): Promise<void> {
 async function createStrategiesTable(): Promise<void> {
   console.log('📊 创建 strategies 表...');
   await db.query(STRATEGIES_DDL);
+
+  if (!await columnExists('strategies', 'type')) {
+    console.log('🔧 补齐 strategies.type 列...');
+    await db.query(`ALTER TABLE strategies ADD COLUMN type VARCHAR(50) NULL AFTER parameters`);
+  }
+
+  if (!await indexExists('strategies', 'idx_type')) {
+    console.log('🔧 补齐 strategies.idx_type 索引...');
+    await db.query(`ALTER TABLE strategies ADD INDEX idx_type (type)`);
+  }
+
+  if (!await indexExists('strategies', 'idx_is_active')) {
+    console.log('🔧 补齐 strategies.idx_is_active 索引...');
+    await db.query(`ALTER TABLE strategies ADD INDEX idx_is_active (is_active)`);
+  }
+
   console.log('✅ strategies 表创建成功');
 }
 

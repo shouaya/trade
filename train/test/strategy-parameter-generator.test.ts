@@ -130,3 +130,27 @@ test('generateStrategyCombinations covers ATR mode without limit', () => {
   assert.equal(strategies[0]?.parameters.risk.lotSize, 0.2);
   assert.deepEqual(strategies.map(strategy => strategy.parameters.atr?.slMultiplier), [2, 3]);
 });
+
+test('generateStrategyCombinations supports dynamic hold with null maxHoldMinutes', () => {
+  const strategies = generateStrategyCombinations({
+    types: ['rsi_only'],
+    parameters: {
+      rsi: {
+        period: [14],
+        oversold: [30],
+        overbought: [70]
+      },
+      risk: {
+        maxPositions: [1],
+        lotSize: [0.1],
+        stopLossPercent: [0.1],
+        takeProfitPercent: [0.2],
+        maxHoldMinutes: [null]
+      }
+    }
+  });
+
+  assert.equal(strategies.length, 1);
+  assert.equal(strategies[0]?.parameters.risk.maxHoldMinutes, null);
+  assert.match(strategies[0]?.name ?? '', /-Hdynamic-/);
+});
