@@ -1,0 +1,628 @@
+{
+  "start": "2025-01-03",
+  "end": "2026-02-20",
+  "totalWeeks": 60,
+  "initialParams": {
+    "hold": 10,
+    "atrsl": 4,
+    "atrtp": 4
+  },
+  "finalParams": {
+    "hold": 30,
+    "atrsl": 4,
+    "atrtp": 4
+  },
+  "actionCounts": {
+    "keep": 35,
+    "pause": 13,
+    "fallback": 11,
+    "switch": 1
+  },
+  "validationCompleted": 47,
+  "validationPositive": 27,
+  "validationNegative": 20,
+  "validationNetReturnSum": 147.6,
+  "validationAverageNetReturn": 3.1,
+  "reports": [
+    {
+      "runDate": "2025-01-03",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -56.5
+    },
+    {
+      "runDate": "2025-01-10",
+      "action": "pause",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": null
+    },
+    {
+      "runDate": "2025-01-17",
+      "action": "pause",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": null
+    },
+    {
+      "runDate": "2025-01-24",
+      "action": "pause",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": null
+    },
+    {
+      "runDate": "2025-01-31",
+      "action": "pause",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": null
+    },
+    {
+      "runDate": "2025-02-07",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 34.1
+    },
+    {
+      "runDate": "2025-02-14",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -26.2
+    },
+    {
+      "runDate": "2025-02-21",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -2.2
+    },
+    {
+      "runDate": "2025-02-28",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 17.7
+    },
+    {
+      "runDate": "2025-03-07",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -5.1
+    },
+    {
+      "runDate": "2025-03-14",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 11.9
+    },
+    {
+      "runDate": "2025-03-21",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 3.3
+    },
+    {
+      "runDate": "2025-03-28",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 17.3
+    },
+    {
+      "runDate": "2025-04-04",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 70.7
+    },
+    {
+      "runDate": "2025-04-11",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 37.7
+    },
+    {
+      "runDate": "2025-04-18",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 13.8
+    },
+    {
+      "runDate": "2025-04-25",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 15.6
+    },
+    {
+      "runDate": "2025-05-02",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 2.8
+    },
+    {
+      "runDate": "2025-05-09",
+      "action": "fallback",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 3
+      },
+      "validationNetReturnPct": -7.1
+    },
+    {
+      "runDate": "2025-05-16",
+      "action": "fallback",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 3
+      },
+      "validationNetReturnPct": -22.6
+    },
+    {
+      "runDate": "2025-05-23",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 3
+      },
+      "validationNetReturnPct": 6.9
+    },
+    {
+      "runDate": "2025-05-30",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 3
+      },
+      "validationNetReturnPct": 5.6
+    },
+    {
+      "runDate": "2025-06-06",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 3
+      },
+      "validationNetReturnPct": 3.5
+    },
+    {
+      "runDate": "2025-06-13",
+      "action": "fallback",
+      "selectedParams": {
+        "hold": 30,
+        "atrsl": 4,
+        "atrtp": 3
+      },
+      "validationNetReturnPct": 30
+    },
+    {
+      "runDate": "2025-06-20",
+      "action": "fallback",
+      "selectedParams": {
+        "hold": 25,
+        "atrsl": 4,
+        "atrtp": 3
+      },
+      "validationNetReturnPct": 33.1
+    },
+    {
+      "runDate": "2025-06-27",
+      "action": "fallback",
+      "selectedParams": {
+        "hold": 25,
+        "atrsl": 4,
+        "atrtp": 3
+      },
+      "validationNetReturnPct": 16
+    },
+    {
+      "runDate": "2025-07-04",
+      "action": "fallback",
+      "selectedParams": {
+        "hold": 25,
+        "atrsl": 3.5,
+        "atrtp": 3
+      },
+      "validationNetReturnPct": 11.7
+    },
+    {
+      "runDate": "2025-07-11",
+      "action": "fallback",
+      "selectedParams": {
+        "hold": 25,
+        "atrsl": 3.5,
+        "atrtp": 3
+      },
+      "validationNetReturnPct": 17.4
+    },
+    {
+      "runDate": "2025-07-18",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 25,
+        "atrsl": 3.5,
+        "atrtp": 3
+      },
+      "validationNetReturnPct": 5.7
+    },
+    {
+      "runDate": "2025-07-25",
+      "action": "fallback",
+      "selectedParams": {
+        "hold": 25,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -0.7
+    },
+    {
+      "runDate": "2025-08-01",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 25,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -37.2
+    },
+    {
+      "runDate": "2025-08-08",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 25,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 1.7
+    },
+    {
+      "runDate": "2025-08-15",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 25,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -28.7
+    },
+    {
+      "runDate": "2025-08-22",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 25,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -3.9
+    },
+    {
+      "runDate": "2025-08-29",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 25,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -24.7
+    },
+    {
+      "runDate": "2025-09-05",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 25,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -12
+    },
+    {
+      "runDate": "2025-09-12",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 25,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -33.6
+    },
+    {
+      "runDate": "2025-09-19",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 25,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 5.3
+    },
+    {
+      "runDate": "2025-09-26",
+      "action": "switch",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 11.5
+    },
+    {
+      "runDate": "2025-10-03",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 29.1
+    },
+    {
+      "runDate": "2025-10-10",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -9.5
+    },
+    {
+      "runDate": "2025-10-17",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -32.1
+    },
+    {
+      "runDate": "2025-10-24",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -18.3
+    },
+    {
+      "runDate": "2025-10-31",
+      "action": "pause",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": null
+    },
+    {
+      "runDate": "2025-11-07",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -16.8
+    },
+    {
+      "runDate": "2025-11-14",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -15.1
+    },
+    {
+      "runDate": "2025-11-21",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 7.3
+    },
+    {
+      "runDate": "2025-11-28",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -15.2
+    },
+    {
+      "runDate": "2025-12-05",
+      "action": "keep",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": -10.4
+    },
+    {
+      "runDate": "2025-12-12",
+      "action": "pause",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": null
+    },
+    {
+      "runDate": "2025-12-19",
+      "action": "pause",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": null
+    },
+    {
+      "runDate": "2025-12-26",
+      "action": "pause",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": null
+    },
+    {
+      "runDate": "2026-01-02",
+      "action": "pause",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": null
+    },
+    {
+      "runDate": "2026-01-09",
+      "action": "pause",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": null
+    },
+    {
+      "runDate": "2026-01-16",
+      "action": "pause",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": null
+    },
+    {
+      "runDate": "2026-01-23",
+      "action": "pause",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": null
+    },
+    {
+      "runDate": "2026-01-30",
+      "action": "pause",
+      "selectedParams": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": null
+    },
+    {
+      "runDate": "2026-02-06",
+      "action": "fallback",
+      "selectedParams": {
+        "hold": 30,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 63.4
+    },
+    {
+      "runDate": "2026-02-13",
+      "action": "fallback",
+      "selectedParams": {
+        "hold": 30,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 45.4
+    },
+    {
+      "runDate": "2026-02-20",
+      "action": "fallback",
+      "selectedParams": {
+        "hold": 30,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationNetReturnPct": 7
+    }
+  ]
+}

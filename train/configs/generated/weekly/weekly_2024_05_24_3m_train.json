@@ -1,0 +1,89 @@
+{
+  "name": "WEEKLY_3M_TRAIN",
+  "description": "3m weekly rolling training",
+  "timeRange": {
+    "startTimeMs": 1708819200000,
+    "endTimeMs": 1716595140000,
+    "startIso": "2024-02-25T00:00:00.000Z",
+    "endIso": "2024-05-24T23:59:00.000Z"
+  },
+  "market": {
+    "symbol": "USDJPY",
+    "intervalType": "1min"
+  },
+  "database": {
+    "tableName": "backtest_results_weekly_2024_05_24_3m_train",
+    "resetTableBeforeRun": true
+  },
+  "strategy": {
+    "types": [
+      "rsi_only"
+    ],
+    "parameters": {
+      "rsi": {
+        "period": [
+          14
+        ],
+        "oversold": [
+          30
+        ],
+        "overbought": [
+          70
+        ]
+      },
+      "risk": {
+        "maxPositions": [
+          1
+        ],
+        "lotSize": [
+          0.1
+        ],
+        "maxHoldMinutes": [
+          10,
+          15,
+          25,
+          30
+        ]
+      },
+      "atr": {
+        "slMultiplier": [
+          3.5,
+          4
+        ],
+        "tpMultiplier": [
+          3,
+          4
+        ]
+      },
+      "tradingSchedule": "* 0-19 * * 1-5",
+      "tradingTimeRestriction": {
+        "enabled": true,
+        "utcExcludeStart": "19:30",
+        "utcExcludeEnd": "23:59",
+        "description": "排除UTC 19:30-23:59"
+      }
+    }
+  },
+  "executor": {
+    "version": "v3",
+    "options": {
+      "enableMA200Filter": true,
+      "enableMultiTimeframe": true,
+      "enableATRSizing": true,
+      "enableTrailingStop": true,
+      "enableRSIReversion": true,
+      "feeModel": {
+        "venueCode": "GMOCOIN",
+        "commissionRate": 0.00002,
+        "basis": "notional",
+        "chargeOnEntry": true,
+        "chargeOnExit": true
+      }
+    }
+  },
+  "output": {
+    "topN": 5,
+    "strategyNamePrefix": "Weekly-2024_05_24-3m-",
+    "descriptionPrefix": "weekly 3m train"
+  }
+}

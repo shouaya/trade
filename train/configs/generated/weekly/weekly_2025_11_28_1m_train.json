@@ -1,0 +1,88 @@
+{
+  "name": "WEEKLY_1M_TRAIN",
+  "description": "1m weekly rolling training",
+  "timeRange": {
+    "startTimeMs": 1761696000000,
+    "endTimeMs": 1764374340000,
+    "startIso": "2025-10-29T00:00:00.000Z",
+    "endIso": "2025-11-28T23:59:00.000Z"
+  },
+  "market": {
+    "symbol": "USDJPY",
+    "intervalType": "1min"
+  },
+  "database": {
+    "tableName": "backtest_results_weekly_2025_11_28_1m_train",
+    "resetTableBeforeRun": true
+  },
+  "strategy": {
+    "types": [
+      "rsi_only"
+    ],
+    "parameters": {
+      "rsi": {
+        "period": [
+          14
+        ],
+        "oversold": [
+          30
+        ],
+        "overbought": [
+          70
+        ]
+      },
+      "risk": {
+        "maxPositions": [
+          1
+        ],
+        "lotSize": [
+          0.1
+        ],
+        "maxHoldMinutes": [
+          10,
+          25,
+          30
+        ]
+      },
+      "atr": {
+        "slMultiplier": [
+          3.5,
+          4
+        ],
+        "tpMultiplier": [
+          3,
+          4
+        ]
+      },
+      "tradingSchedule": "* 0-19 * * 1-5",
+      "tradingTimeRestriction": {
+        "enabled": true,
+        "utcExcludeStart": "19:30",
+        "utcExcludeEnd": "23:59",
+        "description": "排除UTC 19:30-23:59"
+      }
+    }
+  },
+  "executor": {
+    "version": "v3",
+    "options": {
+      "enableMA200Filter": true,
+      "enableMultiTimeframe": true,
+      "enableATRSizing": true,
+      "enableTrailingStop": true,
+      "enableRSIReversion": true,
+      "feeModel": {
+        "venueCode": "GMOCOIN",
+        "commissionRate": 0.00002,
+        "basis": "notional",
+        "chargeOnEntry": true,
+        "chargeOnExit": true
+      }
+    }
+  },
+  "output": {
+    "topN": 5,
+    "strategyNamePrefix": "Weekly-2025_11_28-1m-",
+    "descriptionPrefix": "weekly 1m train"
+  }
+}

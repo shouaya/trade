@@ -11,7 +11,7 @@ define require_var
 $(if $($(1)),,$(error 缺少参数 $(1). 示例: $(2)))
 endef
 
-.PHONY: help up down restart logs logs-train ps shell mysql db-init db-backup db-tables import clear-klines reimport-klines train validate rolling-all rolling-train rolling-validate clean
+.PHONY: help up down restart logs logs-train ps shell mysql db-init db-backup db-tables import clear-klines reimport-klines train validate rolling-all rolling-train rolling-validate weekly-rolling weekly-rolling-history clean
 
 # ============================================================================
 # 默认命令：显示帮助
@@ -55,6 +55,8 @@ help:
 	@echo "  make rolling-all        # 训练+验证所有滚动窗口（2025-01到2026-02）"
 	@echo "  make rolling-train      # 只训练所有滚动窗口"
 	@echo "  make rolling-validate   # 只验证所有滚动窗口"
+	@echo "  make weekly-rolling CUTOFF=2026-01-30    # 运行周度rolling MVP"
+	@echo "  make weekly-rolling-history START=2024-04-05 END=2026-02-20   # 批量回放周度rolling"
 	@echo ""
 	@echo "🧹 清理:"
 	@echo "  make clean           - 清理临时文件"
@@ -188,6 +190,18 @@ rolling-train:
 rolling-validate:
 	@echo "✅ 只验证所有滚动窗口..."
 	@bash train/scripts/run-all-rolling.sh --validate-only
+
+# 周度 rolling MVP
+weekly-rolling:
+	@$(call require_var,CUTOFF,make weekly-rolling CUTOFF=2026-01-30)
+	@echo "📅 开始周度 rolling: cutoff=$(CUTOFF)"
+	@docker-compose run --rm train sh -c "npm install && npm run build && node scripts/weekly-rolling-run.js --cutoff=$(CUTOFF)"
+
+weekly-rolling-history:
+	@$(call require_var,START,make weekly-rolling-history START=2024-04-05 END=2026-02-20)
+	@$(call require_var,END,make weekly-rolling-history START=2024-04-05 END=2026-02-20)
+	@echo "📚 开始批量周度 rolling: start=$(START) end=$(END)"
+	@docker-compose run --rm train sh -c "npm install && npm run build && node scripts/weekly-rolling-history.js --start=$(START) --end=$(END)"
 
 # ============================================================================
 # 清理
