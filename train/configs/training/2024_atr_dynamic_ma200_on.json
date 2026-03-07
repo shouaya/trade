@@ -16,21 +16,44 @@
     "resetTableBeforeRun": true
   },
   "strategy": {
-    "types": ["rsi_only"],
+    "types": [
+      "rsi_only"
+    ],
     "parameters": {
       "rsi": {
-        "period": [14],
-        "oversold": [30],
-        "overbought": [70]
+        "period": [
+          14
+        ],
+        "oversold": [
+          30
+        ],
+        "overbought": [
+          70
+        ]
       },
       "risk": {
-        "maxPositions": [1],
-        "lotSize": [0.1],
-        "maxHoldMinutes": [10, 25, null]
+        "maxPositions": [
+          1
+        ],
+        "lotSize": [
+          0.1
+        ],
+        "maxHoldMinutes": [
+          10,
+          25,
+          null
+        ]
       },
       "atr": {
-        "slMultiplier": [3.5, 4.0],
-        "tpMultiplier": [4.0, 5.0, 6.0]
+        "slMultiplier": [
+          3.5,
+          4
+        ],
+        "tpMultiplier": [
+          4,
+          5,
+          6
+        ]
       },
       "tradingSchedule": "* 0-19 * * 1-5",
       "tradingTimeRestriction": {
@@ -48,7 +71,14 @@
       "enableMultiTimeframe": true,
       "enableATRSizing": true,
       "enableTrailingStop": true,
-      "enableRSIReversion": true
+      "enableRSIReversion": true,
+      "feeModel": {
+        "venueCode": "GMOCOIN",
+        "commissionRate": 0.00002,
+        "basis": "notional",
+        "chargeOnEntry": true,
+        "chargeOnExit": true
+      }
     }
   },
   "output": {

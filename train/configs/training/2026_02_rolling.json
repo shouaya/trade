@@ -12,7 +12,8 @@
     "intervalType": "1min"
   },
   "database": {
-    "tableName": "backtest_results_rolling_2026_02_train"
+    "tableName": "backtest_results_rolling_2026_02_train",
+    "resetTableBeforeRun": true
   },
   "strategy": {
     "types": [
@@ -78,7 +79,14 @@
       "enableMultiTimeframe": true,
       "enableATRSizing": true,
       "enableTrailingStop": true,
-      "enableRSIReversion": true
+      "enableRSIReversion": true,
+      "feeModel": {
+        "venueCode": "GMOCOIN",
+        "commissionRate": 0.00002,
+        "basis": "notional",
+        "chargeOnEntry": true,
+        "chargeOnExit": true
+      }
     }
   },
   "output": {

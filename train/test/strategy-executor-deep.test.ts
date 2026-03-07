@@ -204,3 +204,25 @@ test('StrategyExecutor uses bid/ask prices without slippage when available', () 
   assert.equal(executor.getReferencePrice(dualPriceKline, 'short', true), 99.99);
   assert.equal(executor.getReferencePrice(dualPriceKline, 'short', false), 100.01);
 });
+
+test('StrategyExecutor deducts configured GMOCOIN notional commission from net pnl', () => {
+  const executor = makeExecutor({}, {
+    feeModel: {
+      venueCode: 'GMOCOIN',
+      commissionRate: 0.00002,
+      basis: 'notional',
+      chargeOnEntry: true,
+      chargeOnExit: true
+    }
+  });
+
+  const outcome = executor.calculateTradeOutcome({
+    direction: 'long',
+    entry_price: 100,
+    lot_size: 0.1
+  }, 100.1);
+
+  assert.ok(Math.abs(outcome.grossPnl - 10) < 1e-6);
+  assert.ok(Math.abs(outcome.commissionFee - 0.4) < 1e-6);
+  assert.ok(Math.abs(outcome.netPnl - 9.6) < 1e-6);
+});

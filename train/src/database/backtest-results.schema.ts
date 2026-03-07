@@ -13,6 +13,8 @@ export const BACKTEST_RESULTS_DDL = `
     winning_trades INT DEFAULT 0,
     losing_trades INT DEFAULT 0,
     win_rate DECIMAL(5, 4) DEFAULT 0,
+    gross_pnl DECIMAL(15, 2) DEFAULT 0,
+    total_commission DECIMAL(15, 4) DEFAULT 0,
     total_pnl DECIMAL(15, 2) DEFAULT 0,
     avg_pnl DECIMAL(15, 2) DEFAULT 0,
     max_drawdown DECIMAL(15, 2) DEFAULT 0,

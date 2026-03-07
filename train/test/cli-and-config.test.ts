@@ -40,6 +40,8 @@ test('extractConfigArg returns config override and passthrough args', () => {
 test('loadNamedConfig loads json and rejects unsafe or invalid configs', () => {
   const loaded = loadNamedConfig('training', '2024_atr');
   assert.equal(loaded.name, '2024_V3_RSI_ATR');
+  assert.equal(loaded.executor.options.feeModel.venueCode, 'GMOCOIN');
+  assert.equal(loaded.executor.options.feeModel.commissionRate, 0.00002);
 
   assert.throws(() => loadNamedConfig('training', '../evil'), /invalid config name/);
 

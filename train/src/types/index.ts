@@ -47,6 +47,8 @@ export interface TradeRecord {
   readonly exit_macd_signal?: number | null | undefined;
   readonly exit_macd_histogram?: number | null | undefined;
   readonly exit_reason: ExitReason;
+  readonly gross_pnl?: number | undefined;
+  readonly commission_fee?: number | undefined;
   readonly pnl: number;
   readonly pips?: number | undefined;
   readonly percent?: number | undefined;
@@ -97,6 +99,7 @@ export interface StrategyParameters {
   readonly macd?: MACDParameters;
   readonly risk: RiskParameters;
   readonly atr?: ATRParameters;
+  readonly venueCode?: string | undefined;
   readonly tradingSchedule?: string;
   readonly tradingTimeRestriction?: TimeRestriction | null;
 }
@@ -173,6 +176,8 @@ export interface TrailingConfig {
 
 export interface BacktestStats {
   readonly totalTrades: number;
+  readonly grossPnl?: number;
+  readonly totalCommission?: number;
   readonly totalPnl: number;
   readonly winRate: number;
   readonly avgPnl: number;
@@ -197,6 +202,15 @@ export interface ExecutorOptions {
   readonly enableTrailingStop?: boolean;
   readonly enableRSIReversion?: boolean;
   readonly trailingConfig?: TrailingConfig;
+  readonly feeModel?: FeeModelConfig;
+}
+
+export interface FeeModelConfig {
+  readonly venueCode: string;
+  readonly commissionRate: number;
+  readonly basis?: 'notional';
+  readonly chargeOnEntry?: boolean;
+  readonly chargeOnExit?: boolean;
 }
 
 // ============================================================================

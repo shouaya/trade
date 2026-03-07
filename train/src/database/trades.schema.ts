@@ -34,6 +34,8 @@ export const TRADES_DDL = `
       'no_weekend',
       'backtest_end'
     ),
+    gross_pnl DECIMAL(10, 2),
+    commission_fee DECIMAL(10, 4),
     pnl DECIMAL(10, 2),
     pips DECIMAL(10, 2),
     percent DECIMAL(10, 4),

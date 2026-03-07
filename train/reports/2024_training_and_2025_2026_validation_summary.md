@@ -2,130 +2,122 @@
 
 ## Scope
 
-This summary covers one complete cycle under the latest bid/ask execution model:
+This summary covers the fee-aware fixed-window `2024` cycle under the current bid/ask execution model.
 
 - Training window: `2024-01-01` to `2024-12-31`
 - Forward validation window 1: `2025-01-01` to `2025-12-31`
 - Forward validation window 2: `2026-01-01` to `2026-02-27`
 
-Important execution note:
-- Entry/exit prices are no longer based on a single `close`
-- Execution now uses side-aware prices:
-  - long entry: `ask`
-  - long exit: `bid`
-  - short entry: `bid`
-  - short exit: `ask`
-- This report is based on the latest bid/ask data model
+Capital basis used for both training and validation:
+- Initial margin capital: `500 USD`
+- Leverage: `20x`
+- Position basis: `0.1 lot = 10,000 USD notional`
+- All return ratios below are normalized by `500 USD`
+
+Execution note:
+- FX import used `priceType=BOTH`
+- Storage and execution remained bid/ask-aware
+- Fee model used `GMOCOIN`
+- Commission rule: `notional x 0.002%` on both entry and exit
+
+Important scope limit:
+- Current `2026` validation is not a full-year validation
+- Current DB coverage ends at `2026-02-27 20:59:00 UTC`
+
+## Data Notes
+
+Dataset used by this run:
+- `2024`: `371,160` bars
+- `2025`: `369,638` bars
+- `2026-01` to `2026-02`: `58,500` bars
 
 ## Training Result: 2024
 
 Training config:
-- [2024_atr.json](/d:/git/trade/train/configs/training/2024_atr.json)
-
-Training dataset:
-- `USDJPY`
-- `1min`
-- `371,160` bars
-
-Search space:
-- RSI only
-- `maxHoldMinutes`: `5, 10, 15, 20, 25, 30`
-- `ATR SL`: `2.0, 2.5, 3.0, 3.5, 4.0`
-- `ATR TP`: `3.0, 4.0, 5.0, 6.0, 7.0`
+- [2024_atr.json](/Users/shoushoushou/git/trade/train/configs/training/2024_atr.json)
 
 Run summary:
 - Strategies tested: `150`
 - Valid strategies: `150`
 - Total simulated trades: `110,260`
-- Runtime: `13.7` minutes
 
 Top training result:
-- `RSI-P14-OS30-OB70-MP1-LOT0.1-H25-ATRSL4-ATRTP4`
-- tied with `RSI-P14-OS30-OB70-MP1-LOT0.1-H25-ATRSL4-ATRTP5`
+- `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H25-ATRSL4-ATRTP4`
+- tied with `...H25-ATRSL4-ATRTP5`
 
 Top metrics:
 - Trades: `674`
-- Win rate: `63.65%`
-- Total PnL: `639.00`
-- Sharpe: `0.0210`
-- Max drawdown: `-1551.00`
-- Score: `7.7518`
+- Win rate: `61.57%`
+- Gross return on margin: `127.8%`
+- Commission / margin: `269.6%`
+- Net return on margin: `-141.8%`
+- Sharpe: `-0.0233`
+- Max drawdown / margin: `-390.7%`
+- Score: `-3.9686`
 
-Observation:
-- The best 2024 structure remains concentrated around:
-  - `H25`
-  - `ATRSL = 4`
-  - `ATRTP = 4~6`
-- `TP=4` and `TP=5` are fully tied
-- This again suggests a take-profit plateau rather than a sharply defined TP optimum
+Interpretation:
+- The pre-fee `H25 + ATRSL4` family still tops the 2024 search table
+- But once `GMOCOIN` commission is charged on both sides, the full 2024 training window turns net negative
+- Fee drag is larger than gross edge in-sample, so this line cannot be described as a self-sustaining fee-aware training winner
 
 ## Forward Validation: 2025
 
 Validation config:
-- [2024_atr_2025_validation.json](/d:/git/trade/train/configs/validation/2024_atr_2025_validation.json)
+- [2024_atr_2025_validation.json](/Users/shoushoushou/git/trade/train/configs/validation/2024_atr_2025_validation.json)
 
 Validation candidates:
 - `H25/H30`
 - `ATRSL = 4`
 - `ATRTP = 4/5/6`
 
-Validation dataset:
-- `USDJPY`
-- `1min`
-- `369,638` bars
-
 Top validation result:
-- `RSI-P14-OS30-OB70-MP1-LOT0.1-H25-ATRSL4-ATRTP4`
+- `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H25-ATRSL4-ATRTP4`
 - tied with `...ATRTP5`
 - tied with `...ATRTP6`
 
 Top metrics:
 - Trades: `617`
-- Win rate: `63.21%`
-- Total PnL: `1559.50`
-- Sharpe: `0.0582`
-- Max drawdown: `-639.00`
-- Score: `52.1641`
+- Win rate: `62.07%`
+- Gross return on margin: `311.9%`
+- Commission / margin: `246.8%`
+- Net return on margin: `65.1%`
+- Sharpe: `0.0121`
+- Max drawdown / margin: `-222.2%`
+- Score: `2.2317`
 
 Interpretation:
-- The 2024 winner generalizes well into 2025
-- `H25` remains superior to `H30` in this forward period
-- `ATRSL = 4` remains stable
-- `ATRTP = 4/5/6` produces the same total PnL, confirming the TP plateau effect
+- The 2024 family still generalizes forward into 2025 after fees
+- Net profitability survives, but the edge is much smaller than the gross figure suggests
+- `ATRTP4/5/6` remains a plateau parameter
 
-## Forward Validation: 2026
+## Forward Validation: 2026 Jan-Feb
 
 Validation config:
-- [2024_atr_2026_validation.json](/d:/git/trade/train/configs/validation/2024_atr_2026_validation.json)
+- [2024_atr_2026_validation.json](/Users/shoushoushou/git/trade/train/configs/validation/2024_atr_2026_validation.json)
 
 Important scope limit:
-- Current DB only contains `2026-01-01` to `2026-02-27`
-- This is not a full-year 2026 validation
-- It is effectively a `2026 Jan-Feb forward validation`
-
-Validation dataset:
-- `USDJPY`
-- `1min`
-- `58,500` bars
+- This result only covers `2026-01-01` to `2026-02-27`
+- It must not be described as full-year 2026 validation
 
 Top validation result:
-- `RSI-P14-OS30-OB70-MP1-LOT0.1-H30-ATRSL4-ATRTP4`
+- `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H30-ATRSL4-ATRTP4`
 - tied with `...ATRTP5`
 - tied with `...ATRTP6`
 
 Top metrics:
 - Trades: `117`
-- Win rate: `66.67%`
-- Total PnL: `801.00`
-- Sharpe: `0.1291`
-- Max drawdown: `-169.50`
-- Score: `62.6784`
+- Win rate: `65.81%`
+- Gross return on margin: `160.2%`
+- Commission / margin: `46.8%`
+- Net return on margin: `113.4%`
+- Sharpe: `0.0914`
+- Max drawdown / margin: `-43.1%`
+- Score: `31.0038`
 
 Interpretation:
-- The 2024 family remains profitable in the 2026 Jan-Feb forward window
-- The preferred hold time shifts slightly from `H25` to `H30`
-- `ATRSL = 4` remains unchanged
-- `ATRTP = 4/5/6` is still a plateau
+- The 2024 family remains net profitable in the currently available 2026 Jan-Feb slice
+- The preferred hold time shifts from `H25` to `H30`
+- `ATRSL4` remains unchanged
 
 ## Cross-Period Comparison
 
@@ -139,31 +131,27 @@ Stable elements:
 - `maxPositions = 1`
 - `lotSize = 0.1`
 - `ATRSL = 4`
-- MA200 filter, MTF, ATR sizing, trailing stop, RSI reversion all remain enabled
+- MA200 filter, MTF filter, ATR sizing, trailing stop, RSI reversion remain enabled
 
 Changing element:
 - Hold time shows mild drift:
-  - `2024/2025`: `H25`
-  - `2026 Jan-Feb`: `H30`
+- `2024/2025`: `H25`
+- `2026 Jan-Feb`: `H30`
 
 Weakly identified element:
 - `ATRTP`
-- Across training and both validations, `ATRTP=4/5/6` behaves almost identically
-- This is the least important parameter in the current best-performing family
+- Across training and both validations, `ATRTP=4/5/6` behaves as a plateau rather than a sharply identified optimum
 
 ## Conclusion
 
-The latest bid/ask-based run does not overturn the earlier core conclusion.
+The fee-aware rerun changes the practical reading of the `2024 fixed` line.
 
 Current practical conclusion:
-- The 2024 best family is still valid after moving to bid/ask execution
-- It remains profitable in 2025 forward validation
-- It also remains profitable in the currently available 2026 Jan-Feb forward validation
-- The most stable parameter is `ATRSL = 4`
-- The most likely adaptive parameter is hold time, shifting from `25` to `30` minutes
-- Take-profit remains a plateau parameter and should not be over-interpreted
+- `2024 fixed` no longer clears its own training window after fees
+- It still remains net profitable in `2025` validation and in available `2026 Jan-Feb` validation
+- The slow-regime structure is therefore still useful as a cross-period fallback, but not as a clean fee-aware primary baseline
 
-Recommended working baseline:
-- Primary baseline: `H25 + ATRSL4`
-- 2026-sensitive variant: `H30 + ATRSL4`
-- Treat `ATRTP=4/5/6` as equivalent unless a later validation window separates them clearly
+Recommended interpretation:
+- Keep `H25/H30 + ATRSL4` as a slow fallback family
+- Treat `ATRTP4/5/6` as operationally equivalent
+- Keep the explicit note that current `2026` evidence only covers `2026-01-01` to `2026-02-27`

@@ -18,7 +18,7 @@
  * });
  */
 
-import type { Strategy, KlineData, Position, BacktestResult, BacktestStats, TradeRecord, ExitReason } from '../types';
+import type { Strategy, KlineData, Position, BacktestResult, BacktestStats, TradeRecord, ExitReason, FeeModelConfig } from '../types';
 import { calculateRSI } from './indicators/rsi';
 import { calculateATR, calculateDynamicSLTP, calculatePositionSize } from './indicators/atr';
 import { SlippageModel } from './slippage-model';
@@ -45,6 +45,7 @@ export interface ExecutorOptions {
   readonly enableTrailingStop?: boolean | undefined;
   readonly enableRSIReversion?: boolean | undefined;
   readonly trailingConfig?: TrailingConfig | undefined;
+  readonly feeModel?: FeeModelConfig | undefined;
 }
 
 type SignalDirection = 'long' | 'short' | 'hold';
@@ -75,6 +76,7 @@ export class StrategyExecutor {
 
   // 滑点模型
   private readonly slippageModel: SlippageModel | null;
+  private readonly feeModel: FeeModelConfig | null;
 
   // 交易时间表
   private readonly tradingSchedule: TradingSchedule;
@@ -125,6 +127,8 @@ export class StrategyExecutor {
     } else {
       this.slippageModel = null;
     }
+
+    this.feeModel = options.feeModel ?? null;
 
     // 初始化交易时间表
     const scheduleExpr = strategy.parameters.tradingSchedule ?? '* 0-19 * * 1-5';
@@ -598,8 +602,7 @@ export class StrategyExecutor {
     const position = this.positions.shift();
     if (!position) return;
 
-    // 计算盈亏
-    const pnl = this.calculatePnL(position, exitPrice);
+    const outcome = this.calculateTradeOutcome(position, exitPrice);
 
     const trade: TradeRecord = {
       direction: position.direction,
@@ -616,7 +619,11 @@ export class StrategyExecutor {
       exit_time: parseInt(kline.open_time),
       exit_price: exitPrice,
       exit_reason: exitReason,
-      pnl,
+      gross_pnl: outcome.grossPnl,
+      commission_fee: outcome.commissionFee,
+      pnl: outcome.netPnl,
+      pips: outcome.pips,
+      percent: outcome.percent,
       actual_hold_minutes: (parseInt(kline.open_time) - position.entry_time) / (1000 * 60)
     };
 
@@ -643,13 +650,69 @@ export class StrategyExecutor {
       priceDiff = entryPrice - exitPrice;
     }
 
-    // 将价格差转换为pips (USDJPY: 1 pip = 0.01)
     const pips = priceDiff / 0.01;
+    return pips * (pipValue / 100);
+  }
 
-    // 计算美元盈亏
-    const pnl = pips * (pipValue / 100);
+  private calculateTradeOutcome(position: InternalPosition, exitPrice: number): {
+    grossPnl: number;
+    commissionFee: number;
+    netPnl: number;
+    pips: number;
+    percent: number;
+  } {
+    const entryPrice = position.entry_price;
+    let priceDiff: number;
 
-    return pnl;
+    if (position.direction === 'long') {
+      priceDiff = exitPrice - entryPrice;
+    } else {
+      priceDiff = entryPrice - exitPrice;
+    }
+
+    const pips = priceDiff / 0.01;
+    const grossPnl = this.calculatePnL(position, exitPrice);
+    const commissionFee = this.calculateCommission(position, exitPrice);
+    const netPnl = grossPnl - commissionFee;
+    const percent = entryPrice !== 0 ? (priceDiff / entryPrice) * 100 : 0;
+
+    return {
+      grossPnl,
+      commissionFee,
+      netPnl,
+      pips,
+      percent
+    };
+  }
+
+  private calculateCommission(position: InternalPosition, exitPrice: number): number {
+    if (!this.feeModel) {
+      return 0;
+    }
+
+    const rate = this.feeModel.commissionRate;
+    if (!Number.isFinite(rate) || rate <= 0) {
+      return 0;
+    }
+
+    const units = position.lot_size * 100000;
+    let totalFee = 0;
+
+    if (this.feeModel.chargeOnEntry ?? true) {
+      totalFee += this.calculateExecutionCommission(units, position.entry_price, rate);
+    }
+
+    if (this.feeModel.chargeOnExit ?? true) {
+      totalFee += this.calculateExecutionCommission(units, exitPrice, rate);
+    }
+
+    return totalFee;
+  }
+
+  private calculateExecutionCommission(units: number, executionPrice: number, commissionRate: number): number {
+    const notional = units * executionPrice;
+    const feeInQuote = notional * commissionRate;
+    return executionPrice !== 0 ? feeInQuote / executionPrice : 0;
   }
 
   /**
@@ -701,6 +764,8 @@ export class StrategyExecutor {
     if (totalTrades === 0) {
       const emptyStats: BacktestStats = {
         totalTrades: 0,
+        grossPnl: 0,
+        totalCommission: 0,
         totalPnl: 0,
         winRate: 0,
         avgPnl: 0,
@@ -717,6 +782,8 @@ export class StrategyExecutor {
       };
     }
 
+    const grossPnl = trades.reduce((sum, t) => sum + (t.gross_pnl ?? t.pnl), 0);
+    const totalCommission = trades.reduce((sum, t) => sum + (t.commission_fee ?? 0), 0);
     const totalPnl = trades.reduce((sum, t) => sum + t.pnl, 0);
     const winners = trades.filter(t => t.pnl > 0);
     const losers = trades.filter(t => t.pnl < 0);
@@ -753,6 +820,8 @@ export class StrategyExecutor {
 
     const stats: BacktestStats = {
       totalTrades,
+      grossPnl,
+      totalCommission,
       totalPnl,
       winRate,
       avgPnl,

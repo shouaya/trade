@@ -2,15 +2,23 @@
 
 ## Scope
 
-This report summarizes the completed rolling workflow from `2025-01` through `2026-02` under the latest bid/ask execution model.
+This report summarizes the completed fee-aware rolling workflow from `2025-01` through `2026-02`.
 
 - Rolling training months: `2025-01` to `2026-02`
 - Rolling validation target months: `2025-01` to `2026-02`
 - Total completed runs: `14` training tables + `14` validation tables
 
+Capital basis used for both training and validation:
+- Initial margin capital: `500 USD`
+- Leverage: `20x`
+- Position basis: `0.1 lot = 10,000 USD notional`
+- All return ratios below are normalized by `500 USD`
+
 Execution note:
 - FX import used `priceType=BOTH`
 - Storage and execution remained bid/ask-aware
+- Fee model used `GMOCOIN`
+- Commission rule: `notional x 0.002%` on both entry and exit
 - Current `2026` data only covers `2026-01-01` to `2026-02-27 20:59:00 UTC`
 - Any statement about `2026` in this report applies only to `2026-01` and `2026-02`
 
@@ -18,92 +26,101 @@ Execution note:
 
 Monthly training winners:
 
-| Month | Winner | Trades | Win Rate | Total PnL | Sharpe | Max DD | Score |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `2025-01` | `H25-ATRSL4-ATRTP4` | 674 | 63.65% | 639.00 | 0.0210 | -1551.00 | 7.7518 |
-| `2025-02` | `H10-ATRSL2-ATRTP4` | 762 | 49.08% | 394.50 | 0.0149 | -1114.50 | 2.6230 |
-| `2025-03` | `H10-ATRSL4-ATRTP4` | 704 | 51.42% | 457.50 | 0.0170 | -1155.50 | 3.6278 |
-| `2025-04` | `H10-ATRSL4-ATRTP4` | 699 | 50.50% | 564.50 | 0.0203 | -1155.50 | 5.2516 |
-| `2025-05` | `H10-ATRSL4-ATRTP4` | 725 | 50.76% | 911.00 | 0.0304 | -1155.50 | 12.7859 |
-| `2025-06` | `H10-ATRSL3.5-ATRTP4` | 703 | 51.78% | 982.00 | 0.0329 | -1180.50 | 15.2191 |
-| `2025-07` | `H10-ATRSL3.5-ATRTP4` | 693 | 52.38% | 1414.50 | 0.0477 | -1180.50 | 32.1298 |
-| `2025-08` | `H10-ATRSL3-ATRTP4` | 687 | 52.98% | 2217.00 | 0.0770 | -1172.50 | 82.1932 |
-| `2025-09` | `H10-ATRSL3-ATRTP4` | 676 | 52.66% | 1697.00 | 0.0642 | -835.00 | 52.1781 |
-| `2025-10` | `H10-ATRSL4-ATRTP4` | 661 | 53.71% | 2252.50 | 0.0924 | -679.50 | 101.6229 |
-| `2025-11` | `H10-ATRSL4-ATRTP4` | 659 | 54.02% | 2085.00 | 0.0856 | -679.50 | 87.6375 |
-| `2025-12` | `H10-ATRSL4-ATRTP4` | 659 | 55.39% | 2835.50 | 0.1207 | -315.50 | 172.3465 |
-| `2026-01` | `H10-ATRSL4-ATRTP4` | 660 | 54.09% | 2294.50 | 0.0995 | -315.50 | 112.2904 |
-| `2026-02` | `H10-ATRSL4-ATRTP4` | 655 | 53.13% | 2421.00 | 0.1074 | -389.00 | 125.5537 |
+| Month | Winner | Trades | Win Rate | Gross Return | Commission / Margin | Net Return |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `2025-01` | `H25-ATRSL4-ATRTP4` | 674 | 61.57% | 127.8% | 269.6% | -141.8% |
+| `2025-02` | `H25-ATRSL4-ATRTP4` | 671 | 60.95% | 57.8% | 268.4% | -210.6% |
+| `2025-03` | `H10-ATRSL4-ATRTP4` | 704 | 48.58% | 91.5% | 281.6% | -190.1% |
+| `2025-04` | `H10-ATRSL4-ATRTP4` | 699 | 48.35% | 112.9% | 279.6% | -166.7% |
+| `2025-05` | `H10-ATRSL4-ATRTP4` | 725 | 48.69% | 182.2% | 290.0% | -107.8% |
+| `2025-06` | `H10-ATRSL4-ATRTP4` | 699 | 49.36% | 196.1% | 279.6% | -83.5% |
+| `2025-07` | `H10-ATRSL3.5-ATRTP4` | 696 | 50.14% | 297.7% | 278.4% | 19.3% |
+| `2025-08` | `H10-ATRSL3-ATRTP4` | 690 | 50.87% | 458.2% | 276.0% | 182.2% |
+| `2025-09` | `H10-ATRSL4-ATRTP4` | 671 | 50.37% | 352.0% | 268.4% | 83.6% |
+| `2025-10` | `H10-ATRSL4-ATRTP4` | 664 | 51.36% | 465.3% | 265.6% | 199.7% |
+| `2025-11` | `H10-ATRSL4-ATRTP4` | 662 | 51.81% | 431.8% | 264.8% | 167.0% |
+| `2025-12` | `H10-ATRSL4-ATRTP4` | 662 | 53.02% | 581.9% | 264.8% | 317.1% |
+| `2026-01` | `H10-ATRSL4-ATRTP4` | 663 | 51.73% | 473.7% | 265.2% | 208.5% |
+| `2026-02` | `H10-ATRSL4-ATRTP4` | 658 | 50.76% | 499.0% | 263.2% | 235.8% |
 
 Training summary:
-- Total rolling training winner PnL across all months: `21165.50`
-- Average monthly training winner PnL: `1511.82`
-- Best training month: `2025-12` with `2835.50`
-- Weakest training month: `2025-02` with `394.50`
+- Total rolling training winner net return across all months: `512.7%`
+- Average monthly training winner net return: `36.6%`
+- Positive months: `8/14`
+- Negative months: `6/14`
+- Best training month: `2025-12` with `317.1%`
+- Weakest training month: `2025-02` with `-210.6%`
 
 Training family stability:
-- `H10` won `13/14` months
+- `H10` won `12/14` months
+- `H25` won `2/14` months
 - `ATRTP4` won `14/14` months
-- `ATRSL4` won `9/14` months
-- `ATRSL3.5` won `2/14` months
-- `ATRSL3` won `2/14` months
-- `ATRSL2` won `1/14` months
+- `ATRSL4` won `12/14` months
+- `ATRSL3.5` won `1/14` month
+- `ATRSL3` won `1/14` month
 
 Interpretation:
-- The rolling training line converges very quickly to the fast `H10` family
-- `ATRTP4` is the most stable training parameter in the whole rolling set
-- The main rolling adaptation is in `ATRSL`, but it stays within a narrow `2.0` to `4.0` envelope and is mostly concentrated in `3.0` to `4.0`
-- `2025-01` is the only month that still resembles the slower `2024` style
+- Fees materially change the rolling training picture
+- The structural winner still converges to `H10`, but the early 2025 training months do not clear commissions
+- Net rolling training only becomes consistently positive from `2025-07` onward
+- `ATRTP4` remains completely stable, while `ATRSL` only briefly widens to `3.5` or `3.0`
 
 ## Rolling Validation Winners
 
 Monthly validation winners:
 
-| Month | Winner | Trades | Win Rate | Total PnL | Sharpe | Max DD | Score |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `2025-01` | `H30-ATRSL4-ATRTP3` | 63 | 60.32% | -97.50 | -0.0360 | -395.50 | -0.5346 |
-| `2025-02` | `H10-ATRSL4-ATRTP3` | 46 | 50.00% | 169.00 | 0.1304 | -148.00 | 10.0170 |
-| `2025-03` | `H10-ATRSL2-ATRTP3` | 56 | 53.57% | 435.50 | 0.1842 | -167.50 | 39.0753 |
-| `2025-04` | `H10-ATRSL3.5-ATRTP3` | 62 | 59.68% | 816.50 | 0.2622 | -129.00 | 116.1405 |
-| `2025-05` | `H10-ATRSL3.5-ATRTP3` | 40 | 55.00% | 30.50 | 0.0190 | -236.00 | 0.2903 |
-| `2025-06` | `H10-ATRSL3.5-ATRTP3` | 49 | 63.27% | 362.50 | 0.2387 | -107.50 | 49.7604 |
-| `2025-07` | `H10-ATRSL3-ATRTP4` | 62 | 54.84% | 518.50 | 0.2661 | -160.00 | 68.7949 |
-| `2025-08` | `H10-ATRSL3-ATRTP3` | 44 | 45.45% | -152.00 | -0.1144 | -332.00 | -0.6281 |
-| `2025-09` | `H10-ATRSL4-ATRTP4` | 54 | 55.56% | 214.50 | 0.1392 | -188.00 | 15.0802 |
-| `2025-10` | `H10-ATRSL4-ATRTP4` | 58 | 55.17% | -36.50 | -0.0208 | -232.50 | -0.1831 |
-| `2025-11` | `H10-ATRSL3-ATRTP4` | 58 | 55.17% | 266.50 | 0.1735 | -151.50 | 23.1889 |
-| `2025-12` | `H10-ATRSL4-ATRTP3` | 66 | 43.94% | -98.50 | -0.0617 | -255.50 | -0.3935 |
-| `2026-01` | `H10-ATRSL4-ATRTP4` | 66 | 46.97% | 31.00 | 0.0178 | -224.50 | 0.2359 |
-| `2026-02` | `H10-ATRSL4-ATRTP4` | 58 | 58.62% | 631.00 | 0.1698 | -133.00 | 57.1122 |
+| Month | Winner | Trades | Win Rate | Gross Return | Commission / Margin | Net Return |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `2025-01` | `H30-ATRSL4-ATRTP3` | 63 | 58.73% | -19.5% | 25.2% | -44.7% |
+| `2025-02` | `H10-ATRSL4-ATRTP3` | 46 | 45.65% | 33.8% | 18.4% | 15.4% |
+| `2025-03` | `H10-ATRSL3.5-ATRTP3` | 50 | 52.00% | 86.9% | 20.0% | 66.9% |
+| `2025-04` | `H10-ATRSL3.5-ATRTP3` | 62 | 59.68% | 163.3% | 24.8% | 138.5% |
+| `2025-05` | `H10-ATRSL3.5-ATRTP3` | 40 | 47.50% | 6.1% | 16.0% | -9.9% |
+| `2025-06` | `H10-ATRSL3.5-ATRTP3` | 52 | 59.62% | 87.3% | 20.8% | 66.5% |
+| `2025-07` | `H10-ATRSL3-ATRTP4` | 62 | 54.84% | 103.7% | 24.8% | 78.9% |
+| `2025-08` | `H10-ATRSL3-ATRTP3` | 44 | 43.18% | -30.4% | 17.6% | -48.0% |
+| `2025-09` | `H10-ATRSL4-ATRTP4` | 54 | 53.70% | 42.9% | 21.6% | 21.3% |
+| `2025-10` | `H10-ATRSL4-ATRTP4` | 58 | 53.45% | -7.3% | 23.2% | -30.5% |
+| `2025-11` | `H10-ATRSL3-ATRTP4` | 58 | 51.72% | 53.3% | 23.2% | 30.1% |
+| `2025-12` | `H10-ATRSL4-ATRTP3` | 66 | 42.42% | -19.7% | 26.4% | -46.1% |
+| `2026-01` | `H10-ATRSL4-ATRTP4` | 66 | 43.94% | 6.2% | 26.4% | -20.2% |
+| `2026-02` | `H10-ATRSL4-ATRTP4` | 58 | 53.45% | 126.2% | 23.2% | 103.0% |
 
 Validation summary:
-- Total rolling validation winner PnL across all months: `3091.00`
-- Average monthly validation winner PnL: `220.79`
-- Positive months: `10/14`
-- Negative months: `4/14`
-- Best validation month: `2025-04` with `816.50`
-- Worst validation month: `2025-08` with `-152.00`
+- Total rolling validation winner net return across all months: `321.2%`
+- Average monthly validation winner net return: `22.9%`
+- Positive months: `8/14`
+- Negative months: `6/14`
+- Best validation month: `2025-04` with `138.5%`
+- Worst validation month: `2025-08` with `-48.0%`
 
 Validation family stability:
 - `H10` won `13/14` months
+- `H30` won `1/14` month
 - `TP3` won `8/14` months
 - `TP4` won `6/14` months
 - `ATRSL4` won `7/14` months
-- `ATRSL3.5` won `3/14` months
-- `ATRSL3` won `2/14` months
-- `ATRSL2` won `1/14` months
+- `ATRSL3.5` won `4/14` months
+- `ATRSL3` won `3/14` months
 
 Interpretation:
-- Forward validation remains mostly profitable, but month-to-month dispersion is real
-- The structural stability is in `H10`, not in a single globally fixed stop/target pair
-- Validation winners oscillate between `ATRSL 3.0` to `4.0` and between `TP3` and `TP4`
-- That is a narrower and more credible adaptation band than a full regime break
+- Rolling validation remains net positive overall, but much less smooth after fees
+- The structural stability is still in `H10`, not in a single globally fixed stop/target pair
+- Validation winners oscillate inside a narrow band:
+- `ATRSL 3.0` to `4.0`
+- `TP3` to `TP4`
+- This is still a usable adaptation signal, but it is weaker than the no-fee version
 
 ## What The Rolling Line Says
 
 Main signal:
-- The market shifted away from the slower `H25/H30` 2024 structure very quickly
-- The rolling line overwhelmingly prefers the fast `H10` structure
+- The market still shifts away from the slower `H25/H30` structure toward `H10`
+- That structural conclusion survives fees
+
+Important fee-aware nuance:
+- Early rolling training months are net negative even at the winner level
+- Rolling validation is positive overall, but only `8/14` months are positive
+- This means rolling still adapts best, but the edge margin is thinner and more regime-dependent than the no-fee report suggested
 
 Stable parameters:
 - RSI(14), OS30 / OB70
@@ -113,23 +130,18 @@ Stable parameters:
 
 Adaptive parameters:
 - `ATRSL` is the main rolling adjustment lever
-- `TP` shifts between `3` and `4` in validation, but training stays locked on `4`
-
-Important nuance:
-- Rolling training has a very clean and stable top family
-- Rolling validation is profitable overall, but it is not monotonic
-- This is a usable adaptation signal, not a claim that every month is easy or uniformly strong
+- `TP` shifts between `3` and `4` in validation
 
 ## Conclusion
 
-The rolling workflow confirms that the current preferred regime is the fast `H10` family rather than the slower `2024` family.
+The fee-aware rolling workflow still points to the fast `H10` family, but with a stricter operational reading.
 
 Current practical conclusion:
-- Rolling training strongly converges to `H10 + ATRTP4`
-- Rolling validation is positive overall with `10/14` profitable months
-- The most stable production-friendly rolling core is `H10`
-- The most adaptive rolling parameter is `ATRSL`
-- The current `2026` evidence is limited to `2026-01` and `2026-02`, not full-year `2026`
+- Rolling still confirms the fast `H10` regime
+- The most stable rolling core is `H10 + ATRTP4`
+- The main adaptive lever remains `ATRSL`
+- The latest available month still supports `H10-ATRSL4-ATRTP4`
+- But rolling should no longer be described as broadly strong across nearly every month; fee drag makes the dispersion materially larger
 
 Recommended rolling baseline:
 - Structural baseline: `H10`

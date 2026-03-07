@@ -72,6 +72,17 @@ async function createStrategiesTable(): Promise<void> {
 async function createTradesTable(): Promise<void> {
   console.log('📊 创建 trades 表...');
   await db.query(TRADES_DDL);
+
+  if (!await columnExists('trades', 'gross_pnl')) {
+    console.log('🔧 补齐 trades.gross_pnl 列...');
+    await db.query(`ALTER TABLE trades ADD COLUMN gross_pnl DECIMAL(10, 2) NULL AFTER exit_reason`);
+  }
+
+  if (!await columnExists('trades', 'commission_fee')) {
+    console.log('🔧 补齐 trades.commission_fee 列...');
+    await db.query(`ALTER TABLE trades ADD COLUMN commission_fee DECIMAL(10, 4) NULL AFTER gross_pnl`);
+  }
+
   console.log('✅ trades 表创建成功');
 }
 

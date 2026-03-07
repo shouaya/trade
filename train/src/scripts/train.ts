@@ -78,6 +78,14 @@ interface TrainingConfig {
   };
 }
 
+async function resultColumnExists(tableName: string, columnName: string): Promise<boolean> {
+  const [columns] = await db.query<mysql.RowDataPacket[]>(
+    `SHOW COLUMNS FROM ${tableName} LIKE ?`,
+    [columnName]
+  );
+  return columns.length > 0;
+}
+
 interface StrategyResult {
   readonly strategy_name: string;
   readonly strategy_type: string;
@@ -135,8 +143,18 @@ function loadConfig(configPath: string): TrainingConfig {
 function generateStrategies(config: TrainingConfig): readonly Strategy[] {
   const strategyTypes = config.strategy.types ?? (['rsi_only'] as const);
   const parameters = config.strategy.parameters ?? {};
+  const venueCode = config.executor.options.feeModel?.venueCode?.trim();
 
-  const strategies = generateStrategyCombinations({ types: strategyTypes, parameters });
+  const strategies = generateStrategyCombinations({ types: strategyTypes, parameters }).map(strategy => ({
+    ...strategy,
+    name: venueCode ? `${venueCode}-${strategy.name}` : strategy.name,
+    parameters: venueCode
+      ? {
+        ...strategy.parameters,
+        venueCode
+      }
+      : strategy.parameters
+  }));
 
   console.log(`\n✅ 生成了 ${strategies.length} 个策略组合\n`);
 
@@ -169,6 +187,8 @@ async function ensureBacktestTable(tableName: string): Promise<void> {
       winning_trades INT,
       losing_trades INT,
       win_rate DECIMAL(5,4),
+      gross_pnl DECIMAL(12,2),
+      total_commission DECIMAL(12,4),
       total_pnl DECIMAL(12,2),
       avg_pnl DECIMAL(12,2),
       sharpe_ratio DECIMAL(10,4),
@@ -190,6 +210,14 @@ async function ensureBacktestTable(tableName: string): Promise<void> {
       INDEX idx_created_at (created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+
+  if (!await resultColumnExists(tableName, 'gross_pnl')) {
+    await db.query(`ALTER TABLE ${tableName} ADD COLUMN gross_pnl DECIMAL(12,2) NULL AFTER win_rate`);
+  }
+
+  if (!await resultColumnExists(tableName, 'total_commission')) {
+    await db.query(`ALTER TABLE ${tableName} ADD COLUMN total_commission DECIMAL(12,4) NULL AFTER gross_pnl`);
+  }
 
   console.log('✅ 结果表准备完成');
 }
@@ -275,6 +303,8 @@ async function saveTrades(trades: readonly TradeRecord[]): Promise<void> {
     sanitizeNumber(t.exit_macd_signal ?? null),
     sanitizeNumber(t.exit_macd_histogram ?? null),
     t.exit_reason,
+    sanitizeNumber(t.gross_pnl ?? t.pnl),
+    sanitizeNumber(t.commission_fee ?? 0),
     sanitizeNumber(t.pnl),
     sanitizeNumber(t.pips ?? null),
     sanitizeNumber(t.percent ?? null),
@@ -291,7 +321,7 @@ async function saveTrades(trades: readonly TradeRecord[]): Promise<void> {
       lot_size, hold_minutes, stop_loss, take_profit,
       exit_time, exit_price, exit_rsi, exit_macd,
       exit_macd_signal, exit_macd_histogram,
-      exit_reason, pnl, pips, percent,
+      exit_reason, gross_pnl, commission_fee, pnl, pips, percent,
       actual_hold_minutes, strategy_name, symbol, notes
     ) VALUES ?`,
     [values]
@@ -359,10 +389,10 @@ async function saveStrategyResult(
   await db.query(
     `INSERT INTO ${tableName}
      (strategy_name, strategy_type, total_trades, winning_trades, losing_trades,
-      win_rate, total_pnl, avg_pnl, sharpe_ratio, profit_factor, max_drawdown,
-      gross_profit, gross_loss, avg_win, avg_loss, score, parameters,
+      win_rate, gross_pnl, total_commission, total_pnl, avg_pnl, sharpe_ratio, profit_factor, max_drawdown,
+     gross_profit, gross_loss, avg_win, avg_loss, score, parameters,
       executor_version, executor_options)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       strategy.name,
       strategy.type,
@@ -370,6 +400,8 @@ async function saveStrategyResult(
       winningTrades,
       losingTrades,
       sanitizeNumber(stats.winRate),
+      sanitizeNumber(stats.grossPnl ?? stats.totalPnl),
+      sanitizeNumber(stats.totalCommission ?? 0),
       sanitizeNumber(stats.totalPnl),
       sanitizeNumber(stats.avgPnl),
       sanitizeNumber(stats.sharpeRatio),
