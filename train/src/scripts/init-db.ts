@@ -98,6 +98,13 @@ async function main(): Promise<void> {
       console.log('');
     }
 
+    console.log('🧹 重建 train 相关表...');
+    await db.query('DROP TABLE IF EXISTS backtest_results');
+    await db.query('DROP TABLE IF EXISTS strategies');
+    await db.query('DROP TABLE IF EXISTS trades');
+    await db.query('DROP TABLE IF EXISTS tasks');
+    console.log('✅ train 相关表已清空');
+
     // 创建所有表
     await createBacktestResultsTable();
     await createStrategiesTable();

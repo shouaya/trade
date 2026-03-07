@@ -94,9 +94,9 @@ export class SlippageModel {
    * @returns 波动率 (0-1之间的数值)
    */
   calculateVolatility(kline: KlineData): number {
-    const high = parseFloat(kline.high);
-    const low = parseFloat(kline.low);
-    const close = parseFloat(kline.close);
+    const high = this.getMidPrice(kline, 'high');
+    const low = this.getMidPrice(kline, 'low');
+    const close = this.getMidPrice(kline, 'close');
 
     // 使用 (high-low) / close 作为波动率指标
     const range = high - low;
@@ -109,7 +109,7 @@ export class SlippageModel {
    * 获取实际成交价格 (含滑点和点差)
    */
   getExecutionPrice(kline: KlineData, direction: 'long' | 'short', isEntry: boolean = true): number {
-    const signalPrice = parseFloat(kline.close);
+    const signalPrice = this.getReferencePrice(kline, direction, isEntry);
     const totalCostPips = this.calculateTotalCost(kline, direction, isEntry);
 
     // USDJPY: 1 pip = 0.01, 所以 1 pip = 0.01/价格 的百分比
@@ -133,7 +133,7 @@ export class SlippageModel {
    * 计算交易成本的详细信息 (用于调试和日志)
    */
   getCostBreakdown(kline: KlineData, direction: 'long' | 'short', isEntry: boolean = true): CostBreakdown {
-    const signalPrice = parseFloat(kline.close);
+    const signalPrice = this.getReferencePrice(kline, direction, isEntry);
     const volatility = this.calculateVolatility(kline);
     const isTokyoHour = this.isTokyoHighSlippageHour(kline);
     const isHighVolatility = volatility > this.volatilityThreshold;
@@ -168,5 +168,48 @@ export class SlippageModel {
       totalCostPercent: ((totalCost * 0.01) / signalPrice * 100).toFixed(4) + '%',
       priceDifference: Math.abs(executionPrice - signalPrice).toFixed(5)
     };
+  }
+
+  private getReferencePrice(kline: KlineData, direction: 'long' | 'short', isEntry: boolean): number {
+    const askClose = this.parseMaybeNumber(kline.ask_close);
+    const bidClose = this.parseMaybeNumber(kline.bid_close);
+
+    if (direction === 'long') {
+      if (isEntry && askClose !== null) return askClose;
+      if (!isEntry && bidClose !== null) return bidClose;
+    } else {
+      if (isEntry && bidClose !== null) return bidClose;
+      if (!isEntry && askClose !== null) return askClose;
+    }
+
+    return this.getMidPrice(kline, 'close');
+  }
+
+  private getMidPrice(kline: KlineData, side: 'open' | 'high' | 'low' | 'close'): number {
+    const bid = this.parseMaybeNumber(kline[`bid_${side}` as keyof KlineData]);
+    const ask = this.parseMaybeNumber(kline[`ask_${side}` as keyof KlineData]);
+
+    if (bid !== null && ask !== null) {
+      return (bid + ask) / 2;
+    }
+
+    if (bid !== null) {
+      return bid;
+    }
+
+    if (ask !== null) {
+      return ask;
+    }
+
+    return parseFloat(kline[side]);
+  }
+
+  private parseMaybeNumber(value: KlineData[keyof KlineData]): number | null {
+    if (typeof value !== 'string' || value.length === 0) {
+      return null;
+    }
+
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 }

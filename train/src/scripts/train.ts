@@ -213,7 +213,25 @@ async function loadKlines(config: TrainingConfig): Promise<readonly KlineData[]>
   console.log(`   - 时间: ${new Date(startTimeMs).toISOString()} - ${new Date(endTimeMs).toISOString()}`);
 
   const [klines] = await db.query<mysql.RowDataPacket[]>(
-    `SELECT * FROM klines
+    `SELECT
+       id,
+       open_time,
+       CAST((bid_open + ask_open) / 2 AS CHAR) AS open,
+       CAST((bid_high + ask_high) / 2 AS CHAR) AS high,
+       CAST((bid_low + ask_low) / 2 AS CHAR) AS low,
+       CAST((bid_close + ask_close) / 2 AS CHAR) AS close,
+       CAST(bid_open AS CHAR) AS bid_open,
+       CAST(bid_high AS CHAR) AS bid_high,
+       CAST(bid_low AS CHAR) AS bid_low,
+       CAST(bid_close AS CHAR) AS bid_close,
+       CAST(ask_open AS CHAR) AS ask_open,
+       CAST(ask_high AS CHAR) AS ask_high,
+       CAST(ask_low AS CHAR) AS ask_low,
+       CAST(ask_close AS CHAR) AS ask_close,
+       CAST(volume AS CHAR) AS volume,
+       symbol,
+       interval_type
+     FROM klines
      WHERE symbol = ?
      AND interval_type = ?
      AND open_time >= ?

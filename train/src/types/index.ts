@@ -13,6 +13,14 @@ export interface KlineData {
   readonly high: string;
   readonly low: string;
   readonly close: string;
+  readonly bid_open?: string | null;
+  readonly bid_high?: string | null;
+  readonly bid_low?: string | null;
+  readonly bid_close?: string | null;
+  readonly ask_open?: string | null;
+  readonly ask_high?: string | null;
+  readonly ask_low?: string | null;
+  readonly ask_close?: string | null;
   readonly volume: string | null;
   readonly symbol: string;
   readonly interval_type: string;

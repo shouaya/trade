@@ -190,3 +190,17 @@ test('StrategyExecutor execute covers forced backtest_end close', async () => {
   const result = await executor.execute();
   assert.equal(result.trades[result.trades.length - 1]?.exit_reason, 'backtest_end');
 });
+
+test('StrategyExecutor uses bid/ask prices without slippage when available', () => {
+  const executor = makeExecutor();
+  const dualPriceKline = {
+    ...makeKline(100, 0),
+    bid_close: '99.99',
+    ask_close: '100.01'
+  };
+
+  assert.equal(executor.getReferencePrice(dualPriceKline, 'long', true), 100.01);
+  assert.equal(executor.getReferencePrice(dualPriceKline, 'long', false), 99.99);
+  assert.equal(executor.getReferencePrice(dualPriceKline, 'short', true), 99.99);
+  assert.equal(executor.getReferencePrice(dualPriceKline, 'short', false), 100.01);
+});

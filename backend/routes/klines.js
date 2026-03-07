@@ -22,7 +22,28 @@ router.get('/', async (req, res) => {
       limit = 1000
     } = req.query;
 
-    let query = 'SELECT * FROM klines WHERE symbol = ? AND interval_type = ?';
+    let query = `
+      SELECT
+        id,
+        open_time,
+        CAST((bid_open + ask_open) / 2 AS CHAR) AS open,
+        CAST((bid_high + ask_high) / 2 AS CHAR) AS high,
+        CAST((bid_low + ask_low) / 2 AS CHAR) AS low,
+        CAST((bid_close + ask_close) / 2 AS CHAR) AS close,
+        CAST(bid_open AS CHAR) AS bid_open,
+        CAST(bid_high AS CHAR) AS bid_high,
+        CAST(bid_low AS CHAR) AS bid_low,
+        CAST(bid_close AS CHAR) AS bid_close,
+        CAST(ask_open AS CHAR) AS ask_open,
+        CAST(ask_high AS CHAR) AS ask_high,
+        CAST(ask_low AS CHAR) AS ask_low,
+        CAST(ask_close AS CHAR) AS ask_close,
+        CAST(volume AS CHAR) AS volume,
+        symbol,
+        interval_type
+      FROM klines
+      WHERE symbol = ? AND interval_type = ?
+    `;
     const params = [symbol, interval];
 
     if (start) {
@@ -47,6 +68,14 @@ router.get('/', async (req, res) => {
       high: row.high.toString(),
       low: row.low.toString(),
       close: row.close.toString(),
+      bidOpen: row.bid_open?.toString() ?? null,
+      bidHigh: row.bid_high?.toString() ?? null,
+      bidLow: row.bid_low?.toString() ?? null,
+      bidClose: row.bid_close?.toString() ?? null,
+      askOpen: row.ask_open?.toString() ?? null,
+      askHigh: row.ask_high?.toString() ?? null,
+      askLow: row.ask_low?.toString() ?? null,
+      askClose: row.ask_close?.toString() ?? null,
       volume: row.volume ? row.volume.toString() : '0'
     }));
 
@@ -116,23 +145,36 @@ router.post('/bulk', async (req, res) => {
     // 准备批量插入数据
     const values = data.map(kline => [
       kline.openTime,
-      kline.open,
-      kline.high,
-      kline.low,
-      kline.close,
+      kline.bidOpen ?? kline.open,
+      kline.bidHigh ?? kline.high,
+      kline.bidLow ?? kline.low,
+      kline.bidClose ?? kline.close,
+      kline.askOpen ?? kline.open,
+      kline.askHigh ?? kline.high,
+      kline.askLow ?? kline.low,
+      kline.askClose ?? kline.close,
       kline.volume || 0,
       symbol,
       interval
     ]);
 
     const query = `
-      INSERT INTO klines (open_time, open, high, low, close, volume, symbol, interval_type)
+      INSERT INTO klines (
+        open_time,
+        bid_open, bid_high, bid_low, bid_close,
+        ask_open, ask_high, ask_low, ask_close,
+        volume, symbol, interval_type
+      )
       VALUES ?
       ON DUPLICATE KEY UPDATE
-        open = VALUES(open),
-        high = VALUES(high),
-        low = VALUES(low),
-        close = VALUES(close),
+        bid_open = COALESCE(VALUES(bid_open), bid_open),
+        bid_high = COALESCE(VALUES(bid_high), bid_high),
+        bid_low = COALESCE(VALUES(bid_low), bid_low),
+        bid_close = COALESCE(VALUES(bid_close), bid_close),
+        ask_open = COALESCE(VALUES(ask_open), ask_open),
+        ask_high = COALESCE(VALUES(ask_high), ask_high),
+        ask_low = COALESCE(VALUES(ask_low), ask_low),
+        ask_close = COALESCE(VALUES(ask_close), ask_close),
         volume = VALUES(volume)
     `;
 

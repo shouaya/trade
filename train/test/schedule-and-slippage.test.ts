@@ -77,3 +77,23 @@ test('SlippageModel handles tokyo hours, volatility, directions, and breakdown',
   assert.equal(breakdown.exitMultiplier, 1.5);
   assert.match(breakdown.totalCostPercent, /%/);
 });
+
+test('SlippageModel uses bid/ask close when available', () => {
+  const model = new SlippageModel({
+    normalSlippage: 0,
+    tokyoSlippage: 0,
+    highVolatilitySlippage: 0,
+    volatilityThreshold: 1
+  });
+
+  const dualPriceKline = makeKline({
+    close: '150.005',
+    bid_close: '150.000',
+    ask_close: '150.010'
+  });
+
+  assert.equal(model.getExecutionPrice(dualPriceKline, 'long', true), 150.01);
+  assert.equal(model.getExecutionPrice(dualPriceKline, 'long', false), 150.0);
+  assert.equal(model.getExecutionPrice(dualPriceKline, 'short', true), 150.0);
+  assert.equal(model.getExecutionPrice(dualPriceKline, 'short', false), 150.01);
+});

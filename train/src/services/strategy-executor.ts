@@ -313,7 +313,7 @@ export class StrategyExecutor {
     // 获取成交价格 (如果启用滑点模型)
     const executionPrice = this.slippageModel
       ? this.slippageModel.getExecutionPrice(kline, direction, true)
-      : parseFloat(kline.close);
+      : this.getReferencePrice(kline, direction, true);
 
     // 计算仓位大小
     let lotSize = params.risk.lotSize;
@@ -346,7 +346,7 @@ export class StrategyExecutor {
       take_profit: takeProfit,
       hold_minutes: params.risk.maxHoldMinutes,
       strategy_name: this.strategy.name,
-      symbol: 'USDJPY',
+      symbol: kline.symbol,
       // Trailing Stop状态
       trailingActivated: false,
       trailingStopPrice: stopLoss
@@ -491,7 +491,7 @@ export class StrategyExecutor {
     // 获取当前价格 (如果启用滑点模型,使用实际成交价)
     const currentPrice = this.slippageModel
       ? this.slippageModel.getExecutionPrice(kline, position.direction, false)
-      : parseFloat(kline.close);
+      : this.getReferencePrice(kline, position.direction, false);
 
     // 更新Trailing Stop
     this.updateTrailingStop(position, currentPrice);
@@ -684,7 +684,7 @@ export class StrategyExecutor {
 
       const exitPrice = this.slippageModel
         ? this.slippageModel.getExecutionPrice(lastKline, firstPosition.direction, false)
-        : parseFloat(lastKline.close);
+        : this.getReferencePrice(lastKline, firstPosition.direction, false);
       this.closePosition(lastKline, exitPrice, 'backtest_end');
     }
 
@@ -768,5 +768,29 @@ export class StrategyExecutor {
       stats,
       trades
     };
+  }
+
+  private getReferencePrice(kline: KlineData, direction: 'long' | 'short', isEntry: boolean): number {
+    const askClose = this.parseOptionalPrice(kline.ask_close);
+    const bidClose = this.parseOptionalPrice(kline.bid_close);
+
+    if (direction === 'long') {
+      if (isEntry && askClose !== null) return askClose;
+      if (!isEntry && bidClose !== null) return bidClose;
+    } else {
+      if (isEntry && bidClose !== null) return bidClose;
+      if (!isEntry && askClose !== null) return askClose;
+    }
+
+    return parseFloat(kline.close);
+  }
+
+  private parseOptionalPrice(value: string | null | undefined): number | null {
+    if (!value) {
+      return null;
+    }
+
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 }
