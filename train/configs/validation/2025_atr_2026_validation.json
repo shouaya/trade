@@ -28,8 +28,8 @@
         "maxHoldMinutes": [10]
       },
       "atr": {
-        "slMultiplier": [3.5],
-        "tpMultiplier": [5.0, 6.0, 7.0]
+        "slMultiplier": [4.0],
+        "tpMultiplier": [4.0, 5.0, 6.0, 7.0]
       },
       "tradingSchedule": "* 0-19 * * 1-5",
       "tradingTimeRestriction": {

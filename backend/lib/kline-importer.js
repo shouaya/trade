@@ -478,7 +478,19 @@ function mergeBidAskData(bidData, askData) {
   }
 
   return Array.from(merged.values())
+    .filter(hasCompleteBidAskBar)
     .sort((a, b) => Number(a.openTime) - Number(b.openTime));
+}
+
+function hasCompleteBidAskBar(item) {
+  return item.bid_open != null &&
+    item.bid_high != null &&
+    item.bid_low != null &&
+    item.bid_close != null &&
+    item.ask_open != null &&
+    item.ask_high != null &&
+    item.ask_low != null &&
+    item.ask_close != null;
 }
 
 function mapCoinData(data) {
