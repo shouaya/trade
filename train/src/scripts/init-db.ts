@@ -73,6 +73,11 @@ async function createTradesTable(): Promise<void> {
   console.log('📊 创建 trades 表...');
   await db.query(TRADES_DDL);
 
+  await db.query('ALTER TABLE trades MODIFY COLUMN entry_price DECIMAL(20, 8) NOT NULL');
+  await db.query('ALTER TABLE trades MODIFY COLUMN stop_loss DECIMAL(20, 8) NULL');
+  await db.query('ALTER TABLE trades MODIFY COLUMN take_profit DECIMAL(20, 8) NULL');
+  await db.query('ALTER TABLE trades MODIFY COLUMN exit_price DECIMAL(20, 8) NOT NULL');
+
   if (!await columnExists('trades', 'gross_pnl')) {
     console.log('🔧 补齐 trades.gross_pnl 列...');
     await db.query(`ALTER TABLE trades ADD COLUMN gross_pnl DECIMAL(10, 2) NULL AFTER exit_reason`);

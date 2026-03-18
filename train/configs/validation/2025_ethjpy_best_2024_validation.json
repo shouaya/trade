@@ -1,0 +1,79 @@
+{
+  "name": "2024_ETHJPY_V3_BEST_FROM_2025_VALIDATION",
+  "description": "2024年 ETHJPY 验证 - 使用2025单一最佳策略, 无交易时间限制",
+  "timeRange": {
+    "startTimeMs": 1704067200000,
+    "endTimeMs": 1735689540000,
+    "startIso": "2024-01-01T00:00:00.000Z",
+    "endIso": "2024-12-31T23:59:00.000Z"
+  },
+  "market": {
+    "symbol": "ETHJPY",
+    "intervalType": "1min"
+  },
+  "database": {
+    "tableName": "backtest_results_2024_ethjpy_v3_best_from_2025_validation",
+    "resetTableBeforeRun": true
+  },
+  "strategy": {
+    "types": [
+      "rsi_only"
+    ],
+    "parameters": {
+      "rsi": {
+        "period": [
+          14
+        ],
+        "oversold": [
+          30
+        ],
+        "overbought": [
+          70
+        ]
+      },
+      "risk": {
+        "maxPositions": [
+          1
+        ],
+        "lotSize": [
+          0.1
+        ],
+        "maxHoldMinutes": [
+          15
+        ]
+      },
+      "atr": {
+        "slMultiplier": [
+          3
+        ],
+        "tpMultiplier": [
+          4
+        ]
+      },
+      "tradingSchedule": "ALWAYS",
+      "tradingTimeRestriction": null
+    }
+  },
+  "executor": {
+    "version": "v3",
+    "options": {
+      "enableMA200Filter": true,
+      "enableMultiTimeframe": true,
+      "enableATRSizing": true,
+      "enableTrailingStop": true,
+      "enableRSIReversion": true,
+      "feeModel": {
+        "venueCode": "GMOCOIN",
+        "commissionRate": 0.00002,
+        "basis": "notional",
+        "chargeOnEntry": true,
+        "chargeOnExit": true
+      }
+    }
+  },
+  "output": {
+    "topN": 1,
+    "strategyNamePrefix": "2024-ETHJPY-V3-Best-From-2025-Validation-",
+    "descriptionPrefix": "2024年 ETHJPY 验证 - 2025最佳单策略"
+  }
+}

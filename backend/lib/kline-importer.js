@@ -519,21 +519,24 @@ function parseNullableNumber(value) {
 
 async function ensureKlineSchema() {
   const requiredColumns = [
-    ['bid_open', 'DECIMAL(10, 5) NULL AFTER open_time'],
-    ['bid_high', 'DECIMAL(10, 5) NULL AFTER bid_open'],
-    ['bid_low', 'DECIMAL(10, 5) NULL AFTER bid_high'],
-    ['bid_close', 'DECIMAL(10, 5) NULL AFTER bid_low'],
-    ['ask_open', 'DECIMAL(10, 5) NULL AFTER bid_close'],
-    ['ask_high', 'DECIMAL(10, 5) NULL AFTER ask_open'],
-    ['ask_low', 'DECIMAL(10, 5) NULL AFTER ask_high'],
-    ['ask_close', 'DECIMAL(10, 5) NULL AFTER ask_low']
+    ['bid_open', 'DECIMAL(20, 8) NULL AFTER open_time'],
+    ['bid_high', 'DECIMAL(20, 8) NULL AFTER bid_open'],
+    ['bid_low', 'DECIMAL(20, 8) NULL AFTER bid_high'],
+    ['bid_close', 'DECIMAL(20, 8) NULL AFTER bid_low'],
+    ['ask_open', 'DECIMAL(20, 8) NULL AFTER bid_close'],
+    ['ask_high', 'DECIMAL(20, 8) NULL AFTER ask_open'],
+    ['ask_low', 'DECIMAL(20, 8) NULL AFTER ask_high'],
+    ['ask_close', 'DECIMAL(20, 8) NULL AFTER ask_low']
   ];
 
   for (const [name, ddl] of requiredColumns) {
     const [rows] = await db.query('SHOW COLUMNS FROM klines LIKE ?', [name]);
     if (rows.length === 0) {
       await db.query(`ALTER TABLE klines ADD COLUMN ${name} ${ddl}`);
+      continue;
     }
+
+    await db.query(`ALTER TABLE klines MODIFY COLUMN ${name} DECIMAL(20, 8) NULL`);
   }
 }
 
@@ -558,6 +561,7 @@ function formatApiError(payload) {
 
 module.exports = {
   importKlineData,
+  insertKlineData,
   clearKlineData,
   validateImportOptions,
   normalizeMarketType,

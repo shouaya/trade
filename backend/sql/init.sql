@@ -2,14 +2,14 @@
 CREATE TABLE IF NOT EXISTS klines (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     open_time BIGINT NOT NULL,
-    bid_open DECIMAL(10, 5) NOT NULL,
-    bid_high DECIMAL(10, 5) NOT NULL,
-    bid_low DECIMAL(10, 5) NOT NULL,
-    bid_close DECIMAL(10, 5) NOT NULL,
-    ask_open DECIMAL(10, 5) NOT NULL,
-    ask_high DECIMAL(10, 5) NOT NULL,
-    ask_low DECIMAL(10, 5) NOT NULL,
-    ask_close DECIMAL(10, 5) NOT NULL,
+    bid_open DECIMAL(20, 8) NOT NULL,
+    bid_high DECIMAL(20, 8) NOT NULL,
+    bid_low DECIMAL(20, 8) NOT NULL,
+    bid_close DECIMAL(20, 8) NOT NULL,
+    ask_open DECIMAL(20, 8) NOT NULL,
+    ask_high DECIMAL(20, 8) NOT NULL,
+    ask_low DECIMAL(20, 8) NOT NULL,
+    ask_close DECIMAL(20, 8) NOT NULL,
     volume DECIMAL(20, 8) DEFAULT 0,
     symbol VARCHAR(20) DEFAULT 'USDJPY',
     interval_type VARCHAR(10) DEFAULT '1m',
@@ -26,18 +26,18 @@ CREATE TABLE IF NOT EXISTS trades (
     -- 交易基本信息
     direction ENUM('long', 'short') NOT NULL COMMENT '交易方向：long=做多, short=做空',
     entry_time BIGINT NOT NULL COMMENT '入场时间（毫秒时间戳）',
-    entry_price DECIMAL(10, 5) NOT NULL COMMENT '入场价格',
+    entry_price DECIMAL(20, 8) NOT NULL COMMENT '入场价格',
     entry_index INT NOT NULL COMMENT '入场时的K线索引',
 
     -- 交易参数
     lot_size DECIMAL(10, 2) NOT NULL DEFAULT 1.00 COMMENT '仓位大小（手）',
     hold_minutes INT NOT NULL COMMENT '计划持仓时间（分钟）',
-    stop_loss DECIMAL(10, 5) NULL COMMENT '止损价格',
-    take_profit DECIMAL(10, 5) NULL COMMENT '止盈价格',
+    stop_loss DECIMAL(20, 8) NULL COMMENT '止损价格',
+    take_profit DECIMAL(20, 8) NULL COMMENT '止盈价格',
 
     -- 出场信息
     exit_time BIGINT NULL COMMENT '出场时间（毫秒时间戳）',
-    exit_price DECIMAL(10, 5) NULL COMMENT '出场价格',
+    exit_price DECIMAL(20, 8) NULL COMMENT '出场价格',
     exit_reason ENUM('stop_loss', 'take_profit', 'hold_time_reached', 'manual') NULL COMMENT '出场原因',
 
     -- 损益结果

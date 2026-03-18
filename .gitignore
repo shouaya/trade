@@ -4,6 +4,8 @@ node_modules/
 # Data files (optional - uncomment if you don't want to commit data)
 # data/*.json
 # data/*.csv
+data/gmo/
+data/gmo-test*/
 
 # Logs
 *.log

@@ -18,37 +18,43 @@
  * });
  */
 
-import type { Strategy, KlineData, Position, BacktestResult, BacktestStats, TradeRecord, ExitReason, FeeModelConfig } from '../types';
+import type {
+  Strategy,
+  KlineData,
+  Position,
+  BacktestResult,
+  BacktestStats,
+  TradeRecord,
+  ExitReason,
+  FeeModelConfig,
+  ExecutorOptions,
+  TrailingConfig,
+  TimeRestriction,
+  SymbolSpec
+} from '../types';
 import { calculateRSI } from './indicators/rsi';
-import { calculateATR, calculateDynamicSLTP, calculatePositionSize } from './indicators/atr';
+import { calculateATR, calculateDynamicSLTP } from './indicators/atr';
 import { SlippageModel } from './slippage-model';
 import { MultiTimeframeAnalyzer } from './multi-timeframe-analyzer';
 import { TradingSchedule } from './trading-schedule';
 
-export interface TrailingConfig {
-  readonly activationPercent: number;   // 盈利百分比激活trailing stop
-  readonly lockProfitPercent: number;   // 盈利百分比时锁定利润
-  readonly lockProfitAmount: number;    // 锁定的利润百分比
-}
-
-export interface TimeRestriction {
-  readonly enabled: boolean;
-  readonly utcExcludeStart: string;     // 例如 "19:30"
-  readonly utcExcludeEnd: string;       // 例如 "24:30"
-}
-
-export interface ExecutorOptions {
-  readonly enableMA200Filter?: boolean | undefined;
-  readonly enableSlippage?: boolean | undefined;
-  readonly enableMultiTimeframe?: boolean | undefined;
-  readonly enableATRSizing?: boolean | undefined;
-  readonly enableTrailingStop?: boolean | undefined;
-  readonly enableRSIReversion?: boolean | undefined;
-  readonly trailingConfig?: TrailingConfig | undefined;
-  readonly feeModel?: FeeModelConfig | undefined;
-}
-
 type SignalDirection = 'long' | 'short' | 'hold';
+
+const FX_LOT_SYMBOLS = new Set([
+  'USDJPY',
+  'EURJPY',
+  'GBPJPY',
+  'AUDJPY',
+  'NZDJPY',
+  'CADJPY',
+  'CHFJPY',
+  'EURUSD',
+  'GBPUSD',
+  'AUDUSD',
+  'NZDUSD',
+  'USDCAD',
+  'USDCHF'
+]);
 
 interface InternalPosition extends Position {
   trailingActivated: boolean;
@@ -77,6 +83,7 @@ export class StrategyExecutor {
   // 滑点模型
   private readonly slippageModel: SlippageModel | null;
   private readonly feeModel: FeeModelConfig | null;
+  private readonly symbolSpec: SymbolSpec;
 
   // 交易时间表
   private readonly tradingSchedule: TradingSchedule;
@@ -129,6 +136,7 @@ export class StrategyExecutor {
     }
 
     this.feeModel = options.feeModel ?? null;
+    this.symbolSpec = this.resolveSymbolSpec(options.symbolSpec);
 
     // 初始化交易时间表
     const scheduleExpr = strategy.parameters.tradingSchedule ?? '* 0-19 * * 1-5';
@@ -163,6 +171,42 @@ export class StrategyExecutor {
     } else {
       this.mtfAnalyzer = null;
     }
+  }
+
+  private resolveSymbolSpec(override: SymbolSpec | undefined): SymbolSpec {
+    if (override) {
+      return {
+        ...override,
+        symbol: override.symbol.toUpperCase(),
+        unitsPerLot: override.unitsPerLot > 0 ? override.unitsPerLot : 1
+      };
+    }
+
+    const rawSymbol = this.klines[0]?.symbol ?? this.strategy.name;
+    const symbol = String(rawSymbol || 'USDJPY').toUpperCase();
+    const quoteCurrency = symbol.slice(-3);
+
+    if (FX_LOT_SYMBOLS.has(symbol)) {
+      return {
+        symbol,
+        marketType: 'fx',
+        quantityMode: 'lot',
+        unitsPerLot: 100000,
+        pipSize: quoteCurrency === 'JPY' ? 0.01 : 0.0001,
+        quoteCurrency,
+        initialCapital: quoteCurrency === 'JPY' ? 1_000_000 : 10_000
+      };
+    }
+
+    return {
+      symbol,
+      marketType: 'coin',
+      quantityMode: 'base',
+      unitsPerLot: 1,
+      pipSize: quoteCurrency === 'JPY' ? 1 : 0.01,
+      quoteCurrency,
+      initialCapital: quoteCurrency === 'JPY' ? 1_000_000 : 10_000
+    };
   }
 
   /**
@@ -324,13 +368,14 @@ export class StrategyExecutor {
     if (this.enableATRSizing && this.atrValues) {
       const atr = this.atrValues[index] ?? null;
       if (atr) {
-        const accountBalance = 10000;  // 假设账户余额
+        const accountBalance = this.symbolSpec.initialCapital;
         const riskPercent = 0.01;      // 每笔风险1%
-        lotSize = calculatePositionSize(
+        lotSize = this.calculateAdaptivePositionSize(
           atr,
           accountBalance,
           riskPercent,
-          2.0  // SL = 2×ATR
+          2.0,
+          params.risk.lotSize
         );
       }
     }
@@ -634,24 +679,9 @@ export class StrategyExecutor {
    * 计算盈亏
    */
   private calculatePnL(position: InternalPosition, exitPrice: number): number {
-    const entryPrice = position.entry_price;
-    const lotSize = position.lot_size;
-
-    // USDJPY: 1 lot = 100,000 units
-    // 0.1 lot = 10,000 units
-    // 1 pip (0.01) movement = $10 per lot
-    const units = lotSize * 100000;
-    const pipValue = units / 100; // $100 per pip for 0.1 lot
-
-    let priceDiff: number;
-    if (position.direction === 'long') {
-      priceDiff = exitPrice - entryPrice;
-    } else {
-      priceDiff = entryPrice - exitPrice;
-    }
-
-    const pips = priceDiff / 0.01;
-    return pips * (pipValue / 100);
+    const units = this.getPositionUnits(position);
+    const priceDiff = this.getPriceDiff(position, exitPrice);
+    return priceDiff * units;
   }
 
   private calculateTradeOutcome(position: InternalPosition, exitPrice: number): {
@@ -662,15 +692,8 @@ export class StrategyExecutor {
     percent: number;
   } {
     const entryPrice = position.entry_price;
-    let priceDiff: number;
-
-    if (position.direction === 'long') {
-      priceDiff = exitPrice - entryPrice;
-    } else {
-      priceDiff = entryPrice - exitPrice;
-    }
-
-    const pips = priceDiff / 0.01;
+    const priceDiff = this.getPriceDiff(position, exitPrice);
+    const pips = priceDiff / this.symbolSpec.pipSize;
     const grossPnl = this.calculatePnL(position, exitPrice);
     const commissionFee = this.calculateCommission(position, exitPrice);
     const netPnl = grossPnl - commissionFee;
@@ -695,7 +718,7 @@ export class StrategyExecutor {
       return 0;
     }
 
-    const units = position.lot_size * 100000;
+    const units = this.getPositionUnits(position);
     let totalFee = 0;
 
     if (this.feeModel.chargeOnEntry ?? true) {
@@ -711,8 +734,44 @@ export class StrategyExecutor {
 
   private calculateExecutionCommission(units: number, executionPrice: number, commissionRate: number): number {
     const notional = units * executionPrice;
-    const feeInQuote = notional * commissionRate;
-    return executionPrice !== 0 ? feeInQuote / executionPrice : 0;
+    return notional * commissionRate;
+  }
+
+  private calculateAdaptivePositionSize(
+    atr: number,
+    accountBalance: number,
+    riskPercent: number,
+    slMultiplier: number,
+    configuredSize: number
+  ): number {
+    const stopLossDistance = Math.max(atr * slMultiplier, Number.EPSILON);
+    const riskAmount = Math.max(accountBalance * riskPercent, 0);
+    const units = riskAmount / stopLossDistance;
+    const rawSize = this.symbolSpec.quantityMode === 'lot'
+      ? units / this.symbolSpec.unitsPerLot
+      : units / this.symbolSpec.unitsPerLot;
+
+    if (this.symbolSpec.quantityMode === 'base') {
+      return Math.min(Math.max(rawSize, 0.001), configuredSize);
+    }
+
+    return Math.min(Math.max(rawSize, 0.01), 0.5);
+  }
+
+  private getPositionUnits(position: Pick<InternalPosition, 'lot_size'>): number {
+    if (this.symbolSpec.quantityMode === 'lot') {
+      return position.lot_size * this.symbolSpec.unitsPerLot;
+    }
+
+    return position.lot_size * this.symbolSpec.unitsPerLot;
+  }
+
+  private getPriceDiff(position: Pick<InternalPosition, 'direction' | 'entry_price'>, exitPrice: number): number {
+    if (position.direction === 'long') {
+      return exitPrice - position.entry_price;
+    }
+
+    return position.entry_price - exitPrice;
   }
 
   /**
@@ -767,9 +826,11 @@ export class StrategyExecutor {
         grossPnl: 0,
         totalCommission: 0,
         totalPnl: 0,
+        returnPct: 0,
         winRate: 0,
         avgPnl: 0,
         maxDrawdown: 0,
+        maxDrawdownPct: 0,
         sharpeRatio: 0,
         avgWin: 0,
         avgLoss: 0,
@@ -789,21 +850,34 @@ export class StrategyExecutor {
     const losers = trades.filter(t => t.pnl < 0);
     const winRate = winners.length / totalTrades;
     const avgPnl = totalPnl / totalTrades;
+    const initialCapital = this.symbolSpec.initialCapital;
+    const returnPct = initialCapital !== 0 ? (totalPnl / initialCapital) * 100 : 0;
 
-    // 计算最大回撤
-    let peak = 0;
+    // 计算最大回撤（基于权益曲线）
+    let peakEquity = initialCapital;
     let maxDrawdown = 0;
-    let runningPnl = 0;
+    let maxDrawdownPct = 0;
+    let runningEquity = initialCapital;
 
     trades.forEach(t => {
-      runningPnl += t.pnl;
-      if (runningPnl > peak) peak = runningPnl;
-      const drawdown = peak - runningPnl;
-      if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+      runningEquity += t.pnl;
+      if (runningEquity > peakEquity) peakEquity = runningEquity;
+
+      const drawdown = peakEquity - runningEquity;
+      if (drawdown > maxDrawdown) {
+        maxDrawdown = drawdown;
+      }
+
+      if (peakEquity > 0) {
+        const drawdownPct = drawdown / peakEquity;
+        if (drawdownPct > maxDrawdownPct) {
+          maxDrawdownPct = drawdownPct;
+        }
+      }
     });
 
     // 计算夏普比率
-    const returns = trades.map(t => t.pnl);
+    const returns = trades.map(t => initialCapital !== 0 ? t.pnl / initialCapital : 0);
     const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
     const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length;
     const stdDev = Math.sqrt(variance);
@@ -815,17 +889,21 @@ export class StrategyExecutor {
       ? Math.abs(winners.reduce((s, t) => s + t.pnl, 0) / losers.reduce((s, t) => s + t.pnl, 0))
       : Infinity;
 
-    // 计算综合评分
-    const score = totalPnl * winRate * sharpeRatio / (Math.abs(maxDrawdown) + 1);
+    // 计算综合评分（基于归一化收益和回撤百分比）
+    const tradeFactor = Math.min(totalTrades / 100, 1);
+    const clippedProfitFactor = Number.isFinite(profitFactor) ? Math.min(profitFactor, 5) : 5;
+    const score = returnPct * tradeFactor * Math.max(sharpeRatio, 0) * clippedProfitFactor / (1 + maxDrawdownPct * 2);
 
     const stats: BacktestStats = {
       totalTrades,
       grossPnl,
       totalCommission,
       totalPnl,
+      returnPct,
       winRate,
       avgPnl,
       maxDrawdown: -maxDrawdown,
+      maxDrawdownPct: -maxDrawdownPct * 100,
       sharpeRatio,
       avgWin,
       avgLoss,

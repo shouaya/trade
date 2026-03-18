@@ -2,158 +2,120 @@
 
 ## Scope
 
-This summary covers the fee-aware fixed-window `2025` cycle under the current bid/ask execution model.
+This summary covers the corrected `ETHJPY` fixed-window `2025` training cycle and single-best reverse/forward validation.
 
+- Instrument: `ETHJPY`
+- Interval: `1min`
 - Training window: `2025-01-01` to `2025-12-31`
 - Reverse validation window: `2024-01-01` to `2024-12-31`
-- Forward validation window: `2026-01-01` to `2026-02-27`
+- Forward validation window: `2026-01-01` to `2026-03-18`
 
-Capital basis used for both training and validation:
-- Initial margin capital: `500 USD`
-- Leverage: `20x`
-- Position basis: `0.1 lot = 10,000 USD notional`
-- All return ratios below are normalized by `500 USD`
+Configs used:
+- Training: `train/configs/training/2025_ethjpy_atr.json`
+- Validation 2024: `train/configs/validation/2025_ethjpy_best_2024_validation.json`
+- Validation 2026: `train/configs/validation/2025_ethjpy_best_2026_validation.json`
 
-Execution note:
-- FX import used `priceType=BOTH`
-- Storage and execution remained bid/ask-aware
-- Fee model used `GMOCOIN`
-- Commission rule: `notional x 0.002%` on both entry and exit
+Execution assumptions:
+- `tradingSchedule = ALWAYS`
+- `tradingTimeRestriction = null`
+- commission model: `GMOCOIN`, `notional x 0.002%` on entry and exit
+- ranking is based on corrected `score -> return_pct -> total_pnl`
 
-Important scope limit:
-- Current `2026` validation is not a full-year validation
-- Current DB coverage ends at `2026-02-27 20:59:00 UTC`
-
-## Data Notes
-
-Dataset used by this run:
-- `2024`: `371,160` bars
-- `2025`: `369,638` bars
-- `2026-01` to `2026-02`: `58,500` bars
-
-Observed 2025 data characteristics:
-- Current `2025` bar count for this fee-aware rerun is `369,638`
-- This run should be treated as the canonical count for the current database
+Metric note:
+- current engine is already symbol-aware for `ETHJPY`
+- `PnL` is calculated in quote currency `JPY`
+- `return_pct` and `max_drawdown_pct` are normalized using the current `1,000,000 JPY` capital baseline
 
 ## Training Result: 2025
 
-Training config:
-- [2025_atr.json](/Users/shoushoushou/git/trade/train/configs/training/2025_atr.json)
+Result table:
+- `backtest_results_2025_ethjpy_v3_atr`
 
 Run summary:
 - Strategies tested: `150`
 - Valid strategies: `150`
+- Total simulated trades: `135100`
+- Runtime: about `6.2 minutes`
 
-Top training result:
-- `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H10-ATRSL4-ATRTP4`
-- tied with `...ATRTP5`
-- tied with `...ATRTP6`
-- tied with `...ATRTP7`
+Top training strategies:
 
-Top metrics:
-- Trades: `663`
-- Win rate: `51.73%`
-- Gross return on margin: `473.7%`
-- Commission / margin: `265.2%`
-- Net return on margin: `208.5%`
-- Sharpe: `0.0451`
-- Max drawdown / margin: `-119.5%`
-- Score: `22.0949`
+| Rank | Strategy | Trades | Win Rate | Total PnL | Return % | Max Drawdown | Max DD % | Score |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL3-ATRTP4` | 881 | 49.15% | 7257.04 | 0.7257% | -4048.00 | -0.4007% | 0.0513 |
+| 2 | `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL4-ATRTP4` | 869 | 50.06% | 7239.69 | 0.7240% | -3880.08 | -0.3842% | 0.0502 |
+| 3 | `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL3-ATRTP5` | 881 | 49.15% | 7108.03 | 0.7108% | -4048.00 | -0.4008% | 0.0492 |
+| 4 | `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL3-ATRTP6` | 881 | 49.15% | 7108.03 | 0.7108% | -4048.00 | -0.4008% | 0.0492 |
+| 5 | `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL3-ATRTP7` | 881 | 49.15% | 7108.03 | 0.7108% | -4048.00 | -0.4008% | 0.0492 |
 
-Interpretation:
-- The winning family remains clearly `H10 + ATRSL4`
-- `ATRTP=4/5/6/7` remains a full plateau at the top
-- Fees materially reduce the 2025 edge, but this line still survives in-sample as net profitable
+Training interpretation:
+- the `2025` best point shifts to `H15 + ATRSL3 + ATRTP4`
+- compared with `2024`, the hold time becomes longer and stop-loss becomes slightly tighter
+- this is a real regime change, not just a minor reshuffle inside the same parameter core
 
-## Validation: 2024
+## Best-Strategy Validation: 2024
 
-Validation config:
-- [2025_atr_2024_validation.json](/Users/shoushoushou/git/trade/train/configs/validation/2025_atr_2024_validation.json)
+Validated strategy:
+- `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL3-ATRTP4`
 
-Validation candidates:
-- `H10`
-- `ATRSL = 4`
-- `ATRTP = 4/5/6/7`
+Result table:
+- `backtest_results_2024_ethjpy_v3_best_from_2025_validation`
 
-Top validation result:
-- `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H10-ATRSL4-ATRTP4`
-- tied with `...ATRTP5`
-
-Top metrics:
-- Trades: `715`
-- Win rate: `47.55%`
-- Gross return on margin: `56.4%`
-- Commission / margin: `286.0%`
-- Net return on margin: `-229.6%`
-- Sharpe: `-0.0421`
-- Max drawdown / margin: `-367.3%`
-- Score: `-4.9627`
+Validation result:
+- Valid strategies: `1/1`
+- Total trades: `818`
+- Win rate: `51.10%`
+- Total PnL: `2803.30`
+- Return %: `0.2803%`
+- Max drawdown: `-6054.16`
+- Max drawdown %: `-0.6043%`
+- Score: `0.0073`
 
 Interpretation:
-- The 2025 winner no longer generalizes backward into 2024 after fees
-- Gross edge exists, but it is far smaller than the fee burden
-- This is the clearest sign that the `2025` fast family is regime-specific rather than backward-robust
+- the `2025` winner can still make money when reversed onto `2024`
+- but it is materially weaker than the true `2024` winner
+- this means the `2025` line is not the best cross-period choice for backward robustness
 
-## Validation: 2026 Jan-Feb
+## Best-Strategy Validation: 2026 YTD
 
-Validation config:
-- [2025_atr_2026_validation.json](/Users/shoushoushou/git/trade/train/configs/validation/2025_atr_2026_validation.json)
+Validated strategy:
+- `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL3-ATRTP4`
 
-Important scope limit:
-- This result only covers `2026-01-01` to `2026-02-27`
-- It must not be described as full-year 2026 validation
+Result table:
+- `backtest_results_2026_ethjpy_v3_best_from_2025_validation`
 
-Top validation result:
-- `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H10-ATRSL4-ATRTP4`
-- tied with `...ATRTP5`
-- tied with `...ATRTP6`
-- tied with `...ATRTP7`
-
-Top metrics:
-- Trades: `124`
-- Win rate: `48.39%`
-- Gross return on margin: `132.4%`
-- Commission / margin: `49.6%`
-- Net return on margin: `82.8%`
-- Sharpe: `0.0694`
-- Max drawdown / margin: `-53.7%`
-- Score: `12.6340`
+Validation result:
+- Period covered: `2026-01-01` to `2026-03-18`
+- Valid strategies: `1/1`
+- Total trades: `166`
+- Win rate: `45.78%`
+- Total PnL: `-117.19`
+- Return %: `-0.0117%`
+- Max drawdown: `-1646.51`
+- Max drawdown %: `-0.1646%`
+- Score: `0.0000`
 
 Interpretation:
-- The 2025 winner family remains net profitable in the currently available 2026 Jan-Feb slice
-- `ATRTP` is again a plateau parameter in this forward window
-- `H10 + ATRSL4` remains intact across training and the available forward period
+- the `2025` winner does not hold up in the currently available `2026` slice
+- PnL is already slightly negative
+- this is the clearest evidence that the `2025` winner is more regime-specific than the `2024` winner
 
-## Cross-Period Comparison
+## Cross-Period Reading
 
-Best structure by stage:
-- 2025 training: `H10 + ATRSL4 + ATRTP4/5/6/7`
-- 2024 validation: `H10 + ATRSL4 + ATRTP4/5`
-- 2026 Jan-Feb validation: `H10 + ATRSL4 + ATRTP4/5/6/7`
+Best fixed point:
+- `H15 + ATRSL3 + ATRTP4`
 
-Stable elements:
-- RSI(14), OS30 / OB70
-- `maxPositions = 1`
-- `lotSize = 0.1`
-- `maxHoldMinutes = 10`
-- `ATRSL = 4`
-- MA200 filter, MTF filter, ATR sizing, trailing stop, RSI reversion remain enabled
+Observed behavior:
+- `2025 train`: strongest of all current single-year winners
+- `2024 validate`: still positive, but weaker
+- `2026 YTD validate`: already slightly negative
 
-Weakly identified element:
-- `ATRTP`
-- It is a clear plateau parameter in training and in the available 2026 forward window
+Practical conclusion:
+- the `2025` winner is a strong in-sample and same-regime candidate
+- it is not the stronger cross-period baseline
+- compared with the `2024` winner, it has higher peak performance but weaker robustness
 
-## Conclusion
+## Recommended Use
 
-The fee-aware rerun keeps the structural conclusion but changes the robustness conclusion.
-
-Current practical conclusion:
-- Preferred `2025 fixed` family remains `H10 + ATRSL4`
-- `ATRTP4/5/6/7` should still be treated as operationally equivalent
-- This line is fee-aware profitable in-sample and on available `2026 Jan-Feb`
-- This line is fee-aware negative on `2024`, so it should not be treated as a cross-regime baseline
-
-Recommended fixed-window interpretation:
-- Use `2025 fixed` primarily as evidence of the fast-regime shift
-- Do not use its `2024` reverse validation as support for backward robustness
-- Keep the explicit note that current `2026` evidence only covers `2026-01-01` to `2026-02-27`
+- treat `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL3-ATRTP4` as a regime-sensitive fast candidate, not the primary baseline
+- prefer the `2024` winner for cross-period stability
+- keep explicit wording that `2026` evidence currently only covers data through `2026-03-18`

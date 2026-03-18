@@ -95,8 +95,19 @@ test('StrategyExecutor risk and trailing helpers cover ATR, fixed percent, and p
   executor.updateTrailingStop(shortPosition, 99.5);
   assert.equal(shortPosition.trailingActivated, true);
 
-  assert.ok(Math.abs(executor.calculatePnL({ direction: 'long', entry_price: 100, lot_size: 0.1 }, 100.1) - 10) < 1e-6);
-  assert.ok(Math.abs(executor.calculatePnL({ direction: 'short', entry_price: 100, lot_size: 0.1 }, 99.9) - 10) < 1e-6);
+  assert.ok(Math.abs(executor.calculatePnL({ direction: 'long', entry_price: 100, lot_size: 0.1 }, 100.1) - 1000) < 1e-6);
+  assert.ok(Math.abs(executor.calculatePnL({ direction: 'short', entry_price: 100, lot_size: 0.1 }, 99.9) - 1000) < 1e-6);
+});
+
+test('StrategyExecutor calculates linear coin pnl using base quantity', () => {
+  const coinExecutor = new StrategyExecutor(
+    makeStrategy(),
+    [{ ...makeKline(100, 0), symbol: 'ETHJPY' }],
+    {}
+  );
+
+  assert.ok(Math.abs(coinExecutor.calculatePnL({ direction: 'long', entry_price: 100, lot_size: 0.1 }, 110) - 1) < 1e-6);
+  assert.ok(Math.abs(coinExecutor.calculatePnL({ direction: 'short', entry_price: 100, lot_size: 0.1 }, 90) - 1) < 1e-6);
 });
 
 test('StrategyExecutor exit checks cover all exit reasons and stats paths', () => {
@@ -180,6 +191,8 @@ test('StrategyExecutor exit checks cover all exit reasons and stats paths', () =
   const stats = statsExecutor.calculateStats().stats;
   assert.equal(stats.totalTrades, 3);
   assert.ok(stats.profitFactor > 0);
+  assert.ok(typeof stats.returnPct === 'number');
+  assert.ok(typeof stats.maxDrawdownPct === 'number');
 });
 
 test('StrategyExecutor execute covers forced backtest_end close', async () => {
@@ -222,7 +235,7 @@ test('StrategyExecutor deducts configured GMOCOIN notional commission from net p
     lot_size: 0.1
   }, 100.1);
 
-  assert.ok(Math.abs(outcome.grossPnl - 10) < 1e-6);
-  assert.ok(Math.abs(outcome.commissionFee - 0.4) < 1e-6);
-  assert.ok(Math.abs(outcome.netPnl - 9.6) < 1e-6);
+  assert.ok(Math.abs(outcome.grossPnl - 1000) < 1e-6);
+  assert.ok(Math.abs(outcome.commissionFee - 40.02) < 1e-6);
+  assert.ok(Math.abs(outcome.netPnl - 959.98) < 1e-6);
 });

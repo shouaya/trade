@@ -86,6 +86,12 @@ async function resultColumnExists(tableName: string, columnName: string): Promis
   return columns.length > 0;
 }
 
+async function modifyColumnIfExists(tableName: string, columnName: string, ddl: string): Promise<void> {
+  if (await resultColumnExists(tableName, columnName)) {
+    await db.query(`ALTER TABLE ${tableName} MODIFY COLUMN ${columnName} ${ddl}`);
+  }
+}
+
 interface StrategyResult {
   readonly strategy_name: string;
   readonly strategy_type: string;
@@ -94,10 +100,12 @@ interface StrategyResult {
   readonly losing_trades: number;
   readonly win_rate: number;
   readonly total_pnl: number;
+  readonly return_pct: number;
   readonly avg_pnl: number;
   readonly sharpe_ratio: number;
   readonly profit_factor: number;
   readonly max_drawdown: number;
+  readonly max_drawdown_pct: number;
   readonly gross_profit: number;
   readonly gross_loss: number;
   readonly avg_win: number;
@@ -190,10 +198,12 @@ async function ensureBacktestTable(tableName: string): Promise<void> {
       gross_pnl DECIMAL(12,2),
       total_commission DECIMAL(12,4),
       total_pnl DECIMAL(12,2),
+      return_pct DECIMAL(12,4),
       avg_pnl DECIMAL(12,2),
       sharpe_ratio DECIMAL(10,4),
       profit_factor DECIMAL(10,4),
-      max_drawdown DECIMAL(10,4),
+      max_drawdown DECIMAL(15,2),
+      max_drawdown_pct DECIMAL(10,4),
       gross_profit DECIMAL(12,2),
       gross_loss DECIMAL(12,2),
       avg_win DECIMAL(12,2),
@@ -218,6 +228,18 @@ async function ensureBacktestTable(tableName: string): Promise<void> {
   if (!await resultColumnExists(tableName, 'total_commission')) {
     await db.query(`ALTER TABLE ${tableName} ADD COLUMN total_commission DECIMAL(12,4) NULL AFTER gross_pnl`);
   }
+
+  if (!await resultColumnExists(tableName, 'return_pct')) {
+    await db.query(`ALTER TABLE ${tableName} ADD COLUMN return_pct DECIMAL(12,4) NULL AFTER total_pnl`);
+  }
+
+  if (!await resultColumnExists(tableName, 'max_drawdown_pct')) {
+    await db.query(`ALTER TABLE ${tableName} ADD COLUMN max_drawdown_pct DECIMAL(10,4) NULL AFTER max_drawdown`);
+  }
+
+  await modifyColumnIfExists(tableName, 'max_drawdown', 'DECIMAL(15,2) NULL');
+  await modifyColumnIfExists(tableName, 'return_pct', 'DECIMAL(12,4) NULL');
+  await modifyColumnIfExists(tableName, 'max_drawdown_pct', 'DECIMAL(10,4) NULL');
 
   console.log('✅ 结果表准备完成');
 }
@@ -332,15 +354,7 @@ async function saveTrades(trades: readonly TradeRecord[]): Promise<void> {
  * 计算策略评分
  */
 function calculateScore(stats: BacktestStats): number {
-  if (!stats || stats.totalTrades === 0) return 0;
-
-  const pnl = stats.totalPnl ?? 0;
-  const winRate = stats.winRate ?? 0;
-  const sharpe = Math.max(stats.sharpeRatio ?? 0.01, 0.01);
-  const maxDD = Math.abs(stats.maxDrawdown ?? 0.01);
-  const validMaxDD = Math.min(maxDD, 1);
-
-  return (pnl * winRate * sharpe) / (validMaxDD + 0.1);
+  return stats?.score ?? 0;
 }
 
 /**
@@ -389,10 +403,10 @@ async function saveStrategyResult(
   await db.query(
     `INSERT INTO ${tableName}
      (strategy_name, strategy_type, total_trades, winning_trades, losing_trades,
-      win_rate, gross_pnl, total_commission, total_pnl, avg_pnl, sharpe_ratio, profit_factor, max_drawdown,
+      win_rate, gross_pnl, total_commission, total_pnl, return_pct, avg_pnl, sharpe_ratio, profit_factor, max_drawdown, max_drawdown_pct,
      gross_profit, gross_loss, avg_win, avg_loss, score, parameters,
       executor_version, executor_options)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       strategy.name,
       strategy.type,
@@ -403,10 +417,12 @@ async function saveStrategyResult(
       sanitizeNumber(stats.grossPnl ?? stats.totalPnl),
       sanitizeNumber(stats.totalCommission ?? 0),
       sanitizeNumber(stats.totalPnl),
+      sanitizeNumber(stats.returnPct ?? 0),
       sanitizeNumber(stats.avgPnl),
       sanitizeNumber(stats.sharpeRatio),
       sanitizeNumber(stats.profitFactor),
       sanitizeNumber(stats.maxDrawdown),
+      sanitizeNumber(stats.maxDrawdownPct ?? 0),
       grossProfit,
       grossLoss,
       sanitizeNumber(stats.avgWin ?? 0),
@@ -524,7 +540,7 @@ async function queryTopStrategies(tableName: string, topN: number): Promise<read
   const [results] = await db.query<mysql.RowDataPacket[]>(
     `SELECT * FROM ${tableName}
      WHERE total_trades > 0
-     ORDER BY total_pnl DESC, score DESC, strategy_name ASC
+     ORDER BY score DESC, return_pct DESC, total_pnl DESC, strategy_name ASC
      LIMIT ?`,
     [topN]
   );

@@ -170,6 +170,19 @@ export interface TrailingConfig {
   readonly lockProfitAmount: number;
 }
 
+export type MarketType = 'fx' | 'coin';
+export type QuantityMode = 'lot' | 'base';
+
+export interface SymbolSpec {
+  readonly symbol: string;
+  readonly marketType: MarketType;
+  readonly quantityMode: QuantityMode;
+  readonly unitsPerLot: number;
+  readonly pipSize: number;
+  readonly quoteCurrency: string;
+  readonly initialCapital: number;
+}
+
 // ============================================================================
 // Backtest Types
 // ============================================================================
@@ -179,9 +192,11 @@ export interface BacktestStats {
   readonly grossPnl?: number;
   readonly totalCommission?: number;
   readonly totalPnl: number;
+  readonly returnPct?: number;
   readonly winRate: number;
   readonly avgPnl: number;
   readonly maxDrawdown: number;
+  readonly maxDrawdownPct?: number;
   readonly sharpeRatio: number;
   readonly avgWin: number;
   readonly avgLoss: number;
@@ -203,6 +218,7 @@ export interface ExecutorOptions {
   readonly enableRSIReversion?: boolean;
   readonly trailingConfig?: TrailingConfig;
   readonly feeModel?: FeeModelConfig;
+  readonly symbolSpec?: SymbolSpec;
 }
 
 export interface FeeModelConfig {

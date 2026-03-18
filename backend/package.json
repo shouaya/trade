@@ -7,7 +7,9 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "init-db": "node scripts/init-db.js",
+    "download": "node scripts/download-data.js",
     "import": "node scripts/import-data.js",
+    "import:local": "node scripts/import-downloaded-data.js",
     "clear-klines": "node scripts/clear-klines.js"
   },
   "dependencies": {
