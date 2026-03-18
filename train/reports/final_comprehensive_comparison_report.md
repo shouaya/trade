@@ -1,194 +1,221 @@
-# Final Comprehensive Comparison Report
+# ETHJPY Fixed Vs Rolling Comparison Report
 
 ## Scope
 
-This report compares the three completed fee-aware lines:
+This report compares three ETHJPY strategy lines under the current corrected metric logic.
+
+Compared lines:
 
 1. `2024 fixed`
 2. `2025 fixed`
 3. `rolling`
 
 Source reports:
-- [2024_training_and_2025_2026_validation_summary.md](/Users/shoushoushou/git/trade/train/reports/2024_training_and_2025_2026_validation_summary.md)
-- [2025_training_and_2024_2026_validation_summary.md](/Users/shoushoushou/git/trade/train/reports/2025_training_and_2024_2026_validation_summary.md)
-- [rolling_training_and_validation_summary.md](/Users/shoushoushou/git/trade/train/reports/rolling_training_and_validation_summary.md)
 
-Capital basis used for both training and validation:
-- Initial margin capital: `500 USD`
-- Leverage: `20x`
-- Position basis: `0.1 lot = 10,000 USD notional`
-- All return ratios below are normalized by `500 USD`
+- `train/reports/2024_training_and_2025_2026_validation_summary.md`
+- `train/reports/2025_training_and_2024_2026_validation_summary.md`
+- `train/reports/rolling_training_and_validation_summary.md`
 
-Execution note:
-- FX import used `priceType=BOTH`
-- Storage and execution remained bid/ask-aware
-- Fee model used `GMOCOIN`
-- Commission rule: `notional x 0.002%` on both entry and exit
+Execution assumptions:
 
-Important scope limit:
-- All `2026` evidence in this report is limited to `2026-01-01` through `2026-02-27`
-- No statement here should be read as a full-year `2026` conclusion
+- `tradingSchedule = ALWAYS`
+- `tradingTimeRestriction = null`
+- commission model: `GMOCOIN`, `notional x 0.002%` on entry and exit
+- ranking is based on corrected `score -> return_pct -> total_pnl`
 
-## Executive Summary
+Metric note:
 
-Fees change the ranking logic materially.
+- the current engine is already symbol-aware for `ETHJPY`
+- `PnL` is calculated in quote currency `JPY`
+- `return_pct` and `max_drawdown_pct` are normalized using the current `1,000,000 JPY` capital baseline
 
-The three lines now say:
-- `2024 fixed` is no longer fee-aware profitable in-sample, but it still validates forward on `2025` and available `2026 Jan-Feb`
-- `2025 fixed` is fee-aware profitable in-sample and on available `2026 Jan-Feb`, but fails backward on `2024`
-- `rolling` still best captures the fast `H10` regime, but its month-to-month edge is thinner than the no-fee report suggested
+Scope note:
 
-Current preferred production baseline:
-- `H10` family
-- current working core: `H10 + ATRSL4`
-- current operating target band: `ATRTP3` to `ATRTP4`
+- all `2026` fixed-window results in this report are only `2026-01-01` to `2026-03-18`
+- rolling `2026-03` is also month-to-date through `2026-03-18`
+- rolling aggregate results are not a strict apples-to-apples substitute for full-year fixed validation, because rolling re-trains every month
 
-Fallback reference:
-- `2024 fixed` remains the cleanest slow-regime fallback
+## Executive Conclusion
 
-## Line-By-Line Comparison
+The three lines answer different questions.
 
-### 1. 2024 Fixed
+- `2024 fixed` is the best static cross-period baseline
+- `2025 fixed` is the strongest single-year winner, but it is too regime-sensitive to be the primary baseline
+- `rolling` is the best operational framework if the goal is ongoing adaptation
 
-Core result:
-- Training winner: `H25 + ATRSL4 + ATRTP4/5`
-- Training net return on margin: `-141.8%`
-- `2025` forward validation net return on margin: `65.1%`
-- `2026 Jan-Feb` forward validation net return on margin: `113.4%`
+If one static strategy must be kept as the baseline today, use:
 
-What it means:
-- This line no longer clears fees inside its own training window
-- But it still preserves positive cross-period validation
-- `ATRSL4` remains highly stable
-- Hold time remains slower than the later lines
+- `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H10-ATRSL3.5-ATRTP4`
 
-Main strength:
-- Best slow-regime fallback
+If the goal is live operation with periodic retraining, use:
 
-Main weakness:
-- Fee-aware in-sample profitability is gone
+- the monthly rolling workflow
 
-### 2. 2025 Fixed
+## Line 1: 2024 Fixed
 
-Core result:
-- Training winner: `H10 + ATRSL4 + ATRTP4/5/6/7`
-- Training net return on margin: `208.5%`
-- `2024` reverse validation net return on margin: `-229.6%`
-- `2026 Jan-Feb` forward validation net return on margin: `82.8%`
+Selected winner:
 
-What it means:
-- This line remains the clearest proof that the dominant structure changed from `H25/H30` to `H10`
-- It still works in-sample and in the available forward slice
-- It does not generalize backward into the older regime after fees
+- `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H10-ATRSL3.5-ATRTP4`
 
-Main strength:
-- Clearest fee-aware regime-shift detector
+Training result:
 
-Main weakness:
-- Backward robustness is weak
+- Trades: `817`
+- Win rate: `53.61%`
+- Total PnL: `4391.49`
+- Return %: `0.4391%`
+- Max drawdown %: `-0.4940%`
+- Score: `0.0200`
 
-### 3. Rolling
+Cross-period validation:
 
-Core result:
-- Training winners: `H10` in `12/14` months, `ATRTP4` in `14/14` months
-- Training total winner net return: `512.7%`
-- Training positive months: `8/14`
-- Validation winners: profitable in `8/14` months
-- Validation total winner net return: `321.2%`
-- Validation average per month: `22.9%`
+| Window | Trades | Win Rate | Total PnL | Return % | Max DD % | Score |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `2025` | 883 | 51.30% | 5948.43 | 0.5948% | -0.3960% | 0.0350 |
+| `2026-01-01` to `2026-03-18` | 166 | 47.59% | 334.52 | 0.0335% | -0.1167% | 0.0006 |
 
-What it means:
-- The rolling line still confirms the `H10` fast structure
-- It adapts mainly through `ATRSL` and secondarily through `TP3` vs `TP4`
-- But fees remove a large part of the apparent smoothness from the no-fee version
+Reading:
 
-Main strength:
-- Best current adaptation line
+- this line remains positive in both later windows
+- `2025` validation is stronger than its own training year
+- `2026` is much weaker, but still positive
 
-Main weakness:
-- Net month-to-month dispersion is now significant
+Conclusion:
 
-## Stable Parameters Vs Regime-Sensitive Parameters
+- `2024 fixed` is the strongest robustness baseline among the three choices
 
-Stable across all three lines:
-- RSI(14)
-- OS30 / OB70
-- `maxPositions = 1`
-- `lotSize = 0.1`
-- MA200 filter, MTF filter, ATR sizing, trailing stop, RSI reversion remain enabled
+## Line 2: 2025 Fixed
 
-Relatively stable:
-- `ATRSL` stays inside `3.0` to `4.0`
-- `ATRSL4` is still the single most repeatable stop-loss setting across the completed work
+Selected winner:
 
-Regime-sensitive:
-- Hold time is still the clearest regime variable
-- `2024 fixed`: `H25/H30`
-- `2025 fixed`: `H10`
-- `rolling`: overwhelmingly `H10`
+- `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL3-ATRTP4`
 
-Weakly identified:
-- `ATRTP`
-- It behaves more like a narrow operating band than a sharply optimized value
+Training result:
 
-## What Fees Change
+- Trades: `881`
+- Win rate: `49.15%`
+- Total PnL: `7257.04`
+- Return %: `0.7257%`
+- Max drawdown %: `-0.4007%`
+- Score: `0.0513`
 
-Main effect:
-- Gross edge is not enough by itself; turnover now matters directly
-- Fast families still win structurally, but only when the underlying gross edge is large enough to survive `GMOCOIN` commission
+Cross-period validation:
 
-Observed consequences:
-- `2024 fixed` training turns net negative
-- `2025 fixed` remains net positive in-sample, but loses backward robustness
-- Rolling early months are net negative even at the winner level
-- Rolling validation remains positive overall, but only `8/14` months are positive
+| Window | Trades | Win Rate | Total PnL | Return % | Max DD % | Score |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `2024` | 818 | 51.10% | 2803.30 | 0.2803% | -0.6043% | 0.0073 |
+| `2026-01-01` to `2026-03-18` | 166 | 45.78% | -117.19 | -0.0117% | -0.1646% | 0.0000 |
 
-Practical implication:
-- The correct question is no longer just "which family ranks highest gross"
-- The correct question is "which family survives fee drag while remaining stable enough across adjacent regimes"
+Reading:
 
-## Which Baseline Should Be Preferred Now
+- this is the strongest in-sample winner across the fixed annual runs
+- it still works on `2024`, but it is weaker than the true `2024` winner
+- by `2026-03-18`, it has already slipped slightly negative
 
-Preferred production baseline:
-- `rolling`
+Conclusion:
+
+- `2025 fixed` is a useful regime marker, but not the best production baseline
+
+## Line 3: Rolling
+
+Rolling execution summary:
+
+- Execution months: `2025-01` to `2026-03`
+- Positive months: `11/15`
+- Negative months: `4/15`
+- Total validation PnL: `5689.90`
+- Average monthly validation return: `0.0379%`
+
+Selected family evolution:
+
+- `2025-01`: `H10-ATRSL3.5-ATRTP4`
+- `2025-02` to `2026-01`: mostly `H15`
+- `2026-02` and `2026-03`: `H5-ATRSL4-ATRTP4`
+
+Rolling strengths:
+
+- it captures regime movement that the fixed lines miss
+- it stayed positive in aggregate across the whole executed history
+- it adapts mainly through hold time first, then `ATRSL/ATRTP`
+
+Rolling weaknesses:
+
+- month-to-month dispersion is real
+- it does not remove losing months, it only improves adaptability
+- its aggregate result is built from repeated retraining, so it should not be treated as the same object as a single fixed-strategy backtest
+
+Conclusion:
+
+- rolling is the best adaptive framework
+
+## Direct Comparison
+
+### Best At What
+
+| Line | Main Strength | Main Weakness |
+| --- | --- | --- |
+| `2024 fixed` | best cross-period robustness | weaker edge in `2026` |
+| `2025 fixed` | strongest in-sample peak | weakest robustness |
+| `rolling` | best adaptability to regime change | month-to-month variability |
+
+### Strategy Shape
+
+| Line | Dominant Hold | Dominant ATRSL | Dominant ATRTP | Best Interpretation |
+| --- | --- | --- | --- | --- |
+| `2024 fixed` | `H10` | `3.5` | `4` | robust static baseline |
+| `2025 fixed` | `H15` | `3` | `4` | strong same-regime candidate |
+| `rolling` | `H15` in most of `2025`, then `H5` in latest months | mostly `3.5/4` | mostly `3/4` | adaptive operating process |
+
+### Robustness Ranking
+
+Current ranking by robustness:
+
+1. `2024 fixed`
+2. `rolling`
+3. `2025 fixed`
 
 Reason:
-- It is still the most current line
-- It agrees with the `2025 fixed` regime shift instead of contradicting it
-- Its latest completed month still points to `H10-ATRSL4-ATRTP4`
-- It retains positive net validation in aggregate even after fees
 
-Operational caveat:
-- This is now a narrower recommendation than before
-- Rolling is the best available baseline, not a smooth high-margin baseline
+- `2024 fixed` stays positive in both later windows without changing parameters
+- `rolling` adapts and stays positive overall, but it does so by changing the winner each month
+- `2025 fixed` has the highest peak, but the weakest transfer into other regimes
 
-Recommended working production expression:
-- Primary: `H10 + ATRSL4 + ATRTP4`
-- Acceptable nearby variant: `H10 + ATRSL3.5 + ATRTP3/4`
+### Adaptation Ranking
 
-Fallback baseline:
-- `2024 fixed`, if a slower and more conservative backup is needed
+Current ranking by adaptation usefulness:
 
-Not recommended as primary baseline:
-- `2025 fixed` by itself
+1. `rolling`
+2. `2025 fixed`
+3. `2024 fixed`
 
 Reason:
-- It is valuable as regime evidence, but the rolling line gives a better current operational view
 
-## Final Conclusion
+- rolling directly tracks the evolving market state
+- `2025 fixed` correctly captured the stronger `H15` regime in its own year
+- `2024 fixed` is stable, but it is not the best detector of newer shifts
 
-The fee-aware workflow still does not support reverting to the older slow `2024` structure as the default live baseline.
+## Practical Recommendation
 
-The stronger fee-aware conclusion is:
-- the market regime changed toward `H10`
-- `ATRSL4` is still the most stable shared anchor
-- `TP` should not be overfit
-- rolling remains the best production reference, but with materially thinner edge after fees
+Use two layers rather than one.
 
-If one baseline must be selected now, use:
-- `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H10-ATRSL4-ATRTP4`
+Static reference baseline:
 
-And keep these caveats attached:
-- `2026` evidence currently means only `2026-01` and `2026-02`
-- rolling validation has `6/14` losing months after fees
-- `2024 fixed` should remain available as a slow-regime fallback rather than being discarded
+- `GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H10-ATRSL3.5-ATRTP4`
+
+Adaptive live framework:
+
+- monthly rolling retraining and validation
+
+Operational reading:
+
+- when rolling stays near `H10/H15` with `ATRSL3.5/4` and `ATRTP3/4`, the system is still operating inside the known ETHJPY family
+- when rolling shifts materially, as it did into `H5` by `2026-02`, that should be treated as a real market-state update rather than noise
+
+## Final Takeaway
+
+The current ETHJPY evidence does not support using the `2025` fixed winner alone as the default strategy.
+
+The cleaner reading is:
+
+- `2024 fixed` is still the best static baseline
+- `rolling` is the best live operating model
+- `2025 fixed` is important evidence of regime change, but not the best standalone deployment choice

@@ -1,0 +1,170 @@
+{
+  "runMonth": "2025-10",
+  "trainWindow": {
+    "start": "2024-10-01",
+    "end": "2025-09-30"
+  },
+  "validationWindow": {
+    "start": "2025-10-01",
+    "end": "2025-10-31"
+  },
+  "trainingWinner": {
+    "strategyName": "GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL3.5-ATRTP3",
+    "hold": 15,
+    "atrsl": 3.5,
+    "atrtp": 3,
+    "totalTrades": 857,
+    "winRatePct": 51.69,
+    "totalPnl": 11087,
+    "returnPct": 1.1087,
+    "maxDrawdown": -2459.08,
+    "maxDrawdownPct": -0.2435,
+    "score": 0.1514
+  },
+  "topCandidates": [
+    {
+      "strategyName": "GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL3.5-ATRTP3",
+      "hold": 15,
+      "atrsl": 3.5,
+      "atrtp": 3,
+      "totalTrades": 857,
+      "winRatePct": 51.69,
+      "totalPnl": 11087,
+      "returnPct": 1.1087,
+      "maxDrawdown": -2459.08,
+      "maxDrawdownPct": -0.2435,
+      "score": 0.1514
+    },
+    {
+      "strategyName": "GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL3.5-ATRTP4",
+      "hold": 15,
+      "atrsl": 3.5,
+      "atrtp": 4,
+      "totalTrades": 857,
+      "winRatePct": 51.58,
+      "totalPnl": 11000.21,
+      "returnPct": 1.1,
+      "maxDrawdown": -2584.78,
+      "maxDrawdownPct": -0.256,
+      "score": 0.1482
+    },
+    {
+      "strategyName": "GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL3.5-ATRTP5",
+      "hold": 15,
+      "atrsl": 3.5,
+      "atrtp": 5,
+      "totalTrades": 857,
+      "winRatePct": 51.58,
+      "totalPnl": 10851.2,
+      "returnPct": 1.0851,
+      "maxDrawdown": -2584.78,
+      "maxDrawdownPct": -0.2561,
+      "score": 0.1441
+    },
+    {
+      "strategyName": "GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL3.5-ATRTP6",
+      "hold": 15,
+      "atrsl": 3.5,
+      "atrtp": 6,
+      "totalTrades": 857,
+      "winRatePct": 51.58,
+      "totalPnl": 10851.2,
+      "returnPct": 1.0851,
+      "maxDrawdown": -2584.78,
+      "maxDrawdownPct": -0.2561,
+      "score": 0.1441
+    },
+    {
+      "strategyName": "GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL3.5-ATRTP7",
+      "hold": 15,
+      "atrsl": 3.5,
+      "atrtp": 7,
+      "totalTrades": 857,
+      "winRatePct": 51.58,
+      "totalPnl": 10851.2,
+      "returnPct": 1.0851,
+      "maxDrawdown": -2584.78,
+      "maxDrawdownPct": -0.2561,
+      "score": 0.1441
+    },
+    {
+      "strategyName": "GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL4-ATRTP4",
+      "hold": 15,
+      "atrsl": 4,
+      "atrtp": 4,
+      "totalTrades": 852,
+      "winRatePct": 51.88,
+      "totalPnl": 10891.67,
+      "returnPct": 1.0892,
+      "maxDrawdown": -2941.43,
+      "maxDrawdownPct": -0.2913,
+      "score": 0.1439
+    },
+    {
+      "strategyName": "GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL4-ATRTP3",
+      "hold": 15,
+      "atrsl": 4,
+      "atrtp": 3,
+      "totalTrades": 852,
+      "winRatePct": 51.88,
+      "totalPnl": 10835.56,
+      "returnPct": 1.0836,
+      "maxDrawdown": -2796.33,
+      "maxDrawdownPct": -0.2769,
+      "score": 0.1429
+    },
+    {
+      "strategyName": "GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL4-ATRTP5",
+      "hold": 15,
+      "atrsl": 4,
+      "atrtp": 5,
+      "totalTrades": 852,
+      "winRatePct": 51.88,
+      "totalPnl": 10757.97,
+      "returnPct": 1.0758,
+      "maxDrawdown": -2941.43,
+      "maxDrawdownPct": -0.2913,
+      "score": 0.1404
+    },
+    {
+      "strategyName": "GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL4-ATRTP6",
+      "hold": 15,
+      "atrsl": 4,
+      "atrtp": 6,
+      "totalTrades": 852,
+      "winRatePct": 51.88,
+      "totalPnl": 10757.97,
+      "returnPct": 1.0758,
+      "maxDrawdown": -2941.43,
+      "maxDrawdownPct": -0.2913,
+      "score": 0.1404
+    },
+    {
+      "strategyName": "GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL4-ATRTP7",
+      "hold": 15,
+      "atrsl": 4,
+      "atrtp": 7,
+      "totalTrades": 852,
+      "winRatePct": 51.88,
+      "totalPnl": 10757.97,
+      "returnPct": 1.0758,
+      "maxDrawdown": -2941.43,
+      "maxDrawdownPct": -0.2913,
+      "score": 0.1404
+    }
+  ],
+  "validationResult": {
+    "strategyName": "GMOCOIN-RSI-P14-OS30-OB70-MP1-LOT0.1-H15-ATRSL3.5-ATRTP3",
+    "hold": 15,
+    "atrsl": 3.5,
+    "atrtp": 3,
+    "totalTrades": 91,
+    "winRatePct": 46.15,
+    "totalPnl": 1128.81,
+    "returnPct": 0.1129,
+    "maxDrawdown": -1693.54,
+    "maxDrawdownPct": -0.1689,
+    "score": 0.0078
+  },
+  "validationSkippedReason": null
+}

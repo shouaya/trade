@@ -11,7 +11,7 @@ define require_var
 $(if $($(1)),,$(error 缺少参数 $(1). 示例: $(2)))
 endef
 
-.PHONY: help up down restart logs logs-train ps shell mysql db-init db-backup db-tables import clear-klines reimport-klines train validate rolling-all rolling-train rolling-validate weekly-rolling weekly-rolling-history clean
+.PHONY: help up down restart logs logs-train ps shell mysql db-init db-backup db-tables import clear-klines reimport-klines train validate rolling-all rolling-train rolling-validate weekly-rolling weekly-rolling-history monthly-rolling monthly-rolling-history clean
 
 # ============================================================================
 # 默认命令：显示帮助
@@ -57,6 +57,8 @@ help:
 	@echo "  make rolling-validate   # 只验证所有滚动窗口"
 	@echo "  make weekly-rolling CUTOFF=2026-01-30    # 运行周度rolling MVP"
 	@echo "  make weekly-rolling-history START=2024-04-05 END=2026-02-20   # 批量回放周度rolling"
+	@echo "  make monthly-rolling MONTH=2025-01       # ETHJPY 月度rolling（过去12个月训练，当月验证）"
+	@echo "  make monthly-rolling-history START=2025-01 END=2026-02  # 批量回放ETHJPY月度rolling"
 	@echo ""
 	@echo "🧹 清理:"
 	@echo "  make clean           - 清理临时文件"
@@ -202,6 +204,17 @@ weekly-rolling-history:
 	@$(call require_var,END,make weekly-rolling-history START=2024-04-05 END=2026-02-20)
 	@echo "📚 开始批量周度 rolling: start=$(START) end=$(END)"
 	@docker-compose run --rm train sh -c "npm install && npm run build && node scripts/weekly-rolling-history.js --start=$(START) --end=$(END)"
+
+monthly-rolling:
+	@$(call require_var,MONTH,make monthly-rolling MONTH=2025-01)
+	@echo "📅 开始月度 rolling: month=$(MONTH)"
+	@docker-compose run --rm train sh -c "npm install && npm run build && node scripts/monthly-rolling-run.js --month=$(MONTH)"
+
+monthly-rolling-history:
+	@$(call require_var,START,make monthly-rolling-history START=2025-01 END=2026-02)
+	@$(call require_var,END,make monthly-rolling-history START=2025-01 END=2026-02)
+	@echo "📚 开始批量月度 rolling: start=$(START) end=$(END)"
+	@docker-compose run --rm train sh -c "npm install && npm run build && node scripts/monthly-rolling-history.js --start=$(START) --end=$(END)"
 
 # ============================================================================
 # 清理

@@ -1,0 +1,79 @@
+{
+  "name": "ETHJPY_ROLLING_2026_01_VALIDATE",
+  "description": "2026_01 rolling validate using best train strategy",
+  "timeRange": {
+    "startTimeMs": 1767225600000,
+    "endTimeMs": 1769903940000,
+    "startIso": "2026-01-01T00:00:00.000Z",
+    "endIso": "2026-01-31T23:59:00.000Z"
+  },
+  "market": {
+    "symbol": "ETHJPY",
+    "intervalType": "1min"
+  },
+  "database": {
+    "tableName": "backtest_results_ethjpy_rolling_2026_01_validate",
+    "resetTableBeforeRun": true
+  },
+  "strategy": {
+    "types": [
+      "rsi_only"
+    ],
+    "parameters": {
+      "rsi": {
+        "period": [
+          14
+        ],
+        "oversold": [
+          30
+        ],
+        "overbought": [
+          70
+        ]
+      },
+      "risk": {
+        "maxPositions": [
+          1
+        ],
+        "lotSize": [
+          0.1
+        ],
+        "maxHoldMinutes": [
+          15
+        ]
+      },
+      "atr": {
+        "slMultiplier": [
+          3
+        ],
+        "tpMultiplier": [
+          4
+        ]
+      },
+      "tradingSchedule": "ALWAYS",
+      "tradingTimeRestriction": null
+    }
+  },
+  "executor": {
+    "version": "v3",
+    "options": {
+      "enableMA200Filter": true,
+      "enableMultiTimeframe": true,
+      "enableATRSizing": true,
+      "enableTrailingStop": true,
+      "enableRSIReversion": true,
+      "feeModel": {
+        "venueCode": "GMOCOIN",
+        "commissionRate": 0.00002,
+        "basis": "notional",
+        "chargeOnEntry": true,
+        "chargeOnExit": true
+      }
+    }
+  },
+  "output": {
+    "topN": 1,
+    "strategyNamePrefix": "ETHJPY-Rolling-2026_01-Validate-",
+    "descriptionPrefix": "ETHJPY rolling validate 2026_01"
+  }
+}

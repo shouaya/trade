@@ -1,0 +1,161 @@
+{
+  "start": "2025-01",
+  "end": "2026-03",
+  "totalMonths": 15,
+  "positiveMonths": 11,
+  "negativeMonths": 4,
+  "totalValidationPnl": 5689.9,
+  "avgValidationReturnPct": 0.0379,
+  "reports": [
+    {
+      "runMonth": "2025-01",
+      "trainingWinner": {
+        "hold": 10,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationPnl": 1012.41,
+      "validationReturnPct": 0.1012
+    },
+    {
+      "runMonth": "2025-02",
+      "trainingWinner": {
+        "hold": 15,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationPnl": 2973.55,
+      "validationReturnPct": 0.2974
+    },
+    {
+      "runMonth": "2025-03",
+      "trainingWinner": {
+        "hold": 15,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationPnl": 1884.91,
+      "validationReturnPct": 0.1885
+    },
+    {
+      "runMonth": "2025-04",
+      "trainingWinner": {
+        "hold": 15,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationPnl": -682.94,
+      "validationReturnPct": -0.0683
+    },
+    {
+      "runMonth": "2025-05",
+      "trainingWinner": {
+        "hold": 15,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationPnl": -1935.79,
+      "validationReturnPct": -0.1936
+    },
+    {
+      "runMonth": "2025-06",
+      "trainingWinner": {
+        "hold": 15,
+        "atrsl": 3.5,
+        "atrtp": 3
+      },
+      "validationPnl": 1208.38,
+      "validationReturnPct": 0.1208
+    },
+    {
+      "runMonth": "2025-07",
+      "trainingWinner": {
+        "hold": 15,
+        "atrsl": 4,
+        "atrtp": 3
+      },
+      "validationPnl": 140.48,
+      "validationReturnPct": 0.014
+    },
+    {
+      "runMonth": "2025-08",
+      "trainingWinner": {
+        "hold": 15,
+        "atrsl": 4,
+        "atrtp": 3
+      },
+      "validationPnl": 1311.89,
+      "validationReturnPct": 0.1312
+    },
+    {
+      "runMonth": "2025-09",
+      "trainingWinner": {
+        "hold": 15,
+        "atrsl": 3.5,
+        "atrtp": 3
+      },
+      "validationPnl": 918.1,
+      "validationReturnPct": 0.0918
+    },
+    {
+      "runMonth": "2025-10",
+      "trainingWinner": {
+        "hold": 15,
+        "atrsl": 3.5,
+        "atrtp": 3
+      },
+      "validationPnl": 1128.81,
+      "validationReturnPct": 0.1129
+    },
+    {
+      "runMonth": "2025-11",
+      "trainingWinner": {
+        "hold": 15,
+        "atrsl": 3.5,
+        "atrtp": 4
+      },
+      "validationPnl": -2735.26,
+      "validationReturnPct": -0.2735
+    },
+    {
+      "runMonth": "2025-12",
+      "trainingWinner": {
+        "hold": 15,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationPnl": 371.19,
+      "validationReturnPct": 0.0371
+    },
+    {
+      "runMonth": "2026-01",
+      "trainingWinner": {
+        "hold": 15,
+        "atrsl": 3,
+        "atrtp": 4
+      },
+      "validationPnl": -831.55,
+      "validationReturnPct": -0.0832
+    },
+    {
+      "runMonth": "2026-02",
+      "trainingWinner": {
+        "hold": 5,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationPnl": 747.54,
+      "validationReturnPct": 0.0748
+    },
+    {
+      "runMonth": "2026-03",
+      "trainingWinner": {
+        "hold": 5,
+        "atrsl": 4,
+        "atrtp": 4
+      },
+      "validationPnl": 178.18,
+      "validationReturnPct": 0.0178
+    }
+  ]
+}
