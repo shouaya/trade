@@ -1,5 +1,10 @@
 /**
- * Strategy Parameter Generator - RSI-only 参数组合生成器
+ * Strategy Parameter Generator
+ *
+ * Latest train mode only:
+ * - RSI + MACD entry
+ * - ATR stop loss / take profit
+ * - Short intraday holding windows
  */
 
 import type {
@@ -15,11 +20,8 @@ interface StrategyParameterOverrides extends Partial<ParameterSpace> {
   readonly tradingTimeRestriction?: TimeRestriction | null;
 }
 
-const DEFAULT_TYPE: StrategyType = 'rsi_only';
+const DEFAULT_TYPE: StrategyType = 'rsi_macd';
 
-/**
- * 策略参数空间定义
- */
 export const PARAMETER_SPACE: ParameterSpace = {
   rsi: {
     period: [14],
@@ -29,9 +31,17 @@ export const PARAMETER_SPACE: ParameterSpace = {
   risk: {
     maxPositions: [1],
     lotSize: [0.1],
-    stopLossPercent: [null, 0.1, 0.15, 0.2, 0.25, 0.3],
-    takeProfitPercent: [null, 0.2, 0.3, 0.5, 0.7, 1.0, 1.5],
     maxHoldMinutes: [30, 60, 120, 180, 240, 360, 480, 720]
+  },
+  atr: {
+    slMultiplier: [1.5, 2.0],
+    tpMultiplier: [1.0, 1.5, 2.0]
+  },
+  macd: {
+    fastPeriod: [6],
+    slowPeriod: [13],
+    signalPeriod: [4],
+    histogramThreshold: [0]
   }
 } as const;
 
@@ -59,11 +69,10 @@ function mergeParameterSpace(parameters: StrategyParameterOverrides | null): {
       risk: {
         maxPositions: parameters?.risk?.maxPositions ?? PARAMETER_SPACE.risk.maxPositions,
         lotSize: parameters?.risk?.lotSize ?? PARAMETER_SPACE.risk.lotSize,
-        stopLossPercent: parameters?.risk?.stopLossPercent ?? PARAMETER_SPACE.risk.stopLossPercent,
-        takeProfitPercent: parameters?.risk?.takeProfitPercent ?? PARAMETER_SPACE.risk.takeProfitPercent,
         maxHoldMinutes: parameters?.risk?.maxHoldMinutes ?? PARAMETER_SPACE.risk.maxHoldMinutes
       },
-      atr: parameters?.atr ?? null
+      atr: parameters?.atr ?? PARAMETER_SPACE.atr,
+      macd: parameters?.macd ?? PARAMETER_SPACE.macd
     },
     tradingSchedule: parameters?.tradingSchedule,
     tradingTimeRestriction: parameters?.tradingTimeRestriction
@@ -86,83 +95,72 @@ function formatHoldLabel(hold: number | null): string {
   return hold === null ? 'dynamic' : String(hold);
 }
 
-/**
- * 生成所有策略组合
- */
 export function generateStrategyCombinations(options: GenerateOptions = {}): readonly Strategy[] {
   const { limit = null } = options;
   normalizeTypes(options.types ?? null);
+
   const { paramSpace, tradingSchedule, tradingTimeRestriction } = mergeParameterSpace(
     (options.parameters ?? null) as StrategyParameterOverrides | null
   );
 
+  if (!paramSpace.atr?.slMultiplier.length || !paramSpace.atr?.tpMultiplier.length) {
+    throw new Error('rsi_macd requires atr parameter space');
+  }
+
+  if (!paramSpace.macd?.fastPeriod.length || !paramSpace.macd?.slowPeriod.length || !paramSpace.macd?.signalPeriod.length) {
+    throw new Error('rsi_macd requires macd parameter space');
+  }
+
+  const histogramThresholds = paramSpace.macd.histogramThreshold?.length
+    ? paramSpace.macd.histogramThreshold
+    : [0];
+
   const strategies: Strategy[] = [];
   let id = 1;
 
-  if (paramSpace.atr?.slMultiplier && paramSpace.atr?.tpMultiplier) {
-    for (const period of paramSpace.rsi.period) {
-      for (const oversold of paramSpace.rsi.oversold) {
-        for (const overbought of paramSpace.rsi.overbought) {
-          if (overbought <= oversold + 30) continue;
+  for (const period of paramSpace.rsi.period) {
+    for (const oversold of paramSpace.rsi.oversold) {
+      for (const overbought of paramSpace.rsi.overbought) {
+        if (overbought <= oversold + 20) continue;
 
-          for (const maxPos of paramSpace.risk.maxPositions) {
-            for (const lotSize of paramSpace.risk.lotSize) {
-              for (const hold of paramSpace.risk.maxHoldMinutes) {
-                for (const slMult of paramSpace.atr.slMultiplier) {
-                  for (const tpMult of paramSpace.atr.tpMultiplier) {
-                    strategies.push({
-                      id: id++,
-                      name: `RSI-P${period}-OS${oversold}-OB${overbought}-MP${maxPos}-LOT${lotSize}-H${formatHoldLabel(hold)}-ATRSL${slMult}-ATRTP${tpMult}`,
-                      type: DEFAULT_TYPE,
-                      parameters: withCommonOptions({
-                        rsi: { enabled: true, period, oversold, overbought },
-                        risk: {
-                          maxPositions: maxPos,
-                          lotSize,
-                          stopLossPercent: null,
-                          takeProfitPercent: null,
-                          maxHoldMinutes: hold
-                        },
-                        atr: {
-                          slMultiplier: slMult,
-                          tpMultiplier: tpMult
-                        }
-                      }, tradingSchedule, tradingTimeRestriction)
-                    });
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  } else {
-    for (const period of paramSpace.rsi.period) {
-      for (const oversold of paramSpace.rsi.oversold) {
-        for (const overbought of paramSpace.rsi.overbought) {
-          if (overbought <= oversold + 30) continue;
+        for (const fastPeriod of paramSpace.macd.fastPeriod) {
+          for (const slowPeriod of paramSpace.macd.slowPeriod) {
+            if (fastPeriod >= slowPeriod) continue;
 
-          for (const maxPos of paramSpace.risk.maxPositions) {
-            for (const lotSize of paramSpace.risk.lotSize) {
-              for (const hold of paramSpace.risk.maxHoldMinutes) {
-                for (const sl of paramSpace.risk.stopLossPercent) {
-                  for (const tp of paramSpace.risk.takeProfitPercent) {
-                    strategies.push({
-                      id: id++,
-                      name: `RSI-P${period}-OS${oversold}-OB${overbought}-MP${maxPos}-LOT${lotSize}-H${formatHoldLabel(hold)}-SL${sl}-TP${tp}`,
-                      type: DEFAULT_TYPE,
-                      parameters: withCommonOptions({
-                        rsi: { enabled: true, period, oversold, overbought },
-                        risk: {
-                          maxPositions: maxPos,
-                          lotSize,
-                          stopLossPercent: sl,
-                          takeProfitPercent: tp,
-                          maxHoldMinutes: hold
+            for (const signalPeriod of paramSpace.macd.signalPeriod) {
+              for (const histogramThreshold of histogramThresholds) {
+                for (const maxPos of paramSpace.risk.maxPositions) {
+                  for (const lotSize of paramSpace.risk.lotSize) {
+                    for (const hold of paramSpace.risk.maxHoldMinutes) {
+                      for (const slMult of paramSpace.atr.slMultiplier) {
+                        for (const tpMult of paramSpace.atr.tpMultiplier) {
+                          strategies.push({
+                            id: id++,
+                            name: `RSIMACD-RP${period}-OS${oversold}-OB${overbought}-MF${fastPeriod}-MS${slowPeriod}-MSG${signalPeriod}-HT${histogramThreshold}-MP${maxPos}-LOT${lotSize}-H${formatHoldLabel(hold)}-ATRSL${slMult}-ATRTP${tpMult}`,
+                            type: DEFAULT_TYPE,
+                            parameters: withCommonOptions({
+                              rsi: { enabled: true, period, oversold, overbought },
+                              macd: {
+                                enabled: true,
+                                fastPeriod,
+                                slowPeriod,
+                                signalPeriod,
+                                histogramThreshold
+                              },
+                              risk: {
+                                maxPositions: maxPos,
+                                lotSize,
+                                maxHoldMinutes: hold
+                              },
+                              atr: {
+                                slMultiplier: slMult,
+                                tpMultiplier: tpMult
+                              }
+                            }, tradingSchedule, tradingTimeRestriction)
+                          });
                         }
-                      }, tradingSchedule, tradingTimeRestriction)
-                    });
+                      }
+                    }
                   }
                 }
               }
@@ -185,6 +183,6 @@ export function generateStrategyCombinations(options: GenerateOptions = {}): rea
 
 export function countByType(strategies: readonly Strategy[]): Record<StrategyType, number> {
   return {
-    rsi_only: strategies.filter(strategy => strategy.type === DEFAULT_TYPE).length
+    rsi_macd: strategies.filter(strategy => strategy.type === DEFAULT_TYPE).length
   };
 }

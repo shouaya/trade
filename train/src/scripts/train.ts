@@ -4,7 +4,7 @@
  *
  * 使用方法:
  *   node scripts/train.js <config-file>
- *   node scripts/train.js configs/training/2024_v3_rsi_only.json
+ *   node scripts/train.js configs/training/2025_btcjpy_hf_rsi_macd_tp_atr.json
  *
  * 功能:
  * 1. 根据配置文件生成策略组合
@@ -15,10 +15,12 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import { randomBytes } from 'crypto';
 import db from '../configs/database';
 import { TaskManager } from '../services/task-manager';
 import { StrategyExecutor } from '../services/strategy-executor';
 import { generateStrategyCombinations } from '../services/strategy-parameter-generator';
+import { loadRouterPolicyCatalogFromRefs, summarizePolicyCatalog } from '../services/router-policy-catalog';
 import type * as mysql from 'mysql2/promise';
 import type {
   Strategy,
@@ -42,6 +44,7 @@ async function createTaskManager(): Promise<TaskManager> {
 // 常量
 const PROGRESS_INTERVAL_MS = 10000;
 const TRADE_BATCH_SIZE = 1000;
+const BACKTEST_RESULTS_TABLE = 'backtest_results';
 
 interface TrainingConfig {
   readonly name: string;
@@ -64,10 +67,19 @@ interface TrainingConfig {
       readonly tradingSchedule?: string;
       readonly tradingTimeRestriction?: TimeRestriction | null;
     };
+    readonly explicitStrategies?: readonly {
+      readonly name: string;
+      readonly type: StrategyType;
+      readonly parameters: StrategyParameters;
+    }[];
   };
   readonly executor: {
     readonly version: string;
     readonly options: ExecutorOptions;
+  };
+  readonly regimeRouting?: {
+    readonly routerConfigPath?: string;
+    readonly policyCatalogPath?: string;
   };
   readonly output: {
     readonly topN?: number;
@@ -86,9 +98,29 @@ async function resultColumnExists(tableName: string, columnName: string): Promis
   return columns.length > 0;
 }
 
+async function resultIndexExists(tableName: string, indexName: string): Promise<boolean> {
+  const [indexes] = await db.query<mysql.RowDataPacket[]>(
+    `SHOW INDEX FROM ${tableName} WHERE Key_name = ?`,
+    [indexName]
+  );
+  return indexes.length > 0;
+}
+
 async function modifyColumnIfExists(tableName: string, columnName: string, ddl: string): Promise<void> {
   if (await resultColumnExists(tableName, columnName)) {
     await db.query(`ALTER TABLE ${tableName} MODIFY COLUMN ${columnName} ${ddl}`);
+  }
+}
+
+async function ensureColumn(tableName: string, columnName: string, ddl: string): Promise<void> {
+  if (!await resultColumnExists(tableName, columnName)) {
+    await db.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${ddl}`);
+  }
+}
+
+async function ensureIndex(tableName: string, indexName: string, ddl: string): Promise<void> {
+  if (!await resultIndexExists(tableName, indexName)) {
+    await db.query(`ALTER TABLE ${tableName} ADD ${ddl}`);
   }
 }
 
@@ -121,12 +153,16 @@ interface TypeCount {
 /**
  * 加载配置文件
  */
+function resolveConfigPath(configPath: string): string {
+  return path.isAbsolute(configPath)
+    ? configPath
+    : path.resolve(__dirname, '..', '..', configPath);
+}
+
 function loadConfig(configPath: string): TrainingConfig {
   // __dirname 在编译后指向 dist/scripts/
   // 配置文件在项目根目录的 configs/ 下，需要回退两级
-  const fullPath = path.isAbsolute(configPath)
-    ? configPath
-    : path.resolve(__dirname, '..', '..', configPath);
+  const fullPath = resolveConfigPath(configPath);
 
   if (!fs.existsSync(fullPath)) {
     throw new Error(`配置文件不存在: ${fullPath}`);
@@ -149,7 +185,30 @@ function loadConfig(configPath: string): TrainingConfig {
  * 生成策略组合
  */
 function generateStrategies(config: TrainingConfig): readonly Strategy[] {
-  const strategyTypes = config.strategy.types ?? (['rsi_only'] as const);
+  if (config.strategy.explicitStrategies?.length) {
+    const strategies = config.strategy.explicitStrategies.map((strategy, index) => ({
+      id: index + 1,
+      name: strategy.name,
+      type: strategy.type,
+      parameters: strategy.parameters
+    }));
+
+    console.log(`\n✅ 加载了 ${strategies.length} 个显式策略\n`);
+
+    const typeCount: TypeCount = {};
+    strategies.forEach(s => {
+      typeCount[s.type] = (typeCount[s.type] ?? 0) + 1;
+    });
+
+    console.log('策略类型分布:');
+    Object.entries(typeCount).forEach(([type, count]) => {
+      console.log(`   - ${type}: ${count}个`);
+    });
+
+    return strategies;
+  }
+
+  const strategyTypes = config.strategy.types ?? (['rsi_macd'] as const);
   const parameters = config.strategy.parameters ?? {};
   const venueCode = config.executor.options.feeModel?.venueCode?.trim();
 
@@ -183,12 +242,33 @@ function generateStrategies(config: TrainingConfig): readonly Strategy[] {
 /**
  * 确保结果表存在
  */
-async function ensureBacktestTable(tableName: string): Promise<void> {
-  console.log(`\n📋 创建/检查结果表: ${tableName}`);
+function resolveResultGroup(config: TrainingConfig): string {
+  return config.database.tableName.trim();
+}
+
+function resolveRunMode(config: TrainingConfig): 'training' | 'validation' {
+  return config.strategy.explicitStrategies?.length ? 'validation' : 'training';
+}
+
+function createRunId(config: TrainingConfig): string {
+  const mode = resolveRunMode(config);
+  return `${mode}_${Date.now()}_${randomBytes(4).toString('hex')}`;
+}
+
+async function ensureBacktestTable(): Promise<void> {
+  console.log(`\n📋 创建/检查结果表: ${BACKTEST_RESULTS_TABLE}`);
 
   await db.query(`
-    CREATE TABLE IF NOT EXISTS ${tableName} (
+    CREATE TABLE IF NOT EXISTS ${BACKTEST_RESULTS_TABLE} (
       id INT AUTO_INCREMENT PRIMARY KEY,
+      result_group VARCHAR(255) NOT NULL,
+      run_id VARCHAR(64) NOT NULL,
+      config_name VARCHAR(255) NULL,
+      mode VARCHAR(20) NULL,
+      symbol VARCHAR(20) NULL,
+      interval_type VARCHAR(20) NULL,
+      period_start_ms BIGINT NULL,
+      period_end_ms BIGINT NULL,
       strategy_name VARCHAR(255),
       strategy_type VARCHAR(50),
       total_trades INT,
@@ -214,40 +294,60 @@ async function ensureBacktestTable(tableName: string): Promise<void> {
       executor_options JSON,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_result_group (result_group),
+      INDEX idx_result_group_run_id (result_group, run_id),
+      INDEX idx_symbol_mode (symbol, mode),
       INDEX idx_strategy_type (strategy_type),
       INDEX idx_total_pnl (total_pnl),
       INDEX idx_score (score),
-      INDEX idx_created_at (created_at)
+      INDEX idx_created_at (created_at),
+      UNIQUE KEY uniq_result_group_run_strategy (result_group, run_id, strategy_name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
-  if (!await resultColumnExists(tableName, 'gross_pnl')) {
-    await db.query(`ALTER TABLE ${tableName} ADD COLUMN gross_pnl DECIMAL(12,2) NULL AFTER win_rate`);
-  }
+  await ensureColumn(BACKTEST_RESULTS_TABLE, 'result_group', `VARCHAR(255) NOT NULL DEFAULT '' AFTER id`);
+  await ensureColumn(BACKTEST_RESULTS_TABLE, 'run_id', `VARCHAR(64) NOT NULL DEFAULT '' AFTER result_group`);
+  await ensureColumn(BACKTEST_RESULTS_TABLE, 'config_name', `VARCHAR(255) NULL AFTER run_id`);
+  await ensureColumn(BACKTEST_RESULTS_TABLE, 'mode', `VARCHAR(20) NULL AFTER config_name`);
+  await ensureColumn(BACKTEST_RESULTS_TABLE, 'symbol', `VARCHAR(20) NULL AFTER mode`);
+  await ensureColumn(BACKTEST_RESULTS_TABLE, 'interval_type', `VARCHAR(20) NULL AFTER symbol`);
+  await ensureColumn(BACKTEST_RESULTS_TABLE, 'period_start_ms', `BIGINT NULL AFTER interval_type`);
+  await ensureColumn(BACKTEST_RESULTS_TABLE, 'period_end_ms', `BIGINT NULL AFTER period_start_ms`);
+  await ensureColumn(BACKTEST_RESULTS_TABLE, 'gross_pnl', `DECIMAL(12,2) NULL AFTER win_rate`);
+  await ensureColumn(BACKTEST_RESULTS_TABLE, 'total_commission', `DECIMAL(12,4) NULL AFTER gross_pnl`);
+  await ensureColumn(BACKTEST_RESULTS_TABLE, 'return_pct', `DECIMAL(12,4) NULL AFTER total_pnl`);
+  await ensureColumn(BACKTEST_RESULTS_TABLE, 'max_drawdown_pct', `DECIMAL(10,4) NULL AFTER max_drawdown`);
+  await ensureColumn(BACKTEST_RESULTS_TABLE, 'updated_at', `TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at`);
 
-  if (!await resultColumnExists(tableName, 'total_commission')) {
-    await db.query(`ALTER TABLE ${tableName} ADD COLUMN total_commission DECIMAL(12,4) NULL AFTER gross_pnl`);
-  }
-
-  if (!await resultColumnExists(tableName, 'return_pct')) {
-    await db.query(`ALTER TABLE ${tableName} ADD COLUMN return_pct DECIMAL(12,4) NULL AFTER total_pnl`);
-  }
-
-  if (!await resultColumnExists(tableName, 'max_drawdown_pct')) {
-    await db.query(`ALTER TABLE ${tableName} ADD COLUMN max_drawdown_pct DECIMAL(10,4) NULL AFTER max_drawdown`);
-  }
-
-  await modifyColumnIfExists(tableName, 'max_drawdown', 'DECIMAL(15,2) NULL');
-  await modifyColumnIfExists(tableName, 'return_pct', 'DECIMAL(12,4) NULL');
-  await modifyColumnIfExists(tableName, 'max_drawdown_pct', 'DECIMAL(10,4) NULL');
+  await modifyColumnIfExists(BACKTEST_RESULTS_TABLE, 'max_drawdown', 'DECIMAL(15,2) NULL');
+  await modifyColumnIfExists(BACKTEST_RESULTS_TABLE, 'return_pct', 'DECIMAL(12,4) NULL');
+  await modifyColumnIfExists(BACKTEST_RESULTS_TABLE, 'max_drawdown_pct', 'DECIMAL(10,4) NULL');
+  await ensureIndex(BACKTEST_RESULTS_TABLE, 'idx_result_group', 'INDEX idx_result_group (result_group)');
+  await ensureIndex(BACKTEST_RESULTS_TABLE, 'idx_result_group_run_id', 'INDEX idx_result_group_run_id (result_group, run_id)');
+  await ensureIndex(BACKTEST_RESULTS_TABLE, 'idx_symbol_mode', 'INDEX idx_symbol_mode (symbol, mode)');
+  await ensureIndex(BACKTEST_RESULTS_TABLE, 'uniq_result_group_run_strategy', 'UNIQUE INDEX uniq_result_group_run_strategy (result_group, run_id, strategy_name)');
 
   console.log('✅ 结果表准备完成');
 }
 
-async function resetBacktestTable(tableName: string): Promise<void> {
-  console.log(`\n🧹 清空结果表: ${tableName}`);
-  await db.query(`TRUNCATE TABLE ${tableName}`);
-  console.log('✅ 结果表已清空');
+async function resetBacktestTable(resultGroup: string): Promise<void> {
+  console.log(`\n🧹 清空逻辑结果分组: ${resultGroup}`);
+  await db.query(`DELETE FROM ${BACKTEST_RESULTS_TABLE} WHERE result_group = ?`, [resultGroup]);
+  console.log('✅ 逻辑结果分组已清空');
+}
+
+async function findLatestRunId(resultGroup: string): Promise<string | null> {
+  const [rows] = await db.query<mysql.RowDataPacket[]>(
+    `SELECT run_id
+     FROM ${BACKTEST_RESULTS_TABLE}
+     WHERE result_group = ?
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1`,
+    [resultGroup]
+  );
+
+  const runId = rows[0]?.['run_id'];
+  return runId ? String(runId) : null;
 }
 
 /**
@@ -302,7 +402,7 @@ async function loadKlines(config: TrainingConfig): Promise<readonly KlineData[]>
 /**
  * 批量保存交易记录
  */
-async function saveTrades(trades: readonly TradeRecord[]): Promise<void> {
+async function saveTrades(trades: readonly TradeRecord[], tradeBatchCreatedAt: string): Promise<void> {
   if (!trades || trades.length === 0) return;
 
   const values = trades.map(t => [
@@ -333,7 +433,8 @@ async function saveTrades(trades: readonly TradeRecord[]): Promise<void> {
     sanitizeNumber(t.actual_hold_minutes ?? t.hold_minutes ?? 0),
     t.strategy_name,
     t.symbol ?? 'USDJPY',
-    null // notes
+    null, // notes
+    tradeBatchCreatedAt
   ]);
 
   await db.query(
@@ -344,7 +445,7 @@ async function saveTrades(trades: readonly TradeRecord[]): Promise<void> {
       exit_time, exit_price, exit_rsi, exit_macd,
       exit_macd_signal, exit_macd_histogram,
       exit_reason, gross_pnl, commission_fee, pnl, pips, percent,
-      actual_hold_minutes, strategy_name, symbol, notes
+      actual_hold_minutes, strategy_name, symbol, notes, created_at
     ) VALUES ?`,
     [values]
   );
@@ -379,7 +480,9 @@ function sanitizeNumber(value: unknown): number | null {
  * 保存策略结果
  */
 async function saveStrategyResult(
-  tableName: string,
+  config: TrainingConfig,
+  resultGroup: string,
+  runId: string,
   strategy: Strategy,
   result: BacktestResult,
   executorVersion: string,
@@ -401,13 +504,46 @@ async function saveStrategyResult(
   );
 
   await db.query(
-    `INSERT INTO ${tableName}
-     (strategy_name, strategy_type, total_trades, winning_trades, losing_trades,
+    `INSERT INTO ${BACKTEST_RESULTS_TABLE}
+     (result_group, run_id, config_name, mode, symbol, interval_type, period_start_ms, period_end_ms,
+      strategy_name, strategy_type, total_trades, winning_trades, losing_trades,
       win_rate, gross_pnl, total_commission, total_pnl, return_pct, avg_pnl, sharpe_ratio, profit_factor, max_drawdown, max_drawdown_pct,
      gross_profit, gross_loss, avg_win, avg_loss, score, parameters,
       executor_version, executor_options)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       strategy_type = VALUES(strategy_type),
+       total_trades = VALUES(total_trades),
+       winning_trades = VALUES(winning_trades),
+       losing_trades = VALUES(losing_trades),
+       win_rate = VALUES(win_rate),
+       gross_pnl = VALUES(gross_pnl),
+       total_commission = VALUES(total_commission),
+       total_pnl = VALUES(total_pnl),
+       return_pct = VALUES(return_pct),
+       avg_pnl = VALUES(avg_pnl),
+       sharpe_ratio = VALUES(sharpe_ratio),
+       profit_factor = VALUES(profit_factor),
+       max_drawdown = VALUES(max_drawdown),
+       max_drawdown_pct = VALUES(max_drawdown_pct),
+       gross_profit = VALUES(gross_profit),
+       gross_loss = VALUES(gross_loss),
+       avg_win = VALUES(avg_win),
+       avg_loss = VALUES(avg_loss),
+       score = VALUES(score),
+       parameters = VALUES(parameters),
+       executor_version = VALUES(executor_version),
+       executor_options = VALUES(executor_options),
+       updated_at = CURRENT_TIMESTAMP`,
     [
+      resultGroup,
+      runId,
+      config.name,
+      resolveRunMode(config),
+      config.market.symbol,
+      config.market.intervalType,
+      config.timeRange.startTimeMs,
+      config.timeRange.endTimeMs,
       strategy.name,
       strategy.type,
       stats.totalTrades,
@@ -454,6 +590,10 @@ function displayProgress(
   console.log(`     已用: ${elapsed.toFixed(1)}分 | 剩余: ${remaining.toFixed(1)}分 | 速度: ${(60/speed).toFixed(2)}秒/策略`);
 }
 
+function createTradeBatchCreatedAt(): string {
+  return new Date().toISOString().slice(0, 19).replace('T', ' ');
+}
+
 /**
  * 执行训练
  */
@@ -461,15 +601,17 @@ async function runTraining(
   config: TrainingConfig,
   strategies: readonly Strategy[],
   klines: readonly KlineData[],
-  executorOptions: ExecutorOptions
+  executorOptions: ExecutorOptions,
+  runId: string
 ): Promise<void> {
-  const tableName = config.database.tableName;
+  const resultGroup = resolveResultGroup(config);
   const executorVersion = config.executor.version;
   const persistTrades = config.output.persistTrades ?? true;
 
   console.log(`\n🚀 开始执行 ${strategies.length} 个策略回测...\n`);
 
   const startTime = Date.now();
+  const tradeBatchCreatedAt = createTradeBatchCreatedAt();
   let validCount = 0;
   let totalTrades = 0;
   let lastProgressTime = Date.now();
@@ -496,12 +638,12 @@ async function runTraining(
 
         // 批量保存交易
         if (persistTrades && allTrades.length >= TRADE_BATCH_SIZE) {
-          await saveTrades(allTrades);
+          await saveTrades(allTrades, tradeBatchCreatedAt);
           allTrades = [];
         }
 
         // 保存策略结果
-        await saveStrategyResult(tableName, strategy, result, executorVersion, executorOptions);
+        await saveStrategyResult(config, resultGroup, runId, strategy, result, executorVersion, executorOptions);
       }
 
       // 显示进度
@@ -518,7 +660,7 @@ async function runTraining(
 
   // 保存剩余交易
   if (persistTrades && allTrades.length > 0) {
-    await saveTrades(allTrades);
+    await saveTrades(allTrades, tradeBatchCreatedAt);
   }
 
   const endTime = Date.now();
@@ -534,15 +676,25 @@ async function runTraining(
 /**
  * 查询Top策略
  */
-async function queryTopStrategies(tableName: string, topN: number): Promise<readonly StrategyResult[]> {
+async function queryTopStrategies(resultGroup: string, topN: number, runId?: string): Promise<readonly StrategyResult[]> {
+  const effectiveRunId = runId ?? await findLatestRunId(resultGroup);
+  if (!effectiveRunId) {
+    console.log(`\n🏆 逻辑结果分组 ${resultGroup} 暂无可用结果\n`);
+    return [];
+  }
+
   console.log(`\n🏆 查询 Top ${topN} 策略...\n`);
+  console.log(`   - 逻辑结果分组: ${resultGroup}`);
+  console.log(`   - run_id: ${effectiveRunId}\n`);
 
   const [results] = await db.query<mysql.RowDataPacket[]>(
-    `SELECT * FROM ${tableName}
-     WHERE total_trades > 0
+    `SELECT * FROM ${BACKTEST_RESULTS_TABLE}
+     WHERE result_group = ?
+       AND run_id = ?
+       AND total_trades > 0
      ORDER BY score DESC, return_pct DESC, total_pnl DESC, strategy_name ASC
      LIMIT ?`,
-    [topN]
+    [resultGroup, effectiveRunId, topN]
   );
 
   // 显示Top策略
@@ -617,7 +769,7 @@ async function main(): Promise<void> {
     console.error('\n使用方法:');
     console.error('  node scripts/train.js <config-file>');
     console.error('\n示例:');
-    console.error('  node scripts/train.js configs/training/2024_v3_rsi_only.json');
+    console.error('  node scripts/train.js configs/training/2025_btcjpy_hf_rsi_macd_tp_atr.json');
     process.exit(1);
   }
 
@@ -642,9 +794,21 @@ async function main(): Promise<void> {
     }
 
     // 1. 加载配置
+    const resolvedConfigPath = resolveConfigPath(configPath);
     const config = loadConfig(configPath);
+    const policyCatalog = loadRouterPolicyCatalogFromRefs({
+      baseFilePath: resolvedConfigPath,
+      routerConfigPath: config.regimeRouting?.routerConfigPath,
+      policyCatalogPath: config.regimeRouting?.policyCatalogPath
+    });
     console.log(`\n📋 训练配置: ${config.name}`);
     console.log(`📝 说明: ${config.description ?? '无'}`);
+    if (policyCatalog) {
+      console.log(`🧭 路由策略表: ${policyCatalog.routerVersion} / ${policyCatalog.catalogVersion}`);
+      summarizePolicyCatalog(policyCatalog).forEach((line) => {
+        console.log(`   - ${line}`);
+      });
+    }
 
     // 2. 注册任务
     taskId = await taskManager.createTask(
@@ -653,9 +817,11 @@ async function main(): Promise<void> {
     );
 
     // 3. 确保数据库表
-    await ensureBacktestTable(config.database.tableName);
+    const resultGroup = resolveResultGroup(config);
+    const runId = createRunId(config);
+    await ensureBacktestTable();
     if (config.database.resetTableBeforeRun) {
-      await resetBacktestTable(config.database.tableName);
+      await resetBacktestTable(resultGroup);
     }
 
     // 4. 生成策略
@@ -665,11 +831,11 @@ async function main(): Promise<void> {
     const klines = await loadKlines(config);
 
     // 6. 执行训练
-    await runTraining(config, strategies, klines, config.executor.options);
+    await runTraining(config, strategies, klines, config.executor.options, runId);
 
     // 7. 查询Top策略
     const topN = config.output.topN ?? 10;
-    const topResults = await queryTopStrategies(config.database.tableName, topN);
+    const topResults = await queryTopStrategies(resultGroup, topN, runId);
 
     // 8. 保存Top策略
     if (topResults.length > 0 && (config.output.persistTopStrategies ?? true)) {
@@ -690,7 +856,13 @@ async function main(): Promise<void> {
     console.log(`   - 配置: ${config.name}`);
     console.log(`   - 策略数: ${strategies.length}`);
     console.log(`   - Top N: ${topN} 个策略已保存`);
-    console.log(`   - 结果表: ${config.database.tableName}\n`);
+    console.log(`   - 结果表: ${BACKTEST_RESULTS_TABLE}`);
+    console.log(`   - 逻辑分组: ${resultGroup}`);
+    console.log(`   - run_id: ${runId}`);
+    if (policyCatalog) {
+      console.log(`   - 路由策略表: ${policyCatalog.routerVersion} (${policyCatalog.catalogVersion})`);
+    }
+    console.log('');
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

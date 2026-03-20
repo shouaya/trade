@@ -17,6 +17,14 @@ interface TableCheckResult {
   readonly exists: boolean;
 }
 
+async function closeDbQuietly(): Promise<void> {
+  try {
+    await db.end();
+  } catch {
+    // Ignore pool-close errors during shutdown.
+  }
+}
+
 async function columnExists(tableName: string, columnName: string): Promise<boolean> {
   const [columns] = await db.query<mysql.RowDataPacket[]>(
     `SHOW COLUMNS FROM ${tableName} LIKE ?`,
@@ -33,6 +41,18 @@ async function indexExists(tableName: string, indexName: string): Promise<boolea
   return indexes.length > 0;
 }
 
+async function ensureColumn(tableName: string, columnName: string, ddl: string): Promise<void> {
+  if (!await columnExists(tableName, columnName)) {
+    await db.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${ddl}`);
+  }
+}
+
+async function ensureIndex(tableName: string, indexName: string, ddl: string): Promise<void> {
+  if (!await indexExists(tableName, indexName)) {
+    await db.query(`ALTER TABLE ${tableName} ADD ${ddl}`);
+  }
+}
+
 async function tableExists(tableName: string): Promise<boolean> {
   const [tables] = await db.query<mysql.RowDataPacket[]>(
     `SHOW TABLES LIKE ?`,
@@ -44,6 +64,24 @@ async function tableExists(tableName: string): Promise<boolean> {
 async function createBacktestResultsTable(): Promise<void> {
   console.log('📊 创建 backtest_results 表...');
   await db.query(BACKTEST_RESULTS_DDL);
+
+  await ensureColumn('backtest_results', 'result_group', `VARCHAR(255) NOT NULL DEFAULT '' COMMENT '逻辑结果分组，兼容旧 tableName 配置' AFTER id`);
+  await ensureColumn('backtest_results', 'run_id', `VARCHAR(64) NOT NULL DEFAULT '' COMMENT '单次训练/验证运行批次ID' AFTER result_group`);
+  await ensureColumn('backtest_results', 'config_name', `VARCHAR(255) NULL COMMENT '配置名' AFTER run_id`);
+  await ensureColumn('backtest_results', 'mode', `VARCHAR(20) NULL COMMENT 'training / validation' AFTER config_name`);
+  await ensureColumn('backtest_results', 'symbol', `VARCHAR(20) NULL COMMENT '交易品种' AFTER mode`);
+  await ensureColumn('backtest_results', 'interval_type', `VARCHAR(20) NULL COMMENT 'K线周期' AFTER symbol`);
+  await ensureColumn('backtest_results', 'period_start_ms', `BIGINT NULL COMMENT '训练/验证起始时间' AFTER interval_type`);
+  await ensureColumn('backtest_results', 'period_end_ms', `BIGINT NULL COMMENT '训练/验证结束时间' AFTER period_start_ms`);
+  await ensureColumn('backtest_results', 'executor_version', `VARCHAR(20) NULL AFTER score`);
+  await ensureColumn('backtest_results', 'executor_options', `JSON NULL AFTER executor_version`);
+  await ensureColumn('backtest_results', 'updated_at', `TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at`);
+
+  await ensureIndex('backtest_results', 'idx_result_group', 'INDEX idx_result_group (result_group)');
+  await ensureIndex('backtest_results', 'idx_result_group_run_id', 'INDEX idx_result_group_run_id (result_group, run_id)');
+  await ensureIndex('backtest_results', 'idx_symbol_mode', 'INDEX idx_symbol_mode (symbol, mode)');
+  await ensureIndex('backtest_results', 'uniq_result_group_run_strategy', 'UNIQUE INDEX uniq_result_group_run_strategy (result_group, run_id, strategy_name)');
+
   console.log('✅ backtest_results 表创建成功');
 }
 
@@ -114,14 +152,9 @@ async function main(): Promise<void> {
       console.log('');
     }
 
-    console.log('🧹 重建 train 相关表...');
-    await db.query('DROP TABLE IF EXISTS backtest_results');
-    await db.query('DROP TABLE IF EXISTS strategies');
-    await db.query('DROP TABLE IF EXISTS trades');
-    await db.query('DROP TABLE IF EXISTS tasks');
-    console.log('✅ train 相关表已清空');
+    console.log('🧩 检查并补齐 train 相关表...');
 
-    // 创建所有表
+    // 创建/补齐所有表
     await createBacktestResultsTable();
     await createStrategiesTable();
     await createTradesTable();
@@ -169,13 +202,13 @@ async function main(): Promise<void> {
       console.log('');
     } else {
       console.log('📝 可以开始使用:');
-      console.log('  npm run rolling     # 滚动窗口训练');
+      console.log('  npm run train -- configs/training/2025_btcjpy_hf_rsi_macd_tp_atr.json');
       console.log('  npm run validate    # 验证策略');
-      console.log('  npm run query:top10 # 查询 Top 10 策略');
+      console.log('  npm run router:validate # 路由验证');
       console.log('');
     }
 
-    await db.end();
+    await closeDbQuietly();
     process.exit(0);
 
   } catch (error) {
@@ -183,7 +216,7 @@ async function main(): Promise<void> {
     const stack = error instanceof Error ? error.stack : '';
     console.error('\n❌ 数据库初始化失败:', message);
     console.error(stack);
-    await db.end();
+    await closeDbQuietly();
     process.exit(1);
   }
 }

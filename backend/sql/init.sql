@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS trades (
     entry_time BIGINT NOT NULL COMMENT '入场时间（毫秒时间戳）',
     entry_price DECIMAL(20, 8) NOT NULL COMMENT '入场价格',
     entry_index INT NOT NULL COMMENT '入场时的K线索引',
+    entry_rsi DECIMAL(6, 2) NULL COMMENT '入场RSI',
+    entry_macd DECIMAL(20, 8) NULL COMMENT '入场MACD',
+    entry_macd_signal DECIMAL(20, 8) NULL COMMENT '入场MACD信号线',
+    entry_macd_histogram DECIMAL(20, 8) NULL COMMENT '入场MACD柱状图',
 
     -- 交易参数
     lot_size DECIMAL(10, 2) NOT NULL DEFAULT 1.00 COMMENT '仓位大小（手）',
@@ -38,6 +42,10 @@ CREATE TABLE IF NOT EXISTS trades (
     -- 出场信息
     exit_time BIGINT NULL COMMENT '出场时间（毫秒时间戳）',
     exit_price DECIMAL(20, 8) NULL COMMENT '出场价格',
+    exit_rsi DECIMAL(6, 2) NULL COMMENT '出场RSI',
+    exit_macd DECIMAL(20, 8) NULL COMMENT '出场MACD',
+    exit_macd_signal DECIMAL(20, 8) NULL COMMENT '出场MACD信号线',
+    exit_macd_histogram DECIMAL(20, 8) NULL COMMENT '出场MACD柱状图',
     exit_reason ENUM('stop_loss', 'take_profit', 'hold_time_reached', 'manual') NULL COMMENT '出场原因',
 
     -- 损益结果
@@ -58,6 +66,8 @@ CREATE TABLE IF NOT EXISTS trades (
     INDEX idx_entry_time (entry_time),
     INDEX idx_direction (direction),
     INDEX idx_exit_reason (exit_reason),
+    INDEX idx_strategy_name (strategy_name),
+    INDEX idx_symbol (symbol),
     INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

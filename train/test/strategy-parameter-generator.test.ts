@@ -6,27 +6,35 @@ const {
   countByType
 } = require('../dist/services/strategy-parameter-generator.js');
 
-test('generateStrategyCombinations preserves schedule, restriction, and lot size overrides', () => {
+test('generateStrategyCombinations preserves schedule, restriction, and ATR-only latest mode', () => {
   const restriction = {
     enabled: true,
     utcExcludeStart: '19:30',
     utcExcludeEnd: '23:59'
-  } as const;
+  };
 
   const strategies = generateStrategyCombinations({
     limit: 1,
     parameters: {
       rsi: {
-        period: [14],
-        oversold: [30],
-        overbought: [70]
+        period: [7],
+        oversold: [32],
+        overbought: [68]
+      },
+      macd: {
+        fastPeriod: [4],
+        slowPeriod: [9],
+        signalPeriod: [3],
+        histogramThreshold: [0]
       },
       risk: {
         maxPositions: [1],
         lotSize: [0.25],
-        stopLossPercent: [0.1],
-        takeProfitPercent: [0.2],
-        maxHoldMinutes: [30]
+        maxHoldMinutes: [6]
+      },
+      atr: {
+        slMultiplier: [1.5],
+        tpMultiplier: [1.0]
       },
       tradingSchedule: '* * * * 1-5',
       tradingTimeRestriction: restriction
@@ -34,7 +42,9 @@ test('generateStrategyCombinations preserves schedule, restriction, and lot size
   });
 
   assert.equal(strategies.length, 1);
+  assert.equal(strategies[0]?.type, 'rsi_macd');
   assert.equal(strategies[0]?.parameters.risk.lotSize, 0.25);
+  assert.equal(strategies[0]?.parameters.atr.slMultiplier, 1.5);
   assert.equal(strategies[0]?.parameters.tradingSchedule, '* * * * 1-5');
   assert.deepEqual(strategies[0]?.parameters.tradingTimeRestriction, restriction);
 });
@@ -43,41 +53,14 @@ test('generateStrategyCombinations rejects unsupported legacy strategy types', (
   assert.throws(
     () =>
       generateStrategyCombinations({
-        types: ['macd_only' as never]
+        types: ['rsi_only']
       }),
     /unsupported strategy types/
   );
 });
 
-test('generateStrategyCombinations covers non-ATR mode, default type, and no-limit path', () => {
-  const strategies = generateStrategyCombinations({
-    parameters: {
-      rsi: {
-        period: [14],
-        oversold: [30],
-        overbought: [70, 75]
-      },
-      risk: {
-        maxPositions: [1],
-        lotSize: [0.1],
-        stopLossPercent: [null, 0.1],
-        takeProfitPercent: [0.2],
-        maxHoldMinutes: [30]
-      },
-      tradingTimeRestriction: null
-    }
-  });
-
-  assert.equal(strategies.length, 4);
-  assert.equal(strategies[0]?.type, 'rsi_only');
-  assert.equal('tradingSchedule' in (strategies[0]?.parameters ?? {}), false);
-  assert.equal(strategies[0]?.parameters.tradingTimeRestriction, null);
-  assert.deepEqual(countByType(strategies), { rsi_only: 4 });
-});
-
-test('generateStrategyCombinations respects limit and skips invalid RSI ranges', () => {
+test('generateStrategyCombinations skips invalid RSI and MACD ranges and respects limit', () => {
   const limited = generateStrategyCombinations({
-    types: ['rsi_only'],
     limit: 1,
     parameters: {
       rsi: {
@@ -85,67 +68,50 @@ test('generateStrategyCombinations respects limit and skips invalid RSI ranges',
         oversold: [30, 50],
         overbought: [70, 75]
       },
+      macd: {
+        fastPeriod: [4, 10],
+        slowPeriod: [9],
+        signalPeriod: [3],
+        histogramThreshold: [0]
+      },
       risk: {
         maxPositions: [1],
         lotSize: [0.1],
-        stopLossPercent: [0.1],
-        takeProfitPercent: [0.2],
         maxHoldMinutes: [30]
+      },
+      atr: {
+        slMultiplier: [2],
+        tpMultiplier: [1]
       }
     }
   });
 
   assert.equal(limited.length, 1);
-  assert.match(limited[0]?.name ?? '', /^RSI-P14-/);
+  assert.match(limited[0]?.name ?? '', /^RSIMACD-/);
 });
 
-test('generateStrategyCombinations covers ATR mode without limit', () => {
+test('generateStrategyCombinations supports dynamic hold and countByType only returns latest type', () => {
   const strategies = generateStrategyCombinations({
-    types: ['rsi_only'],
     parameters: {
       rsi: {
-        period: [14],
-        oversold: [30],
-        overbought: [70]
+        period: [7],
+        oversold: [35],
+        overbought: [65]
       },
-      risk: {
-        maxPositions: [1],
-        lotSize: [0.2],
-        stopLossPercent: [0.1],
-        takeProfitPercent: [0.2],
-        maxHoldMinutes: [15]
-      },
-      atr: {
-        slMultiplier: [2, 3],
-        tpMultiplier: [4]
-      },
-      tradingSchedule: 'WEEKDAYS'
-    }
-  });
-
-  assert.equal(strategies.length, 2);
-  assert.match(strategies[0]?.name ?? '', /ATRSL2-ATRTP4/);
-  assert.equal(strategies[0]?.parameters.risk.stopLossPercent, null);
-  assert.equal(strategies[0]?.parameters.risk.takeProfitPercent, null);
-  assert.equal(strategies[0]?.parameters.risk.lotSize, 0.2);
-  assert.deepEqual(strategies.map(strategy => strategy.parameters.atr?.slMultiplier), [2, 3]);
-});
-
-test('generateStrategyCombinations supports dynamic hold with null maxHoldMinutes', () => {
-  const strategies = generateStrategyCombinations({
-    types: ['rsi_only'],
-    parameters: {
-      rsi: {
-        period: [14],
-        oversold: [30],
-        overbought: [70]
+      macd: {
+        fastPeriod: [4],
+        slowPeriod: [9],
+        signalPeriod: [3],
+        histogramThreshold: [0]
       },
       risk: {
         maxPositions: [1],
         lotSize: [0.1],
-        stopLossPercent: [0.1],
-        takeProfitPercent: [0.2],
         maxHoldMinutes: [null]
+      },
+      atr: {
+        slMultiplier: [1.5],
+        tpMultiplier: [1.0]
       }
     }
   });
@@ -153,4 +119,35 @@ test('generateStrategyCombinations supports dynamic hold with null maxHoldMinute
   assert.equal(strategies.length, 1);
   assert.equal(strategies[0]?.parameters.risk.maxHoldMinutes, null);
   assert.match(strategies[0]?.name ?? '', /-Hdynamic-/);
+  assert.deepEqual(countByType(strategies), { rsi_macd: 1 });
+});
+
+test('generateStrategyCombinations requires macd and atr parameter spaces', () => {
+  assert.throws(
+    () =>
+      generateStrategyCombinations({
+        parameters: {
+          macd: {
+            fastPeriod: [],
+            slowPeriod: [9],
+            signalPeriod: [3],
+            histogramThreshold: [0]
+          }
+        }
+      }),
+    /requires macd parameter space/
+  );
+
+  assert.throws(
+    () =>
+      generateStrategyCombinations({
+        parameters: {
+          atr: {
+            slMultiplier: [],
+            tpMultiplier: [1]
+          }
+        }
+      }),
+    /requires atr parameter space/
+  );
 });

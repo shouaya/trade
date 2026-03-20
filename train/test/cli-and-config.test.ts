@@ -11,20 +11,20 @@ test('parseTrainCliArgs parses named flags and positional fallbacks', () => {
     'node',
     'script.js',
     '--limit=25',
-    '--types=rsi_only,foo',
+    '--types=rsi_macd,foo',
     '--topN',
     '3',
     '--retainDays=7'
   ]);
 
   assert.equal(parsed.limit, 25);
-  assert.deepEqual(parsed.types, ['rsi_only', 'foo']);
+  assert.deepEqual(parsed.types, ['rsi_macd', 'foo']);
   assert.equal(parsed.topN, 3);
   assert.equal(parsed.retainDays, 7);
 
-  const positional = parseTrainCliArgs(['node', 'script.js', '9', 'rsi_only,bar']);
+  const positional = parseTrainCliArgs(['node', 'script.js', '9', 'rsi_macd,bar']);
   assert.equal(positional.limit, 9);
-  assert.deepEqual(positional.types, ['rsi_only', 'bar']);
+  assert.deepEqual(positional.types, ['rsi_macd', 'bar']);
 });
 
 test('extractConfigArg returns config override and passthrough args', () => {
@@ -38,8 +38,8 @@ test('extractConfigArg returns config override and passthrough args', () => {
 });
 
 test('loadNamedConfig loads json and rejects unsafe or invalid configs', () => {
-  const loaded = loadNamedConfig('training', '2024_atr');
-  assert.equal(loaded.name, '2024_V3_RSI_ATR');
+  const loaded = loadNamedConfig('training', '2024_btcjpy_hf_rsi_macd_tp_atr');
+  assert.equal(loaded.name, '2024_BTCJPY_V7_HF_RSI_MACD_TP_ATR');
   assert.equal(loaded.executor.options.feeModel.venueCode, 'GMOCOIN');
   assert.equal(loaded.executor.options.feeModel.commissionRate, 0.00002);
 

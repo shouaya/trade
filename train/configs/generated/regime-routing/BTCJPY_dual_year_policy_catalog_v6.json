@@ -1,0 +1,286 @@
+{
+  "symbol": "BTCJPY",
+  "routerVersion": "dual_year_v6",
+  "catalogVersion": "event_segment_policy_map_v1",
+  "generatedDate": "2026-03-20",
+  "source": {
+    "routerConfigPath": "train/configs/generated/regime-routing/BTCJPY_dual_year_router_v6.json",
+    "markdownPath": "train/reports/regime-routing-results/BTCJPY_event_segment_router_map_v6.md",
+    "notes": [
+      "从 v6 最终 router 与事件段说明表固化而来，供 train / validate / report 共用。",
+      "eventSegments 主要覆盖月级与周级主策略切换，dailyGuards 专门覆盖日级停做/减仓保护。"
+    ]
+  },
+  "defaultFallback": {
+    "action": "reduce",
+    "riskMultiplier": 0.5,
+    "strategy": {
+      "strategyKey": "range_balance",
+      "strategyLabel": "RP7/OS32/OB65/MF4/MS12/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    }
+  },
+  "eventSegments": [
+    {
+      "eventSegment": "crash spike stop",
+      "layer": "weekly_guard",
+      "ruleId": "W1_CRASH_SPIKE_WEEK_STOP",
+      "featureSummary": "crash-trend && absReturn>=8 && vol>=8.8 && avgRange>=0.10",
+      "actionType": "stop",
+      "riskCap": 0,
+      "rationale": "极端 crash spike 周直接停做。"
+    },
+    {
+      "eventSegment": "dead range stop",
+      "layer": "weekly_guard",
+      "ruleId": "W2_DEAD_RANGE_WEEK_STOP",
+      "featureSummary": "range-mid-vol && absReturn<=1 && vol<=4.3 && avgRange<=0.045",
+      "actionType": "stop",
+      "riskCap": 0,
+      "rationale": "死区横盘周直接停做。"
+    },
+    {
+      "eventSegment": "crash extension with rebound",
+      "layer": "weekly_guard",
+      "ruleId": "W3_CRASH_EXTENSION_UPRATIO_HOLD",
+      "featureSummary": "crash-trend && absReturn>=5.8 && vol>=6.7 && avgRange>=0.075 && up>=48.1",
+      "actionType": "trade",
+      "riskCap": 0.75,
+      "strategy": {
+        "strategyKey": "crash_hold",
+        "strategyLabel": "RP7/OS35/OB65/MF6/MS12/H8/SL1.5/TP1.5",
+        "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+      },
+      "rationale": "带反弹比率的延续性 crash 周用 hold 模板。"
+    },
+    {
+      "eventSegment": "aggressive crash reversal",
+      "layer": "weekly_guard",
+      "ruleId": "W4_CRASH_AGGRESSIVE_REVERSAL",
+      "featureSummary": "crash-trend && absReturn>=5 && vol>=6.7 && avgRange>=0.064",
+      "actionType": "trade",
+      "riskCap": 0.75,
+      "strategy": {
+        "strategyKey": "crash_alt_soft",
+        "strategyLabel": "RP5/OS35/OB68/MF4/MS9/H6/SL1.5/TP1.5",
+        "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+      },
+      "rationale": "大波动反转周用 softer reversal。"
+    },
+    {
+      "eventSegment": "normal crash fast",
+      "layer": "weekly_guard",
+      "ruleId": "W5_CRASH_NORMAL_FAST",
+      "featureSummary": "crash-trend && absReturn>=3.8 && vol>=6 && avgRange>=0.066 && up<47.5",
+      "actionType": "trade",
+      "riskCap": 1,
+      "strategy": {
+        "strategyKey": "crash_fast",
+        "strategyLabel": "RP7/OS32/OB65/MF4/MS9/H6/SL2/TP1.5",
+        "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+      },
+      "rationale": "普通 crash 周直接切到 fast reversal。"
+    },
+    {
+      "eventSegment": "balanced crash hold",
+      "layer": "weekly_guard",
+      "ruleId": "W6_CRASH_BALANCED_HOLD",
+      "featureSummary": "crash-trend && absReturn 3.8~5.2 && vol>=6 && avgRange>=0.07 && up>=47.5",
+      "actionType": "trade",
+      "riskCap": 0.75,
+      "strategy": {
+        "strategyKey": "crash_hold_alt",
+        "strategyLabel": "RP7/OS35/OB68/MF6/MS12/H8/SL1.5/TP1.5",
+        "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+      },
+      "rationale": "较均衡的 crash 周回到 balanced hold。"
+    },
+    {
+      "eventSegment": "high-switch month crash fallback",
+      "layer": "monthly_guard",
+      "ruleId": "M1_OVERHEATED_CRASH_MONTH_REDUCE",
+      "featureSummary": "monthly crash-trend && vol>=18 && avgRange>=0.095 && weekly guard silent",
+      "actionType": "reduce",
+      "riskCap": 0.5,
+      "strategy": {
+        "strategyKey": "high_switch_crash",
+        "strategyLabel": "RP5/OS35/OB65/MF6/MS12/H8/SL2/TP1",
+        "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+      },
+      "rationale": "高切换 crash 月给 dedicated fallback，不再一刀切停做。"
+    },
+    {
+      "eventSegment": "high-switch strong swing",
+      "layer": "weekly_guard",
+      "ruleId": "W7_HIGH_SWITCH_STRONG_SWING_WEEK",
+      "featureSummary": "strong-trend && vol 6.0~6.8 && avgRange>=0.07 && up>=48.4",
+      "actionType": "trade",
+      "riskCap": 1,
+      "strategy": {
+        "strategyKey": "strong_swing",
+        "strategyLabel": "RP5/OS32/OB65/MF4/MS12/H6/SL2/TP1.5",
+        "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+      },
+      "rationale": "高切换强趋势周单独走 swing 模板。"
+    },
+    {
+      "eventSegment": "strong clean alt",
+      "layer": "weekly_guard",
+      "ruleId": "W8_STRONG_CLEAN_ALT_WEEK",
+      "featureSummary": "strong-trend && vol 5.2~5.7 && avgRange>=0.06",
+      "actionType": "trade",
+      "riskCap": 1,
+      "strategy": {
+        "strategyKey": "strong_clean_alt",
+        "strategyLabel": "RP5/OS32/OB65/MF4/MS12/H8/SL1.5/TP1",
+        "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+      },
+      "rationale": "更紧的 strong-trend 子型切到 alt clean。"
+    },
+    {
+      "eventSegment": "strong clean",
+      "layer": "weekly_guard",
+      "ruleId": "W9_STRONG_CLEAN_WEEK",
+      "featureSummary": "strong-trend && vol>=5 && avgRange>=0.052",
+      "actionType": "trade",
+      "riskCap": 1,
+      "strategy": {
+        "strategyKey": "strong_clean",
+        "strategyLabel": "RP5/OS32/OB65/MF6/MS12/H8/SL1.5/TP1",
+        "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+      },
+      "rationale": "通用 strong clean 周使用原主模板。"
+    },
+    {
+      "eventSegment": "range swing balance",
+      "layer": "weekly_guard",
+      "ruleId": "W10_RANGE_SWING_BALANCE_WEEK",
+      "featureSummary": "range-mid-vol && vol 5.0~5.5 && absReturn>=1.5 && avgRange 0.05~0.056",
+      "actionType": "trade",
+      "riskCap": 1,
+      "strategy": {
+        "strategyKey": "range_balance",
+        "strategyLabel": "RP7/OS32/OB65/MF4/MS12/H8/SL2/TP1",
+        "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+      },
+      "rationale": "摆动式 range 周回到平衡模板。"
+    },
+    {
+      "eventSegment": "range rich momentum",
+      "layer": "weekly_guard",
+      "ruleId": "W11_RANGE_RICH_MOMENTUM_WEEK",
+      "featureSummary": "range-mid-vol && vol 5.5~6.2 && absReturn>=1 && avgRange 0.06~0.065 && up>=47.4",
+      "actionType": "trade",
+      "riskCap": 1,
+      "strategy": {
+        "strategyKey": "range_rich_alt",
+        "strategyLabel": "RP7/OS35/OB65/MF4/MS12/H6/SL2/TP1.5",
+        "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+      },
+      "rationale": "有动量的富集 range 周用 rich momentum。"
+    },
+    {
+      "eventSegment": "fake rich reduce",
+      "layer": "weekly_guard",
+      "ruleId": "W12_FAKE_RICH_RANGE_REDUCE",
+      "featureSummary": "range-mid-vol && vol>=6.2 && absReturn<=0.4 && avgRange>=0.064",
+      "actionType": "reduce",
+      "riskCap": 0.25,
+      "strategy": {
+        "strategyKey": "range_balance_light",
+        "strategyLabel": "RP7/OS32/OB65/MF4/MS12/H8/SL1.5/TP1",
+        "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+      },
+      "rationale": "假富集 range 周只轻仓参与。"
+    },
+    {
+      "eventSegment": "generic rich range",
+      "layer": "weekly_guard",
+      "ruleId": "W13_RANGE_RICH_WEEK",
+      "featureSummary": "range-mid-vol && vol>=4.5 && avgRange>=0.055",
+      "actionType": "trade",
+      "riskCap": 1,
+      "strategy": {
+        "strategyKey": "range_rich",
+        "strategyLabel": "RP7/OS35/OB68/MF6/MS9/H6/SL2/TP1.5",
+        "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF6-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+      },
+      "rationale": "通用 rich range 周仍由原 rich 模板负责。"
+    },
+    {
+      "eventSegment": "generic balance range",
+      "layer": "weekly_guard",
+      "ruleId": "W14_RANGE_BALANCE_WEEK",
+      "featureSummary": "range-mid-vol/range-low-vol && absReturn<=3 && avgRange>=0.045",
+      "actionType": "trade",
+      "riskCap": 0.75,
+      "strategy": {
+        "strategyKey": "range_balance",
+        "strategyLabel": "RP7/OS32/OB65/MF4/MS12/H8/SL2/TP1",
+        "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+      },
+      "rationale": "普通 balance range 周保守满配的 0.75 风险版本。"
+    },
+    {
+      "eventSegment": "mixed recovery",
+      "layer": "weekly_guard",
+      "ruleId": "W15_MIXED_RECOVERY_WEEK",
+      "featureSummary": "mixed-trend && vol<=4.5 && avgRange<=0.055",
+      "actionType": "trade",
+      "riskCap": 0.25,
+      "strategy": {
+        "strategyKey": "mixed_recovery",
+        "strategyLabel": "RP5/OS32/OB68/MF6/MS12/H8/SL2/TP1.5",
+        "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+      },
+      "rationale": "混合恢复周只小仓位参与。"
+    }
+  ],
+  "dailyGuards": [
+    {
+      "eventSegment": "extreme crash day",
+      "layer": "daily_router",
+      "ruleId": "D1_EXTREME_CRASH_DAY_STOP",
+      "featureSummary": "crash-trend && vol>=3.8 && absReturn>=4",
+      "actionType": "stop",
+      "riskMultiplier": 0,
+      "rationale": "极端单日 crash 尾部直接停做。"
+    },
+    {
+      "eventSegment": "dead low-vol chop",
+      "layer": "daily_router",
+      "ruleId": "D2_DEAD_LOW_VOL_DAY_STOP",
+      "featureSummary": "range-low-vol && vol<1.8 && absReturn<0.8 && (avgRange<0.045 || up<46)",
+      "actionType": "stop",
+      "riskMultiplier": 0,
+      "rationale": "低波死区日不交易。"
+    },
+    {
+      "eventSegment": "pseudo-balanced trap",
+      "layer": "daily_router",
+      "ruleId": "D3_PSEUDO_BALANCED_DAY_STOP",
+      "featureSummary": "range-mid-vol && absReturn<0.8 && vol>=2.4 && avgRange>=0.065",
+      "actionType": "stop",
+      "riskMultiplier": 0,
+      "rationale": "伪平衡 trap 日直接停做。"
+    },
+    {
+      "eventSegment": "mixed recovery transition",
+      "layer": "daily_router",
+      "ruleId": "D4_MIXED_RECOVERY_DAY_REDUCE",
+      "featureSummary": "mixed-trend && vol 1.8~2.8 && absReturn 1.8~3.2",
+      "actionType": "reduce",
+      "riskMultiplier": 0.5,
+      "rationale": "混合恢复过渡日减仓。"
+    },
+    {
+      "eventSegment": "strong overshoot",
+      "layer": "daily_router",
+      "ruleId": "D5_STRONG_OVERSHOOT_REDUCE",
+      "featureSummary": "strong-trend && vol>=3.8 && absReturn>=5 && avgRange>=0.12",
+      "actionType": "reduce",
+      "riskMultiplier": 0.5,
+      "rationale": "强趋势过冲日只保留半仓风险。"
+    }
+  ]
+}

@@ -62,8 +62,6 @@ export type ExitReason =
   | 'stop_loss'
   | 'take_profit'
   | 'hold_time_reached'
-  | 'trailing_stop'
-  | 'rsi_revert'
   | 'no_overnight'
   | 'no_weekend'
   | 'backtest_end';
@@ -91,14 +89,14 @@ export interface Strategy {
   readonly parameters: StrategyParameters;
 }
 
-export type StrategyType = 'rsi_only';
+export type StrategyType = 'rsi_macd';
 
 export interface StrategyParameters {
   readonly grid?: GridParameters;
   readonly rsi: RSIParameters;
-  readonly macd?: MACDParameters;
+  readonly macd: MACDParameters;
   readonly risk: RiskParameters;
-  readonly atr?: ATRParameters;
+  readonly atr: ATRParameters;
   readonly venueCode?: string | undefined;
   readonly tradingSchedule?: string;
   readonly tradingTimeRestriction?: TimeRestriction | null;
@@ -123,13 +121,12 @@ export interface MACDParameters {
   readonly fastPeriod?: number;
   readonly slowPeriod?: number;
   readonly signalPeriod?: number;
+  readonly histogramThreshold?: number;
 }
 
 export interface RiskParameters {
   readonly maxPositions: number;
   readonly lotSize: number;
-  readonly stopLossPercent: number | null;
-  readonly takeProfitPercent: number | null;
   readonly maxHoldMinutes: number | null;
 }
 
@@ -154,20 +151,15 @@ export interface Position {
   readonly entry_price: number;
   readonly entry_index: number;
   readonly entry_rsi: number | null;
+  readonly entry_macd?: number | null | undefined;
+  readonly entry_macd_signal?: number | null | undefined;
+  readonly entry_macd_histogram?: number | null | undefined;
   readonly lot_size: number;
   readonly stop_loss: number | null;
   readonly take_profit: number | null;
   readonly hold_minutes: number | null;
   readonly strategy_name: string;
   readonly symbol: string;
-  trailingActivated: boolean;
-  trailingStopPrice: number | null;
-}
-
-export interface TrailingConfig {
-  readonly activationPercent: number;
-  readonly lockProfitPercent: number;
-  readonly lockProfitAmount: number;
 }
 
 export type MarketType = 'fx' | 'coin';
@@ -210,13 +202,8 @@ export interface BacktestResult {
 }
 
 export interface ExecutorOptions {
-  readonly enableMA200Filter?: boolean;
   readonly enableSlippage?: boolean;
-  readonly enableMultiTimeframe?: boolean;
   readonly enableATRSizing?: boolean;
-  readonly enableTrailingStop?: boolean;
-  readonly enableRSIReversion?: boolean;
-  readonly trailingConfig?: TrailingConfig;
   readonly feeModel?: FeeModelConfig;
   readonly symbolSpec?: SymbolSpec;
 }
@@ -266,14 +253,18 @@ export interface ParameterSpace {
   readonly risk: {
     readonly maxPositions: readonly number[];
     readonly lotSize: readonly number[];
-    readonly stopLossPercent: readonly (number | null)[];
-    readonly takeProfitPercent: readonly (number | null)[];
     readonly maxHoldMinutes: readonly (number | null)[];
   };
-  readonly atr?: {
+  readonly atr: {
     readonly slMultiplier: readonly number[];
     readonly tpMultiplier: readonly number[];
-  } | null;
+  };
+  readonly macd: {
+    readonly fastPeriod: readonly number[];
+    readonly slowPeriod: readonly number[];
+    readonly signalPeriod: readonly number[];
+    readonly histogramThreshold?: readonly number[];
+  };
 }
 
 export interface GenerateOptions {

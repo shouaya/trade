@@ -26,8 +26,6 @@ const {
   generateGridSignal,
   calculateGridTakeProfit
 } = require('../dist/services/indicators/grid.js');
-const { MultiTimeframeAnalyzer } = require('../dist/services/multi-timeframe-analyzer.js');
-const { SignalGenerator } = require('../dist/services/signal-generator.js');
 
 function makeKlines(closes) {
   const startMs = Date.parse('2026-03-02T00:00:00.000Z');
@@ -134,47 +132,4 @@ test('Grid helpers cover initialization, triggers, zone signals, and take profit
 
   assert.ok(calculateGridTakeProfit(100, 1, 'long') > 100);
   assert.ok(calculateGridTakeProfit(100, 1, 'short') < 100);
-});
-
-test('MultiTimeframeAnalyzer and SignalGenerator cover active RSI-only behavior', () => {
-  const klines = makeKlines(Array.from({ length: 40 }, (_, i) => 100 - i * 0.5));
-  const analyzer = new MultiTimeframeAnalyzer(klines, 14);
-
-  analyzer.rsi1min = Array(40).fill(20);
-  analyzer.rsi5min = Array(8).fill(35);
-  assert.equal(analyzer.getMultiTimeframeSignal(20, {}), 'long');
-
-  analyzer.rsi1min = Array(40).fill(80);
-  analyzer.rsi5min = Array(8).fill(70);
-  assert.equal(analyzer.getMultiTimeframeSignal(20, {}), 'short');
-
-  analyzer.rsi5min = Array(8).fill(58);
-  assert.equal(analyzer.getTrendStrength(20), 'bullish');
-  analyzer.rsi5min = Array(8).fill(25);
-  assert.equal(analyzer.getTrendStrength(20), 'strong_bearish');
-
-  analyzer.rsi1min = Array(40).fill(50);
-  analyzer.rsi1min[25] = 40;
-  analyzer.klines1min[25] = { ...analyzer.klines1min[25], close: '80.00' };
-  analyzer.klines1min[24] = { ...analyzer.klines1min[24], close: '81.00' };
-  const divergence = analyzer.checkDivergence(25, 5);
-  assert.equal(typeof divergence.bullish, 'boolean');
-
-  const report = analyzer.getAnalysisReport(20);
-  assert.ok(['long', 'short', 'hold'].includes(report.recommendation));
-
-  const strategy = {
-    id: 1,
-    name: 'RSI',
-    type: 'rsi_only',
-    parameters: {
-      rsi: { enabled: true, period: 14, oversold: 30, overbought: 70 },
-      risk: { maxPositions: 1, lotSize: 0.1, stopLossPercent: null, takeProfitPercent: null, maxHoldMinutes: 5 }
-    }
-  };
-  const generator = new SignalGenerator(strategy, klines);
-  const signals = generator.generate(klines, 20);
-  assert.equal(signals.macd, null);
-  assert.equal(signals.grid, null);
-  assert.ok(signals.combined !== null);
 });

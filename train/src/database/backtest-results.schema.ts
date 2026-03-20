@@ -6,6 +6,14 @@
 export const BACKTEST_RESULTS_DDL = `
   CREATE TABLE IF NOT EXISTS backtest_results (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    result_group VARCHAR(255) NOT NULL COMMENT '逻辑结果分组，兼容旧 tableName 配置',
+    run_id VARCHAR(64) NOT NULL COMMENT '单次训练/验证运行批次ID',
+    config_name VARCHAR(255) NULL COMMENT '配置名',
+    mode VARCHAR(20) NULL COMMENT 'training / validation',
+    symbol VARCHAR(20) NULL COMMENT '交易品种',
+    interval_type VARCHAR(20) NULL COMMENT 'K线周期',
+    period_start_ms BIGINT NULL COMMENT '训练/验证起始时间',
+    period_end_ms BIGINT NULL COMMENT '训练/验证结束时间',
     strategy_name VARCHAR(255) NOT NULL,
     strategy_type VARCHAR(50),
     parameters JSON,
@@ -27,11 +35,18 @@ export const BACKTEST_RESULTS_DDL = `
     max_win DECIMAL(15, 2) DEFAULT 0,
     max_loss DECIMAL(15, 2) DEFAULT 0,
     score DECIMAL(15, 4) DEFAULT 0,
+    executor_version VARCHAR(20) NULL,
+    executor_options JSON NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_result_group (result_group),
+    INDEX idx_result_group_run_id (result_group, run_id),
+    INDEX idx_symbol_mode (symbol, mode),
     INDEX idx_strategy_name (strategy_name),
     INDEX idx_total_pnl (total_pnl),
     INDEX idx_win_rate (win_rate),
     INDEX idx_sharpe_ratio (sharpe_ratio),
-    INDEX idx_score (score)
+    INDEX idx_score (score),
+    UNIQUE KEY uniq_result_group_run_strategy (result_group, run_id, strategy_name)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
