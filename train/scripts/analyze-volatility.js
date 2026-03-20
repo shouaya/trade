@@ -1,4 +1,12 @@
 #!/usr/bin/env node
+/**
+ * Generic volatility analyzer for JPY-quoted symbols.
+ *
+ * Usage:
+ *   node train/scripts/analyze-volatility.js --symbol ETHJPY
+ *   node train/scripts/analyze-volatility.js --symbol BTCJPY
+ *   node train/scripts/analyze-volatility.js --symbol SOLJPY
+ */
 
 const fs = require('fs');
 const path = require('path');
