@@ -22,6 +22,7 @@ import { StrategyExecutor } from '../services/strategy-executor';
 import { generateStrategyCombinations } from '../services/strategy-parameter-generator';
 import { loadRouterPolicyCatalogFromRefs, summarizePolicyCatalog } from '../services/router-policy-catalog';
 import { ensureTrainConfigRegistryTable, upsertTrainConfigFromFile } from '../services/train-config-registry';
+import { validateFeeModelConfig } from '../services/fee-model';
 import type * as mysql from 'mysql2/promise';
 import type {
   Strategy,
@@ -190,6 +191,8 @@ function loadConfig(configPath: string): TrainingConfig {
     }
   }
 
+  validateFeeModelConfig(config.executor?.options?.feeModel, `config.executor.options.feeModel (${fullPath})`);
+
   return config;
 }
 
@@ -222,7 +225,8 @@ function generateStrategies(config: TrainingConfig): readonly Strategy[] {
 
   const strategyTypes = config.strategy.types ?? (['rsi_macd'] as const);
   const parameters = config.strategy.parameters ?? {};
-  const venueCode = config.executor.options.feeModel?.venueCode?.trim();
+  const feeModel = validateFeeModelConfig(config.executor.options.feeModel, `config.executor.options.feeModel (${config.name})`);
+  const venueCode = feeModel.venueCode.trim();
 
   const strategies = generateStrategyCombinations({ types: strategyTypes, parameters }).map(strategy => ({
     ...strategy,

@@ -6,6 +6,24 @@ const { StrategyExecutor } = require('../dist/services/strategy-executor.js');
 type KlineData = import('../dist/types/index.js').KlineData;
 type Strategy = import('../dist/types/index.js').Strategy;
 
+function createFeeModel(overrides = {}) {
+  return {
+    venueCode: 'GMOCOIN',
+    market: 'exchange-leverage',
+    productCode: 'BTC_JPY',
+    commissionRate: 0,
+    basis: 'notional',
+    chargeOnEntry: true,
+    chargeOnExit: true,
+    leverageMultiplier: 2,
+    dailyLeverageRate: 0.0004,
+    liquidationFeeRate: 0.005,
+    forcedCloseFeeRate: 0.005,
+    settlementHourJst: 6,
+    ...overrides
+  };
+}
+
 function createKlines(startIso: string, closes: readonly number[]): readonly KlineData[] {
   const startMs = Date.parse(startIso);
   return closes.map((close, index) => {
@@ -65,7 +83,7 @@ test('executor respects configured trading time restriction', async () => {
   ];
   const klines = createKlines('2026-03-02T19:28:00.000Z', closes);
 
-  const unrestricted = new StrategyExecutor(createStrategy(null), klines);
+  const unrestricted = new StrategyExecutor(createStrategy(null), klines, { feeModel: createFeeModel() });
   unrestricted['rsiValues'] = Array(klines.length).fill(50);
   unrestricted['rsiValues'][3] = 20;
   unrestricted['macdValues'] = {
@@ -82,7 +100,8 @@ test('executor respects configured trading time restriction', async () => {
       utcExcludeStart: '19:30',
       utcExcludeEnd: '23:59'
     }),
-    klines
+    klines,
+    { feeModel: createFeeModel() }
   );
   restricted['rsiValues'] = Array(klines.length).fill(50);
   restricted['rsiValues'][3] = 20;
@@ -107,7 +126,7 @@ test('executor uses ATR exits and produces backtest_end when still holding', asy
         maxHoldMinutes: null
       }
     }
-  }, klines, { enableATRSizing: true });
+  }, klines, { enableATRSizing: true, feeModel: createFeeModel() });
 
   executor['rsiValues'] = Array(klines.length).fill(50);
   executor['rsiValues'][15] = 20;
@@ -131,11 +150,8 @@ test('executor calculates linear coin pnl and commissions correctly', () => {
     }],
     {
       feeModel: {
-        venueCode: 'GMOCOIN',
+        ...createFeeModel({ market: 'spot', productCode: 'ETH_JPY' }),
         commissionRate: 0.00002,
-        basis: 'notional',
-        chargeOnEntry: true,
-        chargeOnExit: true
       }
     }
   );
@@ -154,7 +170,9 @@ test('executor calculates linear coin pnl and commissions correctly', () => {
 });
 
 test('executor uses bid/ask prices without slippage when available', () => {
-  const executor = new StrategyExecutor(createStrategy(), createKlines('2026-03-02T00:00:00.000Z', [100]));
+  const executor = new StrategyExecutor(createStrategy(), createKlines('2026-03-02T00:00:00.000Z', [100]), {
+    feeModel: createFeeModel()
+  });
   const dualPriceKline = {
     ...createKlines('2026-03-02T00:00:00.000Z', [100])[0],
     bid_close: '99.99',
@@ -172,6 +190,7 @@ test('executor accepts custom slippage config overrides', () => {
     createStrategy(),
     createKlines('2026-03-02T00:00:00.000Z', [100]),
     {
+      feeModel: createFeeModel(),
       enableSlippage: true,
       slippageConfig: {
         normalSlippage: 1.5,
@@ -185,4 +204,37 @@ test('executor accepts custom slippage config overrides', () => {
 
   const kline = createKlines('2026-03-02T00:00:00.000Z', [100])[0];
   assert.equal(executor['slippageModel']?.calculateTotalCost(kline, 'long', true), 1.5);
+});
+
+test('executor throws when fee model is missing', () => {
+  assert.throws(
+    () => new StrategyExecutor(createStrategy(), createKlines('2026-03-02T00:00:00.000Z', [100])),
+    /executor\.options\.feeModel is required/
+  );
+});
+
+test('executor charges daily leverage fee when crossing JST settlement', () => {
+  const klines = createKlines('2026-03-02T20:58:00.000Z', [100, 100, 100, 100, 100]).map((kline) => ({
+    ...kline,
+    symbol: 'ETHJPY'
+  }));
+  const executor = new StrategyExecutor(
+    createStrategy(),
+    klines,
+    { feeModel: createFeeModel({ commissionRate: 0 }) }
+  );
+
+  const fee = executor['calculateCommission'](
+    {
+      lot_size: 0.1,
+      entry_price: 100,
+      entry_time: Date.parse('2026-03-02T20:58:00.000Z'),
+      entry_index: 0
+    },
+    100,
+    Date.parse('2026-03-02T21:02:00.000Z'),
+    4
+  );
+
+  assert.ok(Math.abs(fee - 0.004) < 1e-10);
 });

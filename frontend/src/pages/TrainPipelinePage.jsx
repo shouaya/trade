@@ -30,34 +30,75 @@ const TRADING_SCHEDULE_OPTIONS = [
   '* 8-16 * * 1-5',
   '* 12-20 * * 1-5'
 ];
-const VALIDATION_PROFILE_OPTIONS = [
-  { value: 'future-window', label: '未来期窗口', hint: 'Recommended' },
-  { value: 'custom-range', label: '自定义区间', hint: 'Manual' },
-  { value: 'annual-template', label: '年度模板', hint: 'Legacy' }
-];
-const VALIDATION_TIME_RANGES = {
-  '2024': {
-    startTimeMs: 1704067200000,
-    endTimeMs: 1735689540000,
-    startIso: '2024-01-01T00:00:00.000Z',
-    endIso: '2024-12-31T23:59:00.000Z'
-  },
-  '2026': {
-    startTimeMs: 1767225600000,
-    endTimeMs: 1773964740000,
-    startIso: '2026-01-01T00:00:00.000Z',
-    endIso: '2026-03-19T23:59:00.000Z'
-  }
+const DEFAULT_VALIDATION_PROFILE = 'future-window';
+const GMO_LEVERAGE_2X_FEE_MODEL = {
+  venueCode: 'GMOCOIN',
+  market: 'exchange-leverage',
+  productCode: 'BTC_JPY',
+  commissionRate: 0,
+  apiFeeRate: 0,
+  makerRate: 0,
+  takerRate: 0,
+  basis: 'notional',
+  chargeOnEntry: true,
+  chargeOnExit: true,
+  leverageMultiplier: 2,
+  dailyLeverageRate: 0.0004,
+  liquidationFeeRate: 0.005,
+  forcedCloseFeeRate: 0.005,
+  settlementHourJst: 6,
+  referenceUrl: 'https://coin.z.com/jp/corp/guide/fees/',
+  notes: 'GMO 取引所レバレッジ 2倍 API。BTC/JPY 交易手续费免费，API 手续费免费，建玉管理费 0.04%/日，ロスカット手数料 0.5%。'
 };
+const VALIDATION_PROFILE_OPTIONS = [
+  { value: 'future-window', label: '未来期主验证', hint: 'Recommended' },
+  { value: 'rolling-window', label: 'Rolling 强化验证', hint: 'Advanced' },
+  { value: 'custom-range', label: '自定义区间', hint: 'Manual' }
+];
 const TRAINING_GUIDE_RECOMMENDATIONS = [
   '首次训练建议从 BTCJPY + 1min 开始，先验证主链路是否跑通。',
   'Top N 建议先固定为 10，先看候选池质量，再考虑扩容。',
   'lotSize 建议先固定 0.008，避免一次改太多维度。',
   'maxHoldMinutes 建议先用 6 到 8 分钟，控制高频策略持仓时长。',
+  '默认手续费档案已经切到 GMO 取引所レバレッジ 2倍；交易手续费记为 0，但保留 0.04%/日持仓费和 0.5% 强平费元数据。',
   '如果只是第一次创建配置，router 路径可以先留空，等训练和 validation 跑通后再补。',
-  '默认验证方案改为 future-window，优先检查训练结束后的未来区间是否能泛化。',
-  '年度验证不再是默认主链路，只保留为兼容模板。'
+  '默认先走未来期主验证，先确认训练后的泛化能力，再考虑扩展。',
+  'rolling / walk-forward 更适合作为强化验证轨道，而不是替代主链路的第一步。',
+  '年度模板已经退出主链路，不再作为默认生成方案。'
 ];
+
+function normalizeValidationProfile(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return VALIDATION_PROFILE_OPTIONS.some((option) => option.value === normalized)
+    ? normalized
+    : DEFAULT_VALIDATION_PROFILE;
+}
+
+function getValidationProfileLabel(value) {
+  switch (normalizeValidationProfile(value)) {
+    case 'future-window':
+      return '未来期主验证';
+    case 'rolling-window':
+      return 'Rolling 强化验证';
+    case 'custom-range':
+      return '自定义区间';
+    default:
+      return '未来期主验证';
+  }
+}
+
+function getValidationProfileTone(value) {
+  switch (normalizeValidationProfile(value)) {
+    case 'future-window':
+      return 'done';
+    case 'rolling-window':
+      return 'partial';
+    case 'custom-range':
+      return 'todo';
+    default:
+      return 'todo';
+  }
+}
 
 function buildDefaultTrainingTemplate() {
   const currentYear = new Date().getFullYear();
@@ -110,13 +151,7 @@ function buildDefaultTrainingTemplate() {
       version: 'v3',
       options: {
         enableATRSizing: true,
-        feeModel: {
-          venueCode: 'GMOCOIN',
-          commissionRate: 0.00002,
-          basis: 'notional',
-          chargeOnEntry: true,
-          chargeOnExit: true
-        }
+        feeModel: { ...GMO_LEVERAGE_2X_FEE_MODEL }
       }
     },
     output: {
@@ -124,6 +159,25 @@ function buildDefaultTrainingTemplate() {
       strategyNamePrefix: `${currentYear}-${DEFAULT_TRAINING_SYMBOL}-${DEFAULT_TRAINING_RUN_TAG.replace(/_/g, '-')}-`,
       descriptionPrefix: `${currentYear} ${DEFAULT_TRAINING_SYMBOL} ${DEFAULT_TRAINING_RUN_TAG.replace(/_/g, ' ')}`
     }
+  };
+}
+
+function buildBootstrapTrainingPayload() {
+  const bootstrapYear = TRAINING_YEAR_OPTIONS[0] || String(new Date().getFullYear());
+  const bootstrapTemplate = buildDefaultTrainingTemplate();
+  const bootstrapDraft = buildTrainingGuideDraft(bootstrapTemplate, '');
+  bootstrapDraft.year = bootstrapYear;
+  bootstrapDraft.startDate = `${bootstrapYear}-01-01`;
+  bootstrapDraft.endDate = `${bootstrapYear}-12-31`;
+  bootstrapDraft.validationProfile = DEFAULT_VALIDATION_PROFILE;
+  bootstrapDraft.validationStartDate = `${Number(bootstrapYear) + 1}-01-01`;
+  bootstrapDraft.validationEndDate = `${Number(bootstrapYear) + 1}-12-31`;
+
+  const computed = buildTrainingConfigFromGuide(bootstrapDraft, bootstrapTemplate);
+  return {
+    configKey: computed.configKey,
+    configType: 'training',
+    content: computed.content
   };
 }
 
@@ -193,6 +247,42 @@ function addUtcDays(dateInput, days) {
   }
 
   return new Date(utcMs + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function enumerateMonthlyValidationWindows(startDateInput, endDateInput) {
+  const startMs = parseDateInputToUtcMs(startDateInput, false);
+  const endMs = parseDateInputToUtcMs(endDateInput, true);
+  if (startMs == null || endMs == null || startMs > endMs) {
+    return [];
+  }
+
+  const windows = [];
+  let cursor = new Date(startMs);
+  cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), 1, 0, 0, 0));
+
+  while (cursor.getTime() <= endMs) {
+    const monthStartMs = Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), 1, 0, 0, 0);
+    const monthEndMs = Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 0, 23, 59, 0);
+    const segmentStartMs = Math.max(startMs, monthStartMs);
+    const segmentEndMs = Math.min(endMs, monthEndMs);
+
+    if (segmentStartMs <= segmentEndMs) {
+      const monthToken = `${cursor.getUTCFullYear()}_${String(cursor.getUTCMonth() + 1).padStart(2, '0')}`;
+      windows.push({
+        monthToken,
+        startDate: new Date(segmentStartMs).toISOString().slice(0, 10),
+        endDate: new Date(segmentEndMs).toISOString().slice(0, 10),
+        startIso: new Date(segmentStartMs).toISOString(),
+        endIso: new Date(segmentEndMs).toISOString(),
+        startTimeMs: segmentStartMs,
+        endTimeMs: segmentEndMs
+      });
+    }
+
+    cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1, 0, 0, 0));
+  }
+
+  return windows;
 }
 
 function splitStrategyTypes(value) {
@@ -268,7 +358,7 @@ function buildTrainingGuideDraft(content, configKey) {
   const validationPlan = parsed?.validationPlan && typeof parsed.validationPlan === 'object'
     ? parsed.validationPlan
     : {};
-  const validationProfile = String(validationPlan.profile || 'future-window');
+  const validationProfile = normalizeValidationProfile(validationPlan.profile);
   const customRange = validationPlan.customRange && typeof validationPlan.customRange === 'object'
     ? validationPlan.customRange
     : {};
@@ -318,7 +408,7 @@ function buildTrainingConfigFromGuide(draft, baseConfig) {
   const maxHoldMax = Number(draft?.maxHoldMax || maxHoldMin || 8);
   const tableName = String(draft?.tableName || `${symbol.toLowerCase()}_${runTagSlug}_train_${year}`);
   const routerConfigPath = String(draft?.routerConfigPath || '').trim();
-  const validationProfile = String(draft?.validationProfile || 'future-window');
+  const validationProfile = normalizeValidationProfile(draft?.validationProfile);
   const validationStartDate = String(draft?.validationStartDate || addUtcDays(endDate, 1) || `${Number(year) + 1}-01-01`);
   const validationEndDate = String(draft?.validationEndDate || new Date().toISOString().slice(0, 10));
   const configKey = `configs/training/${year}_${symbol.toLowerCase()}_${runTagSlug}.json`;
@@ -410,31 +500,38 @@ function buildCompanionValidationDrafts(trainingConfig, trainingConfigKey) {
   const validationPlan = trainingConfig?.validationPlan && typeof trainingConfig.validationPlan === 'object'
     ? trainingConfig.validationPlan
     : {};
-  const profile = String(validationPlan.profile || 'future-window');
+  const profile = normalizeValidationProfile(validationPlan.profile);
   const trainingEndDate = formatDateInput(trainingConfig?.timeRange?.endIso || trainingConfig?.timeRange?.endTimeMs, `${trainingYear}-12-31`);
   const defaultFutureStartDate = addUtcDays(trainingEndDate, 1) || `${Number(trainingYear || new Date().getFullYear()) + 1}-01-01`;
   const defaultFutureEndDate = new Date().toISOString().slice(0, 10);
 
-  if (profile === 'annual-template') {
-    const targets = Object.keys(VALIDATION_TIME_RANGES).filter((year) => Number(year) > Number(trainingYear || 0));
+  const customRange = validationPlan.customRange && typeof validationPlan.customRange === 'object'
+    ? validationPlan.customRange
+    : {};
+  const validationStartDate = formatDateInput(customRange.startIso || defaultFutureStartDate, defaultFutureStartDate);
+  const validationEndDate = formatDateInput(customRange.endIso || defaultFutureEndDate, defaultFutureEndDate);
 
-    return targets.map((targetYear) => {
-      const configKey = `configs/validation/${trainingYear}_${symbolLower}_${runTagSlug}_annual_from_${trainingYear}_${targetYear}_validation.json`;
-      const descriptionLabel = `${targetYear} ${symbol} annual validation from ${trainingYear}`;
-
+  if (profile === 'rolling-window') {
+    return enumerateMonthlyValidationWindows(validationStartDate, validationEndDate).map((window) => {
+      const descriptionLabel = `${symbol} rolling validation ${window.startDate} -> ${window.endDate}`;
       return {
-        configKey,
+        configKey: `configs/validation/${trainingYear}_${symbolLower}_${runTagSlug}_rolling_${window.monthToken}_validation.json`,
         configType: 'validation',
         content: {
-          name: `${symbol}_ANNUAL_TEMPLATE_FROM_${trainingYear}_${targetYear}_VALIDATION`,
-          description: `${symbol} 年度模板验证草稿 - 基于 ${trainingYear} training 配置预生成，兼容旧年度切片`,
-          timeRange: VALIDATION_TIME_RANGES[targetYear],
+          name: `${symbol}_ROLLING_WINDOW_FROM_${trainingYear}_${window.monthToken.toUpperCase()}_VALIDATION`,
+          description: `${descriptionLabel} - 基于 ${trainingYear} training 配置预生成`,
+          timeRange: {
+            startTimeMs: window.startTimeMs,
+            endTimeMs: window.endTimeMs,
+            startIso: window.startIso,
+            endIso: window.endIso
+          },
           market: {
             symbol,
             intervalType: trainingConfig?.market?.intervalType || '1min'
           },
           database: {
-            tableName: `${symbolLower}_${runTagSlug}_annual_validate_${targetYear}_from_${trainingYear}`,
+            tableName: `${symbolLower}_${runTagSlug}_rolling_validate_${window.monthToken}_from_${trainingYear}`,
             resetTableBeforeRun: true
           },
           strategy: {
@@ -446,29 +543,24 @@ function buildCompanionValidationDrafts(trainingConfig, trainingConfigKey) {
           executor: trainingConfig?.executor || null,
           output: {
             topN: Number(trainingConfig?.output?.topN || 10),
-            strategyNamePrefix: `${trainingYear}-${symbol}-ANNUAL-${targetYear}-`,
+            strategyNamePrefix: `${trainingYear}-${symbol}-ROLLING-${window.monthToken}-`,
             descriptionPrefix: descriptionLabel
           },
           sourceTable: trainingConfig?.database?.tableName || null,
           trainConfig: trainingConfigKey,
           draftFromTraining: true,
-          validationProfile: 'annual-template',
+          validationProfile: 'rolling-window',
           validationTarget: {
-            label: targetYear,
-            startIso: VALIDATION_TIME_RANGES[targetYear].startIso,
-            endIso: VALIDATION_TIME_RANGES[targetYear].endIso,
-            cutoffDate: VALIDATION_TIME_RANGES[targetYear].endIso.slice(0, 10)
+            label: `rolling ${window.startDate} -> ${window.endDate}`,
+            startIso: window.startIso,
+            endIso: window.endIso,
+            cutoffDate: window.endDate
           }
         }
       };
     });
   }
 
-  const customRange = validationPlan.customRange && typeof validationPlan.customRange === 'object'
-    ? validationPlan.customRange
-    : {};
-  const validationStartDate = formatDateInput(customRange.startIso || defaultFutureStartDate, defaultFutureStartDate);
-  const validationEndDate = formatDateInput(customRange.endIso || defaultFutureEndDate, defaultFutureEndDate);
   const configKey = profile === 'custom-range'
     ? `configs/validation/${trainingYear}_${symbolLower}_${runTagSlug}_custom_${validationStartDate.replace(/-/g, '_')}_to_${validationEndDate.replace(/-/g, '_')}_validation.json`
     : `configs/validation/${trainingYear}_${symbolLower}_${runTagSlug}_future_from_${trainingYear}_to_${validationEndDate.replace(/-/g, '_')}_validation.json`;
@@ -796,7 +888,7 @@ function buildMethodologyStages(pipeline, trainingConfigRecord) {
         hasCostSensitivity ? pipeline.reports.costSensitivity.path : '尚无成本敏感度报告'
       ],
       notes: '这里才是方法论里的“未来期检验泛化能力”，不是单纯按年度做一个 shortcut。',
-      actionKeys: ['generate-validation', 'prepare-validation', 'run-validation', 'cost-sensitivity', 'router-validate']
+      actionKeys: ['generate-validation', 'prepare-validation', 'waiting-generate-validation', 'run-validation', 'waiting-validation', 'cost-sensitivity', 'router-validate']
     },
     {
       key: 'stage-9-iteration',
@@ -877,12 +969,12 @@ function isActiveRequestStatus(status) {
 }
 
 function getValidationProfilePriority(profile) {
-  switch (String(profile || '')) {
+  switch (normalizeValidationProfile(profile)) {
     case 'future-window':
       return 1;
-    case 'custom-range':
+    case 'rolling-window':
       return 2;
-    case 'annual-template':
+    case 'custom-range':
       return 3;
     case 'legacy-annual':
       return 4;
@@ -945,8 +1037,8 @@ function ValidationList({ items, onViewRequest }) {
           <div className="validation-item-head">
             <span className="validation-target">{item.targetLabel}</span>
             <div className="validation-item-statuses">
-              <span className={`validation-chip ${item.validationProfile === 'future-window' ? 'done' : 'todo'}`}>
-                {item.validationProfile || 'legacy'}
+              <span className={`validation-chip ${getValidationProfileTone(item.validationProfile)}`}>
+                {getValidationProfileLabel(item.validationProfile)}
               </span>
               {item.latestRequest && (
                 <span className={`request-status-chip ${item.latestRequest.status}`}>
@@ -1009,9 +1101,13 @@ function getNextActionButtonLabel(nextActionKey) {
     case 'run-validation':
       return '执行阶段 8：运行 Validation';
     case 'generate-validation':
-      return '执行阶段 8：生成 Future Validation';
+      return '执行阶段 8：生成最终配置';
     case 'prepare-validation':
       return '执行阶段 8：补齐 Validation';
+    case 'waiting-generate-validation':
+      return '刷新最终配置状态';
+    case 'waiting-validation':
+      return '刷新 Validation 状态';
     case 'cost-sensitivity':
       return '执行阶段 8：成本敏感度';
     case 'feature-causality':
@@ -1025,6 +1121,60 @@ function getNextActionButtonLabel(nextActionKey) {
     default:
       return '下一步';
   }
+}
+
+function getFinalConfigState(pipeline) {
+  const latestArtifactRequest = pipeline?.latestGenerateValidationRequest || null;
+  const isGenerating = latestArtifactRequest?.action === 'generate-validation'
+    && isActiveRequestStatus(latestArtifactRequest?.status);
+
+  if (pipeline?.topStrategySnapshot) {
+    return {
+      title: pipeline.topStrategySnapshot.path,
+      detail: `final config ${formatDateTime(pipeline.topStrategySnapshot.generatedAt)}`,
+      status: 'done',
+      canExport: true,
+      requestId: latestArtifactRequest?.id || null
+    };
+  }
+
+  if (isGenerating) {
+    return {
+      title: '最终策略 config 生成中',
+      detail: `请求 ${latestArtifactRequest.requestId || latestArtifactRequest.id} · ${getRequestStatusText(latestArtifactRequest.status)}`,
+      status: 'running',
+      canExport: false,
+      requestId: latestArtifactRequest?.id || null
+    };
+  }
+
+  if (latestArtifactRequest?.action === 'generate-validation' && latestArtifactRequest?.status === 'failed') {
+    return {
+      title: '最终策略 config 生成失败',
+      detail: latestArtifactRequest.errorMessage || '请查看生成请求日志并重试',
+      status: 'todo',
+      canExport: false,
+      requestId: latestArtifactRequest.id
+    };
+  }
+
+  if (pipeline?.trainingRun) {
+    return {
+      title: '等待生成最终策略 config',
+      detail: '训练完成后 worker 会自动排队生成，无需手动补一步。',
+      status: 'todo',
+      canExport: false,
+      requestId: null
+    };
+  }
+
+  return {
+    title: '尚未生成',
+    detail: '先完成训练候选池，再生成最终策略 config。',
+    status: 'todo',
+    canExport: false,
+    requestId: null
+  };
 }
 
 function MethodologyStageOverview({ stages, selectedStageKey, onSelect }) {
@@ -1150,6 +1300,7 @@ function ConfigStudio({
   latestRequestByConfigId,
   filterType,
   onFilterChange,
+  onBootstrap,
   onCreate,
   onEdit,
   onExport,
@@ -1171,6 +1322,9 @@ function ConfigStudio({
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </select>
+          <button type="button" onClick={onBootstrap}>
+            初始化默认配置
+          </button>
           <button type="button" className="pipeline-refresh-button" onClick={onCreate}>
             新建配置
           </button>
@@ -1190,7 +1344,12 @@ function ConfigStudio({
 
       <div className="config-list">
         {configs.length === 0 ? (
-          <div className="pipeline-empty">当前筛选下没有配置。</div>
+          <div className="pipeline-empty">
+            <div>当前筛选下没有配置。</div>
+            <button type="button" className="pipeline-refresh-button" onClick={onBootstrap}>
+              一键初始化默认 Training Config
+            </button>
+          </div>
         ) : (
           configs.map((config) => (
             <div key={config.id} className="config-row">
@@ -1210,7 +1369,7 @@ function ConfigStudio({
                 <div className="config-meta">
                   {config.resultGroup || 'no result_group'}
                   {' · '}
-                  synced {formatDateTime(config.syncedAt)}
+                  updated {formatDateTime(config.updatedAt)}
                   {latestRequestByConfigId[config.id]
                     ? ` · last queue ${formatDateTime(latestRequestByConfigId[config.id].createdAt)}`
                     : ''}
@@ -1426,7 +1585,7 @@ function TrainingGuidePanel({
             type="date"
             value={draft.validationEndDate}
             onChange={(event) => onChange('validationEndDate', event.target.value)}
-            disabled={draft.validationProfile === 'annual-template'}
+            disabled={false}
           />
         </label>
         <label className="training-guide-span-2">
@@ -1452,19 +1611,15 @@ function TrainingGuidePanel({
         </div>
         <div className="summary-box">
           <span>Validation 主线</span>
-          <strong>
-            {draft.validationProfile === 'future-window'
-              ? 'Future Window'
-              : draft.validationProfile === 'custom-range'
-                ? 'Custom Range'
-                : 'Annual Template'}
-          </strong>
+          <strong>{getValidationProfileLabel(draft.validationProfile)}</strong>
           <em>
             {draft.validationProfile === 'future-window'
-              ? `从 ${draft.validationStartDate} 开始，默认观察到 ${draft.validationEndDate}`
+              ? `从 ${draft.validationStartDate} 开始，覆盖到 ${draft.validationEndDate}`
+              : draft.validationProfile === 'rolling-window'
+                ? `把 ${draft.validationStartDate} -> ${draft.validationEndDate} 拆成月度 rolling 验证窗口`
               : draft.validationProfile === 'custom-range'
                 ? `${draft.validationStartDate} -> ${draft.validationEndDate}`
-                : '仅作兼容模板，不再是默认主路径'}
+                : '按所选区间生成验证配置'}
           </em>
         </div>
       </div>
@@ -1482,10 +1637,12 @@ function TrainingGuidePanel({
             <div className="validation-item-head">
               <span className="validation-target">
                 {draft.validationProfile === 'future-window'
-                  ? 'Future Window'
+                  ? '未来期主验证'
+                  : draft.validationProfile === 'rolling-window'
+                    ? 'Rolling 强化验证'
                   : draft.validationProfile === 'custom-range'
-                    ? 'Custom Range'
-                    : 'Annual Template'}
+                    ? '自定义区间'
+                    : '未来期主验证'}
               </span>
               <span className="validation-chip todo">由 training config 派生</span>
             </div>
@@ -1493,7 +1650,7 @@ function TrainingGuidePanel({
             <div className="validation-meta">
               保存时不会单独创建 validation 草稿。
               {' · '}
-              训练完成后通过 pipeline 的“下一步”生成可运行 validation。
+              训练完成后通过 pipeline 的“下一步”生成最终策略 config 与可运行 validation。
             </div>
           </div>
         </div>
@@ -1790,6 +1947,22 @@ function TrainPipelinePage() {
     setEditorContentText(JSON.stringify(nextConfig, null, 2));
     setEditorGuideDraft(buildTrainingGuideDraft(nextConfig, nextConfigKey));
     updateHashQuery({ configId: 'new' });
+  };
+
+  const handleBootstrapDefaultConfig = async () => {
+    try {
+      const payload = buildBootstrapTrainingPayload();
+      const response = await trainConfigsAPI.save(payload);
+      if (response.success) {
+        setActionMessage({
+          text: `已初始化默认 training config: ${response.data.configKey}`
+        });
+        await refreshAll();
+      }
+    } catch (apiError) {
+      console.error('初始化默认配置失败:', apiError);
+      setActionMessage({ text: `初始化失败: ${apiError.response?.data?.message || apiError.message}` });
+    }
   };
 
   const openEditEditor = async (id) => {
@@ -2131,6 +2304,15 @@ function TrainPipelinePage() {
       }
     }
 
+    if (actionKey === 'waiting-generate-validation' || actionKey === 'waiting-validation') {
+      await refreshAll();
+      setNextActionFeedbackByPipelineId((current) => ({
+        ...current,
+        [pipeline.id]: '已刷新当前执行状态。'
+      }));
+      return;
+    }
+
     await handleCopyNextCommand(pipeline);
   };
 
@@ -2159,6 +2341,7 @@ function TrainPipelinePage() {
         latestRequestByConfigId={latestRequestByConfigId}
         filterType={configFilter}
         onFilterChange={setConfigFilter}
+        onBootstrap={handleBootstrapDefaultConfig}
         onCreate={openCreateEditor}
         onEdit={openEditEditor}
         onExport={handleExportConfig}
@@ -2219,12 +2402,18 @@ function TrainPipelinePage() {
       {loading || configLoading || queueLoading ? (
         <div className="pipeline-loading">正在汇总训练流程...</div>
       ) : pipelines.length === 0 ? (
-        <div className="pipeline-empty">当前没有找到 training config。</div>
+        <div className="pipeline-empty">
+          <div>当前没有找到 training config。</div>
+          <button type="button" className="pipeline-refresh-button" onClick={() => void handleBootstrapDefaultConfig()}>
+            初始化默认 Training Config
+          </button>
+        </div>
       ) : (
         <div className="pipeline-grid">
           {pipelines.map((pipeline) => {
             const latestTrainingRequest = pipeline.latestRequest || latestRequestByConfigKey[pipeline.trainingConfigPath] || null;
             const trainingConfigRecord = configByKey[pipeline.trainingConfigPath] || null;
+            const finalConfigState = getFinalConfigState(pipeline);
             const methodologyStages = buildMethodologyStages(pipeline, trainingConfigRecord);
             const suggestedStageKey = getSuggestedStageKey(methodologyStages);
             const selectedStageKey = selectedStageByPipelineId[pipeline.id] || suggestedStageKey;
@@ -2301,15 +2490,22 @@ function TrainPipelinePage() {
                   </div>
                   <div className="summary-box">
                     <span>关键产物</span>
-                    <strong>{pipeline.router?.routerPath || pipeline.topStrategySnapshot?.path || '尚未生成'}</strong>
+                    <strong>{pipeline.router?.routerPath || finalConfigState.title}</strong>
                     <em>
                       {pipeline.router?.policyPath
                         ? `policy ${pipeline.router.policyPath}`
-                        : pipeline.topStrategySnapshot
-                          ? `final config ${formatDateTime(pipeline.topStrategySnapshot.generatedAt)}`
-                          : '等待 router / validation 产物'}
+                        : finalConfigState.detail}
                     </em>
-                    {pipeline.topStrategySnapshot?.path && configByKey[pipeline.topStrategySnapshot.path]?.id && (
+                    {finalConfigState.requestId && !pipeline.router?.policyPath && (
+                      <button
+                        type="button"
+                        className="summary-box-action"
+                        onClick={() => handleSelectRequest(finalConfigState.requestId)}
+                      >
+                        查看生成请求
+                      </button>
+                    )}
+                    {finalConfigState.canExport && pipeline.topStrategySnapshot?.path && configByKey[pipeline.topStrategySnapshot.path]?.id && (
                       <button
                         type="button"
                         className="summary-box-action"

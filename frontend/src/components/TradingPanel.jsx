@@ -1,16 +1,26 @@
 import { useState } from 'react';
 import './TradingPanel.css';
 
-function TradingPanel({ currentPrice, onStartTrade, trade, tradeResult, disabled }) {
+function TradingPanel({
+  symbol,
+  symbolSpec,
+  feeModel,
+  currentPrice,
+  onStartTrade,
+  trade,
+  tradeResult,
+  disabled,
+}) {
   const [direction, setDirection] = useState('long');
   const [entryPrice, setEntryPrice] = useState('');
   const [useCustomPrice, setUseCustomPrice] = useState(false);
   const [holdMinutes, setHoldMinutes] = useState(60);
   const [stopLossPips, setStopLossPips] = useState(50);
   const [takeProfitPips, setTakeProfitPips] = useState(100);
-  const [lotSize, setLotSize] = useState(1);
+  const [quantity, setQuantity] = useState(symbolSpec?.initialQuantity ?? 1);
   const [useStopLoss, setUseStopLoss] = useState(true);
   const [useTakeProfit, setUseTakeProfit] = useState(true);
+  const pnlCurrency = symbolSpec?.quoteCurrency || 'JPY';
 
   // 获取实际使用的入场价格
   const getEntryPrice = () => {
@@ -19,16 +29,18 @@ function TradingPanel({ currentPrice, onStartTrade, trade, tradeResult, disabled
 
   const calculatePrice = (pips) => {
     const basePrice = getEntryPrice();
+    const pipSize = symbolSpec?.pipSize ?? 0.01;
     return direction === 'long'
-      ? basePrice - (pips / 100)
-      : basePrice + (pips / 100);
+      ? basePrice - (pips * pipSize)
+      : basePrice + (pips * pipSize);
   };
 
   const calculateTakeProfitPrice = (pips) => {
     const basePrice = getEntryPrice();
+    const pipSize = symbolSpec?.pipSize ?? 0.01;
     return direction === 'long'
-      ? basePrice + (pips / 100)
-      : basePrice - (pips / 100);
+      ? basePrice + (pips * pipSize)
+      : basePrice - (pips * pipSize);
   };
 
   const handleSubmit = (e) => {
@@ -36,9 +48,9 @@ function TradingPanel({ currentPrice, onStartTrade, trade, tradeResult, disabled
 
     const tradeParams = {
       direction,
-      entryPrice: getEntryPrice(), // 传递自定义或当前价格
+      entryPrice: useCustomPrice && entryPrice ? parseFloat(entryPrice) : null,
       holdMinutes: parseInt(holdMinutes),
-      lotSize: parseFloat(lotSize),
+      quantity: parseFloat(quantity),
       stopLoss: useStopLoss ? calculatePrice(stopLossPips) : null,
       takeProfit: useTakeProfit ? calculateTakeProfitPrice(takeProfitPips) : null,
     };
@@ -90,8 +102,8 @@ function TradingPanel({ currentPrice, onStartTrade, trade, tradeResult, disabled
               </div>
             )}
             <div className="info-row">
-              <span>仓位:</span>
-              <span>{trade.lotSize} 手</span>
+              <span>{symbolSpec?.quantityLabel || '数量'}:</span>
+              <span>{trade.quantity}</span>
             </div>
           </div>
         </div>
@@ -104,8 +116,16 @@ function TradingPanel({ currentPrice, onStartTrade, trade, tradeResult, disabled
           </h3>
           <div className="result-info">
             <div className="info-row large">
-              <span>损益:</span>
-              <span className="pnl">${tradeResult.pnl}</span>
+              <span>净损益:</span>
+              <span className="pnl">{tradeResult.pnl} {pnlCurrency}</span>
+            </div>
+            <div className="info-row">
+              <span>毛损益:</span>
+              <span>{tradeResult.grossPnl} {pnlCurrency}</span>
+            </div>
+            <div className="info-row">
+              <span>手续费:</span>
+              <span>{tradeResult.commissionFee} {pnlCurrency}</span>
             </div>
             <div className="info-row">
               <span>点数:</span>
@@ -136,6 +156,17 @@ function TradingPanel({ currentPrice, onStartTrade, trade, tradeResult, disabled
           <div className="form-group">
             <label>当前价格:</label>
             <div className="current-price">{currentPrice.toFixed(3)}</div>
+          </div>
+
+          <div className="form-group">
+            <label>执行口径:</label>
+            <div className="current-price">
+              {symbol} · {feeModel?.referenceLabel || '模拟执行'}
+              {' · '}
+              {feeModel?.commissionRate > 0 ? `手续费 ${(feeModel.commissionRate * 100).toFixed(3)}%/边` : '下单手续费 0%'}
+              {' · '}
+              {feeModel?.leverageMultiplier ? `${feeModel.leverageMultiplier}x` : '无杠杆'}
+            </div>
           </div>
 
           <div className="form-group">
@@ -248,14 +279,13 @@ function TradingPanel({ currentPrice, onStartTrade, trade, tradeResult, disabled
           </div>
 
           <div className="form-group">
-            <label>仓位大小 (手):</label>
+            <label>{symbolSpec?.quantityLabel || '数量'}:</label>
             <input
               type="number"
-              value={lotSize}
-              onChange={(e) => setLotSize(e.target.value)}
-              min="0.01"
-              max="100"
-              step="0.01"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              min={symbolSpec?.quantityMin ?? 0.01}
+              step={symbolSpec?.quantityStep ?? 0.01}
               required
             />
           </div>

@@ -211,9 +211,21 @@ export interface ExecutorOptions {
 export interface FeeModelConfig {
   readonly venueCode: string;
   readonly commissionRate: number;
-  readonly basis?: 'notional';
-  readonly chargeOnEntry?: boolean;
-  readonly chargeOnExit?: boolean;
+  readonly basis: 'notional';
+  readonly chargeOnEntry: boolean;
+  readonly chargeOnExit: boolean;
+  readonly market?: 'spot' | 'exchange-leverage' | 'crypto-fx' | 'fx';
+  readonly productCode?: string;
+  readonly apiFeeRate?: number;
+  readonly makerRate?: number;
+  readonly takerRate?: number;
+  readonly leverageMultiplier?: number;
+  readonly dailyLeverageRate?: number;
+  readonly liquidationFeeRate?: number;
+  readonly forcedCloseFeeRate?: number;
+  readonly settlementHourJst?: number;
+  readonly referenceUrl?: string;
+  readonly notes?: string;
 }
 
 // ============================================================================

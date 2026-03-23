@@ -55,6 +55,18 @@ async function ensureIndex(tableName: string, indexName: string, ddl: string): P
   }
 }
 
+async function dropColumnIfExists(tableName: string, columnName: string): Promise<void> {
+  if (await columnExists(tableName, columnName)) {
+    await db.query(`ALTER TABLE ${tableName} DROP COLUMN ${columnName}`);
+  }
+}
+
+async function dropIndexIfExists(tableName: string, indexName: string): Promise<void> {
+  if (await indexExists(tableName, indexName)) {
+    await db.query(`ALTER TABLE ${tableName} DROP INDEX ${indexName}`);
+  }
+}
+
 async function tableExists(tableName: string): Promise<boolean> {
   const [tables] = await db.query<mysql.RowDataPacket[]>(
     `SHOW TABLES LIKE ?`,
@@ -142,6 +154,11 @@ async function createTasksTable(): Promise<void> {
 async function createTrainConfigsTable(): Promise<void> {
   console.log('📊 创建 train_configs 表...');
   await db.query(TRAIN_CONFIGS_DDL);
+  await dropIndexIfExists('train_configs', 'idx_synced_at');
+  await dropColumnIfExists('train_configs', 'file_mtime');
+  await dropColumnIfExists('train_configs', 'synced_at');
+  await dropColumnIfExists('train_configs', 'file_path');
+  await dropColumnIfExists('train_configs', 'file_name');
   console.log('✅ train_configs 表创建成功');
 }
 

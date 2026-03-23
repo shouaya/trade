@@ -120,17 +120,13 @@ export async function upsertTrainConfigFromFile(
   const payload = parseJsonFile(filePath);
   const contentRaw = fs.readFileSync(filePath, 'utf8');
   const hash = createHash('sha256').update(contentRaw).digest('hex');
-  const stat = fs.statSync(filePath);
-
   await db.query(
     `INSERT INTO ${TRAIN_CONFIGS_TABLE}
-      (config_key, config_type, file_path, file_name, config_name, symbol, interval_type, result_group,
-       source_table, train_config_ref, training_year, is_generated, content_hash, content, file_mtime, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?, NOW())
+      (config_key, config_type, config_name, symbol, interval_type, result_group,
+       source_table, train_config_ref, training_year, is_generated, content_hash, content)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON))
      ON DUPLICATE KEY UPDATE
        config_type = VALUES(config_type),
-       file_path = VALUES(file_path),
-       file_name = VALUES(file_name),
        config_name = VALUES(config_name),
        symbol = VALUES(symbol),
        interval_type = VALUES(interval_type),
@@ -140,14 +136,10 @@ export async function upsertTrainConfigFromFile(
        training_year = VALUES(training_year),
        is_generated = VALUES(is_generated),
        content_hash = VALUES(content_hash),
-       content = VALUES(content),
-       file_mtime = VALUES(file_mtime),
-       synced_at = NOW()`,
+       content = VALUES(content)`,
     [
       configKey,
       detectConfigType(configKey),
-      filePath,
-      path.basename(filePath),
       payload.name ?? null,
       payload.market?.symbol?.toUpperCase() ?? null,
       payload.market?.intervalType ?? null,
@@ -157,8 +149,7 @@ export async function upsertTrainConfigFromFile(
       resolveTrainingYear(payload, configKey),
       isGeneratedConfig(configKey, payload) ? 1 : 0,
       hash,
-      contentRaw,
-      stat.mtime
+      contentRaw
     ]
   );
 }

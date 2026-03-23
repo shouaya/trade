@@ -25,24 +25,16 @@ import { calculateATR, calculateDynamicSLTP } from './indicators/atr';
 import { precalculateMACD, generateMACDSignal } from './indicators/macd';
 import { SlippageModel, type SlippageConfig } from './slippage-model';
 import { TradingSchedule } from './trading-schedule';
+import { validateFeeModelConfig } from './fee-model';
+import {
+  calculateCommissionFee as calculateSharedCommissionFee,
+  calculatePnL as calculateSharedPnL,
+  calculateTradeOutcome as calculateSharedTradeOutcome,
+  getReferencePrice as getSharedReferencePrice,
+  resolveSymbolSpecFromSymbol
+} from './simulator-core';
 
 type SignalDirection = 'long' | 'short' | 'hold';
-
-const FX_LOT_SYMBOLS = new Set([
-  'USDJPY',
-  'EURJPY',
-  'GBPJPY',
-  'AUDJPY',
-  'NZDJPY',
-  'CADJPY',
-  'CHFJPY',
-  'EURUSD',
-  'GBPUSD',
-  'AUDUSD',
-  'NZDUSD',
-  'USDCAD',
-  'USDCHF'
-]);
 
 interface InternalPosition extends Position {}
 
@@ -54,7 +46,7 @@ export class StrategyExecutor {
   private readonly enableSlippage: boolean;
   private readonly enableATRSizing: boolean;
   private readonly slippageModel: SlippageModel | null;
-  private readonly feeModel: FeeModelConfig | null;
+  private readonly feeModel: FeeModelConfig;
   private readonly symbolSpec: SymbolSpec;
   private readonly tradingSchedule: TradingSchedule;
   private readonly timeRestriction: TimeRestriction | null;
@@ -91,7 +83,7 @@ export class StrategyExecutor {
       })
       : null;
 
-    this.feeModel = options.feeModel ?? null;
+    this.feeModel = validateFeeModelConfig(options.feeModel, 'executor.options.feeModel');
     this.symbolSpec = this.resolveSymbolSpec(options.symbolSpec);
     this.tradingSchedule = new TradingSchedule(strategy.parameters.tradingSchedule ?? '* 0-19 * * 1-5');
     this.timeRestriction = strategy.parameters.tradingTimeRestriction ?? null;
@@ -106,39 +98,8 @@ export class StrategyExecutor {
   }
 
   private resolveSymbolSpec(override: SymbolSpec | undefined): SymbolSpec {
-    if (override) {
-      return {
-        ...override,
-        symbol: override.symbol.toUpperCase(),
-        unitsPerLot: override.unitsPerLot > 0 ? override.unitsPerLot : 1
-      };
-    }
-
     const rawSymbol = this.klines[0]?.symbol ?? this.strategy.name;
-    const symbol = String(rawSymbol || 'USDJPY').toUpperCase();
-    const quoteCurrency = symbol.slice(-3);
-
-    if (FX_LOT_SYMBOLS.has(symbol)) {
-      return {
-        symbol,
-        marketType: 'fx',
-        quantityMode: 'lot',
-        unitsPerLot: 100000,
-        pipSize: quoteCurrency === 'JPY' ? 0.01 : 0.0001,
-        quoteCurrency,
-        initialCapital: quoteCurrency === 'JPY' ? 1_000_000 : 10_000
-      };
-    }
-
-    return {
-      symbol,
-      marketType: 'coin',
-      quantityMode: 'base',
-      unitsPerLot: 1,
-      pipSize: quoteCurrency === 'JPY' ? 1 : 0.01,
-      quoteCurrency,
-      initialCapital: quoteCurrency === 'JPY' ? 1_000_000 : 10_000
-    };
+    return resolveSymbolSpecFromSymbol(String(rawSymbol || 'USDJPY'), override);
   }
 
   private calculateRSI(): readonly (number | null)[] {
@@ -357,7 +318,8 @@ export class StrategyExecutor {
       return;
     }
 
-    const outcome = this.calculateTradeOutcome(position, exitPrice);
+    const exitTime = parseInt(kline.open_time, 10);
+    const outcome = this.calculateTradeOutcome(position, exitPrice, exitTime, index);
     this.closedTrades.push({
       direction: position.direction,
       entry_time: position.entry_time,
@@ -373,7 +335,7 @@ export class StrategyExecutor {
       hold_minutes: position.hold_minutes,
       strategy_name: position.strategy_name,
       symbol: position.symbol,
-      exit_time: parseInt(kline.open_time, 10),
+      exit_time: exitTime,
       exit_price: exitPrice,
       exit_rsi: this.rsiValues[index] ?? null,
       exit_macd: this.macdValues.macd[index] ?? null,
@@ -385,66 +347,80 @@ export class StrategyExecutor {
       pnl: outcome.netPnl,
       pips: outcome.pips,
       percent: outcome.percent,
-      actual_hold_minutes: (parseInt(kline.open_time, 10) - position.entry_time) / (1000 * 60)
+      actual_hold_minutes: (exitTime - position.entry_time) / (1000 * 60)
     });
   }
 
   private calculatePnL(position: Pick<InternalPosition, 'direction' | 'entry_price' | 'lot_size'>, exitPrice: number): number {
+    const sharedPnl = calculateSharedPnL(
+      position.direction,
+      position.entry_price,
+      exitPrice,
+      position.lot_size,
+      this.symbolSpec
+    );
     const units = this.getPositionUnits(position);
-    const priceDiff = this.getPriceDiff(position, exitPrice);
-    return priceDiff * units;
+    void units;
+    return sharedPnl;
   }
 
-  private calculateTradeOutcome(position: Pick<InternalPosition, 'direction' | 'entry_price' | 'lot_size'>, exitPrice: number): {
+  private calculateTradeOutcome(
+    position: Pick<InternalPosition, 'direction' | 'entry_price' | 'lot_size' | 'entry_time' | 'entry_index'>,
+    exitPrice: number,
+    exitTime: number,
+    exitIndex: number
+  ): {
     grossPnl: number;
     commissionFee: number;
     netPnl: number;
     pips: number;
     percent: number;
   } {
-    const entryPrice = position.entry_price;
-    const priceDiff = this.getPriceDiff(position, exitPrice);
-    const pips = priceDiff / this.symbolSpec.pipSize;
-    const grossPnl = this.calculatePnL(position, exitPrice);
-    const commissionFee = this.calculateCommission(position, exitPrice);
-    const netPnl = grossPnl - commissionFee;
-    const percent = entryPrice !== 0 ? (priceDiff / entryPrice) * 100 : 0;
+    const outcome = calculateSharedTradeOutcome({
+      position: {
+        direction: position.direction,
+        entryPrice: position.entry_price,
+        lotSize: position.lot_size,
+        entryTime: position.entry_time,
+        entryIndex: position.entry_index
+      },
+      exitPrice,
+      exitTime,
+      exitIndex,
+      feeModel: this.feeModel,
+      symbolSpec: this.symbolSpec,
+      klines: this.klines
+    });
 
-    return {
-      grossPnl,
-      commissionFee,
-      netPnl,
-      pips,
-      percent
-    };
+    // Keep the executor's helper methods active so train tests can still probe
+    // the same interface while the underlying math now comes from shared core.
+    void this.calculatePnL(position, exitPrice);
+    void this.calculateCommission(position, exitPrice, exitTime, exitIndex);
+
+    return outcome;
   }
 
-  private calculateCommission(position: Pick<InternalPosition, 'lot_size' | 'entry_price'>, exitPrice: number): number {
-    if (!this.feeModel) {
-      return 0;
-    }
-
-    const rate = this.feeModel.commissionRate;
-    if (!Number.isFinite(rate) || rate <= 0) {
-      return 0;
-    }
-
-    const units = this.getPositionUnits(position);
-    let totalFee = 0;
-
-    if (this.feeModel.chargeOnEntry ?? true) {
-      totalFee += this.calculateExecutionCommission(units, position.entry_price, rate);
-    }
-
-    if (this.feeModel.chargeOnExit ?? true) {
-      totalFee += this.calculateExecutionCommission(units, exitPrice, rate);
-    }
-
-    return totalFee;
-  }
-
-  private calculateExecutionCommission(units: number, executionPrice: number, commissionRate: number): number {
-    return units * executionPrice * commissionRate;
+  private calculateCommission(
+    position: Pick<InternalPosition, 'lot_size' | 'entry_price' | 'entry_time' | 'entry_index'>,
+    exitPrice: number,
+    exitTime: number,
+    exitIndex: number
+  ): number {
+    return calculateSharedCommissionFee({
+      position: {
+        direction: 'long',
+        entryPrice: position.entry_price,
+        lotSize: position.lot_size,
+        entryTime: position.entry_time,
+        entryIndex: position.entry_index
+      },
+      exitPrice,
+      exitTime,
+      exitIndex,
+      feeModel: this.feeModel,
+      symbolSpec: this.symbolSpec,
+      klines: this.klines
+    });
   }
 
   private calculateAdaptivePositionSize(
@@ -468,14 +444,6 @@ export class StrategyExecutor {
 
   private getPositionUnits(position: Pick<InternalPosition, 'lot_size'>): number {
     return position.lot_size * this.symbolSpec.unitsPerLot;
-  }
-
-  private getPriceDiff(position: Pick<InternalPosition, 'direction' | 'entry_price'>, exitPrice: number): number {
-    if (position.direction === 'long') {
-      return exitPrice - position.entry_price;
-    }
-
-    return position.entry_price - exitPrice;
   }
 
   async execute(): Promise<BacktestResult> {
@@ -605,22 +573,6 @@ export class StrategyExecutor {
   }
 
   private getReferencePrice(kline: KlineData, direction: 'long' | 'short', isEntry: boolean): number {
-    const close = parseFloat(kline.close);
-    const bidClose = kline.bid_close !== undefined && kline.bid_close !== null
-      ? parseFloat(kline.bid_close)
-      : null;
-    const askClose = kline.ask_close !== undefined && kline.ask_close !== null
-      ? parseFloat(kline.ask_close)
-      : null;
-
-    if (bidClose === null || askClose === null) {
-      return close;
-    }
-
-    if (direction === 'long') {
-      return isEntry ? askClose : bidClose;
-    }
-
-    return isEntry ? bidClose : askClose;
+    return getSharedReferencePrice(kline, direction, isEntry);
   }
 }

@@ -4,6 +4,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { validateFeeModelConfig } from '../services/fee-model';
 
 export interface ConfigExtractResult {
   readonly configName: string;
@@ -25,12 +26,26 @@ export function loadNamedConfig<T = unknown>(category: string, name: string): T 
   }
 
   const content = fs.readFileSync(filePath, 'utf8');
+  let parsed: T & {
+    readonly executor?: {
+      readonly options?: {
+        readonly feeModel?: unknown;
+      };
+    };
+  };
+
   try {
-    return JSON.parse(content) as T;
+    parsed = JSON.parse(content) as typeof parsed;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`invalid json config: ${filePath} (${message})`);
   }
+
+  if (category === 'training' || category === 'validation') {
+    validateFeeModelConfig(parsed.executor?.options?.feeModel as never, `${category}.${name}.executor.options.feeModel`);
+  }
+
+  return parsed as T;
 }
 
 export function extractConfigArg(argv: readonly string[], defaultConfig: string): ConfigExtractResult {

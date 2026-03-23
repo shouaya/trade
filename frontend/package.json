@@ -5,14 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm --prefix ../simulator run build && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node tests/playback-control.test.js",
+    "test": "npm --prefix ../simulator run build && node tests/simulator-engine.test.js",
+    "test:simulator": "npm --prefix ../simulator run build && node tests/simulator-engine.test.js",
     "test:playback": "node tests/playback-control.test.js",
     "test:legacy": "node test-playback.js"
   },
   "dependencies": {
+    "@money/simulator": "file:../simulator",
     "axios": "^1.13.5",
     "lightweight-charts": "^3.8.0",
     "react": "^19.2.0",

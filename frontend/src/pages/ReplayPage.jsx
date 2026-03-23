@@ -2,6 +2,11 @@ import { useState, useEffect } from 'react';
 import { tradesAPI } from '../api/api';
 import './ReplayPage.css';
 
+function getQuoteCurrency(symbol) {
+  const normalized = String(symbol || 'JPY').toUpperCase();
+  return normalized.slice(-3) || 'JPY';
+}
+
 function ReplayPage({ onReplayTrade }) {
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -110,11 +115,11 @@ function ReplayPage({ onReplayTrade }) {
           </div>
           <div className={`stat-card-mini ${parseFloat(stats.total_pnl) >= 0 ? 'success' : 'error'}`}>
             <div className="stat-label">总损益</div>
-            <div className="stat-value">${stats.total_pnl}</div>
+            <div className="stat-value">{stats.total_pnl}</div>
           </div>
           <div className="stat-card-mini">
             <div className="stat-label">平均损益</div>
-            <div className="stat-value">${stats.avg_pnl}</div>
+            <div className="stat-value">{stats.avg_pnl}</div>
           </div>
         </div>
       )}
@@ -233,7 +238,7 @@ function ReplayPage({ onReplayTrade }) {
                   <div className="result-item">
                     <span className="result-label">损益:</span>
                     <span className={`result-value pnl ${parseFloat(trade.pnl) >= 0 ? 'profit' : 'loss'}`}>
-                      ${trade.pnl}
+                      {trade.pnl} {getQuoteCurrency(trade.symbol)}
                     </span>
                   </div>
                   <div className="result-item">

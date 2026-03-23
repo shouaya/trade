@@ -19,7 +19,17 @@ import { createPlaybackController } from '../hooks/usePlaybackControl.js';
  * @returns {Promise<Array>} K 线数据数组
  */
 export async function loadKlineData(params) {
-  const { symbol, interval, limit, startDate, startTime, endDate, endTime } = params;
+  const {
+    symbol,
+    interval,
+    limit,
+    start,
+    end,
+    startDate,
+    startTime,
+    endDate,
+    endTime,
+  } = params;
 
   // 转换 interval 格式: 1m -> 1min, 1h -> 1hour, 1d -> 1day
   const dbInterval = interval
@@ -35,10 +45,13 @@ export async function loadKlineData(params) {
   };
 
   // 如果指定了时间范围
-  if (startDate && endDate) {
-    // 使用 'Z' 后缀明确指定为UTC时间，避免浏览器转换为本地时区
-    const startTimestamp = new Date(`${startDate}T${startTime}:00Z`).getTime();
-    const endTimestamp = new Date(`${endDate}T${endTime}:59Z`).getTime();
+  if (Number.isFinite(start) && Number.isFinite(end)) {
+    apiParams.start = start;
+    apiParams.end = end;
+  } else if (startDate && endDate) {
+    // 手动选择时间时按用户本地时区解释输入值，避免 UI 选择与真实请求偏移。
+    const startTimestamp = new Date(`${startDate}T${startTime}:00`).getTime();
+    const endTimestamp = new Date(`${endDate}T${endTime}:59`).getTime();
     apiParams.start = startTimestamp;
     apiParams.end = endTimestamp;
   }

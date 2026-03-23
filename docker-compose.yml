@@ -40,6 +40,7 @@ services:
       dockerfile: Dockerfile
     container_name: money-api
     restart: unless-stopped
+    working_dir: /workspace/backend
     environment:
       NODE_ENV: development
       DB_HOST: mysql
@@ -52,9 +53,8 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      - ./backend:/app
-      - ./train:/workspace/train
-      - /app/node_modules
+      - .:/workspace
+      - /workspace/backend/node_modules
     networks:
       - trading-network
     depends_on:
@@ -67,15 +67,15 @@ services:
     image: node:22-alpine
     container_name: money-frontend
     restart: unless-stopped
-    working_dir: /app
+    working_dir: /workspace/frontend
     environment:
       VITE_PROXY_TARGET: http://api:3001
       CHOKIDAR_USEPOLLING: "true"
     ports:
       - "5173:5173"
     volumes:
-      - ./frontend:/app
-      - /app/node_modules
+      - .:/workspace
+      - /workspace/frontend/node_modules
     networks:
       - trading-network
     depends_on:
@@ -86,7 +86,7 @@ services:
   train:
     image: node:22
     restart: unless-stopped
-    working_dir: /app
+    working_dir: /workspace/train
     environment:
       NODE_ENV: development
       DB_HOST: mysql
@@ -96,8 +96,8 @@ services:
       DB_NAME: trading
       TRAIN_QUEUE_POLL_MS: 5000
     volumes:
-      - ./train:/app
-      - train_node_modules:/app/node_modules
+      - .:/workspace
+      - train_node_modules:/workspace/train/node_modules
     networks:
       - trading-network
     depends_on:

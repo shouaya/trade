@@ -5,6 +5,11 @@ import PlaybackControls from '../components/PlaybackControls';
 import { klinesAPI, tradesAPI } from '../api/api';
 import { loadKlineData as loadKlineDataService } from '../services/playbackService';
 import { usePlaybackControl } from '../hooks/usePlaybackControl';
+import {
+  createManualTrade,
+  evaluateTradeOnKline,
+} from '../services/simulatorEngine';
+import { resolveFeeModel, resolveSymbolSpec } from '../services/simulatorConfig';
 import { calculateRSI, calculateMACD } from '../utils/indicators';
 import './SimulatorPage.css';
 
@@ -13,7 +18,7 @@ function SimulatorPage({ replayTrade }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1000); // 1秒一根K线（默认速度）
-  const [startTime, setStartTime] = useState(null);
+  const [loadedStartTime, setLoadedStartTime] = useState(null);
   const [trade, setTrade] = useState(null);
   const [tradeResult, setTradeResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -21,7 +26,6 @@ function SimulatorPage({ replayTrade }) {
 
   // 使用 ref 避免闭包问题
   const klineDataRef = useRef([]);
-  const isPlayingRef = useRef(false);
 
   // 复盘模式标识
   const isReplayMode = !!replayTrade;
@@ -35,6 +39,8 @@ function SimulatorPage({ replayTrade }) {
   const [endTimeInput, setEndTimeInput] = useState('23:59');
   const [showDataSelector, setShowDataSelector] = useState(!isReplayMode); // 复盘模式不显示数据选择器
   const [dataRangeInfo, setDataRangeInfo] = useState(null);
+  const symbolSpec = resolveSymbolSpec(symbol);
+  const feeModel = resolveFeeModel(symbol);
 
   // 加载数据源的时间范围信息
   useEffect(() => {
@@ -92,7 +98,7 @@ function SimulatorPage({ replayTrade }) {
 
       setKlineData(data);
       klineDataRef.current = data; // 同步到 ref
-      setStartTime(new Date(parseInt(data[0].openTime)));
+      setLoadedStartTime(new Date(parseInt(data[0].openTime)));
       // 从第35根K线开始，这样RSI和MACD都能立即显示
       setCurrentIndex(Math.min(35, data.length - 1));
       setShowDataSelector(false);
@@ -126,47 +132,52 @@ function SimulatorPage({ replayTrade }) {
           const startTimestamp = entryTime;
           const endTimestamp = exitTime + tenMinutesInMs;
 
-          // 转换为日期时间格式（使用UTC时间，因为数据库存储的是UTC时间戳）
-          const startDateTime = new Date(startTimestamp);
-          const endDateTime = new Date(endTimestamp);
-
-          // 使用 ISO 格式并提取日期和时间部分（UTC）
-          const startISO = startDateTime.toISOString(); // "2025-02-09T22:41:00.000Z"
-          const endISO = endDateTime.toISOString();
-
           const params = {
             symbol: replayTrade.symbol || 'USDJPY',
             interval: '1m', // 复盘默认使用1分钟图
-            startDate: startISO.split('T')[0], // "2025-02-09"
-            startTime: startISO.split('T')[1].slice(0, 5), // "22:41"
-            endDate: endISO.split('T')[0],
-            endTime: endISO.split('T')[1].slice(0, 5),
+            start: startTimestamp,
+            end: endTimestamp,
           };
 
           console.log('📊 复盘模式加载数据:', params);
 
           // 加载数据
           const data = await loadKlineDataService(params);
+          const replaySymbol = replayTrade.symbol || 'USDJPY';
+          const replaySymbolSpec = resolveSymbolSpec(replaySymbol);
+          const replayFeeModel = resolveFeeModel(replaySymbol);
 
           setKlineData(data);
           klineDataRef.current = data;
-          setStartTime(new Date(parseInt(data[0].openTime)));
+          setSymbol(replaySymbol);
+          setLoadedStartTime(new Date(parseInt(data[0].openTime)));
           setCurrentIndex(0); // 复盘模式从第一根K线开始
 
           // 设置交易标记（转换为ChartComponent期望的格式）
           setTrade({
             direction: replayTrade.direction,
+            symbol: replaySymbol,
+            symbolSpec: replaySymbolSpec,
+            feeModel: replayFeeModel,
             entryTime: entryTime,
             entryPrice: entryPrice,
+            entryIndex: Number(replayTrade.entry_index ?? 0),
+            activationIndex: Number(replayTrade.entry_index ?? 0),
             stopLoss: replayTrade.stop_loss ? parseFloat(replayTrade.stop_loss) : null,
             takeProfit: replayTrade.take_profit ? parseFloat(replayTrade.take_profit) : null,
+            quantity: Number(replayTrade.lot_size ?? 0),
           });
 
           // 设置交易结果
           setTradeResult({
             exitTime: exitTime,
             exitPrice: exitPrice,
+            grossPnl: parseFloat(replayTrade.gross_pnl ?? replayTrade.pnl ?? 0),
+            commissionFee: parseFloat(replayTrade.commission_fee ?? 0),
             pnl: parseFloat(replayTrade.pnl),
+            pips: parseFloat(replayTrade.pips ?? 0),
+            percent: parseFloat(replayTrade.percent ?? 0),
+            holdMinutes: parseFloat(replayTrade.actual_hold_minutes ?? 0),
             exitReason: replayTrade.exit_reason,
           });
 
@@ -189,7 +200,7 @@ function SimulatorPage({ replayTrade }) {
   const currentKline = klineData[currentIndex];
   const currentTime = currentKline
     ? new Date(parseInt(currentKline.openTime))
-    : startTime;
+    : loadedStartTime;
 
   // 获取指定索引位置的指标值
   const getIndicatorValues = (index) => {
@@ -230,24 +241,18 @@ function SimulatorPage({ replayTrade }) {
 
   // 开始交易
   const handleStartTrade = (tradeParams) => {
-    const entryTime = parseInt(klineData[currentIndex].openTime);
-    // 使用传入的自定义价格，如果没有则使用当前K线收盘价
-    const entryPrice = tradeParams.entryPrice || parseFloat(klineData[currentIndex].close);
-
     // 获取入场时的指标值
     const entryIndicators = getIndicatorValues(currentIndex);
-
-    setTrade({
-      ...tradeParams,
-      entryTime,
-      entryPrice,
-      entryIndex: currentIndex,
-      // 保存入场时的指标值
-      entryRsi: entryIndicators?.rsi,
-      entryMacd: entryIndicators?.macd,
-      entryMacdSignal: entryIndicators?.macdSignal,
-      entryMacdHistogram: entryIndicators?.macdHistogram,
+    const nextTrade = createManualTrade({
+      symbol,
+      interval,
+      currentIndex,
+      klineData,
+      tradeParams,
+      entryIndicators,
     });
+
+    setTrade(nextTrade);
 
     setTradeResult(null);
   };
@@ -255,77 +260,26 @@ function SimulatorPage({ replayTrade }) {
   // 检查交易状态
   useEffect(() => {
     if (!trade || !currentKline) return;
+    const exitIndicators = getIndicatorValues(currentIndex);
+    const result = evaluateTradeOnKline({
+      trade,
+      currentIndex,
+      currentKline,
+      klineData,
+      exitIndicators,
+    });
 
-    const currentPrice = parseFloat(currentKline.close);
-    const high = parseFloat(currentKline.high);
-    const low = parseFloat(currentKline.low);
-    const currentTime = parseInt(currentKline.openTime);
-    const elapsedMinutes = (currentTime - trade.entryTime) / 60000;
-
-    let exitReason = null;
-    let exitPrice = null;
-
-    // 检查止损止盈
-    if (trade.direction === 'long') {
-      if (trade.stopLoss && low <= trade.stopLoss) {
-        exitReason = 'stop_loss';
-        exitPrice = trade.stopLoss;
-      } else if (trade.takeProfit && high >= trade.takeProfit) {
-        exitReason = 'take_profit';
-        exitPrice = trade.takeProfit;
-      }
-    } else {
-      if (trade.stopLoss && high >= trade.stopLoss) {
-        exitReason = 'stop_loss';
-        exitPrice = trade.stopLoss;
-      } else if (trade.takeProfit && low <= trade.takeProfit) {
-        exitReason = 'take_profit';
-        exitPrice = trade.takeProfit;
-      }
+    if (!result) {
+      return;
     }
 
-    // 检查持仓时间
-    if (!exitReason && elapsedMinutes >= trade.holdMinutes) {
-      exitReason = 'hold_time_reached';
-      exitPrice = currentPrice;
-    }
+    setTradeResult(result);
+    setTrade(null);
+    setIsPlaying(false);
 
-    // 如果触发退出
-    if (exitReason) {
-      const priceDiff = trade.direction === 'long'
-        ? exitPrice - trade.entryPrice
-        : trade.entryPrice - exitPrice;
-
-      const pips = priceDiff * 100;
-      const pnl = pips * 10 * (trade.lotSize || 1);
-      const percent = (priceDiff / trade.entryPrice) * 100;
-
-      // 获取出场时的指标值
-      const exitIndicators = getIndicatorValues(currentIndex);
-
-      const result = {
-        exitTime: currentTime,
-        exitPrice,
-        exitReason,
-        pnl: parseFloat(pnl.toFixed(2)),
-        pips: parseFloat(pips.toFixed(2)),
-        percent: parseFloat(percent.toFixed(4)),
-        holdMinutes: Math.round(elapsedMinutes),
-        // 保存出场时的指标值
-        exitRsi: exitIndicators?.rsi,
-        exitMacd: exitIndicators?.macd,
-        exitMacdSignal: exitIndicators?.macdSignal,
-        exitMacdHistogram: exitIndicators?.macdHistogram,
-      };
-
-      setTradeResult(result);
-      setTrade(null);
-      setIsPlaying(false);
-
-      // 保存交易记录到数据库
-      saveTradeToDatabase(trade, result);
-    }
-  }, [currentKline, trade]);
+    // 保存交易记录到数据库
+    saveTradeToDatabase(trade, result);
+  }, [currentIndex, currentKline, klineData, trade]);
 
   // 保存交易记录到数据库
   const saveTradeToDatabase = async (tradeData, result) => {
@@ -335,7 +289,7 @@ function SimulatorPage({ replayTrade }) {
         entryTime: tradeData.entryTime,
         entryPrice: tradeData.entryPrice,
         entryIndex: tradeData.entryIndex,
-        lotSize: tradeData.lotSize || 1,
+        lotSize: tradeData.quantity || 0,
         holdMinutes: tradeData.holdMinutes,
         stopLoss: tradeData.stopLoss,
         takeProfit: tradeData.takeProfit,
@@ -347,7 +301,7 @@ function SimulatorPage({ replayTrade }) {
         percent: result.percent,
         actualHoldMinutes: result.holdMinutes,
         strategyName: tradeData.strategyName || '手动交易',
-        symbol: 'USDJPY',
+        symbol: tradeData.symbol || symbol,
         // 入场时的指标值
         entryRsi: tradeData.entryRsi,
         entryMacd: tradeData.entryMacd,
@@ -569,11 +523,15 @@ function SimulatorPage({ replayTrade }) {
         {!isReplayMode && (
           <div className="trading-section">
             <TradingPanel
+              key={symbol}
+              symbol={symbol}
+              symbolSpec={symbolSpec}
+              feeModel={feeModel}
               currentPrice={currentKline ? parseFloat(currentKline.close) : 0}
               onStartTrade={handleStartTrade}
               trade={trade}
               tradeResult={tradeResult}
-              disabled={!currentKline || currentIndex === 0}
+              disabled={!currentKline || currentIndex >= klineData.length - 1}
             />
           </div>
         )}

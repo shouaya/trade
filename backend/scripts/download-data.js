@@ -146,6 +146,96 @@ async function fetchDailyPayload({ type, symbol, interval, priceType, date }) {
   throw new Error(`unexpected response for ${date}: ${JSON.stringify(response.data)}`);
 }
 
+function mergeFxBidAskPayloads({ bidPayload, askPayload, symbol, interval, date }) {
+  const bidData = Array.isArray(bidPayload?.data) ? bidPayload.data : [];
+  const askData = Array.isArray(askPayload?.data) ? askPayload.data : [];
+
+  const askMap = new Map(
+    askData.map((item) => [String(item.openTime), item])
+  );
+
+  const merged = [];
+  for (const bidItem of bidData) {
+    const openTime = String(bidItem.openTime);
+    const askItem = askMap.get(openTime);
+    if (!askItem) {
+      continue;
+    }
+
+    merged.push({
+      openTime,
+      bid_open: bidItem.open,
+      bid_high: bidItem.high,
+      bid_low: bidItem.low,
+      bid_close: bidItem.close,
+      ask_open: askItem.open,
+      ask_high: askItem.high,
+      ask_low: askItem.low,
+      ask_close: askItem.close,
+      volume: bidItem.volume ?? askItem.volume ?? 0
+    });
+  }
+
+  return {
+    type: 'fx',
+    symbol,
+    interval,
+    priceType: 'BOTH',
+    date,
+    count: merged.length,
+    responsetime: askPayload?.responsetime ?? bidPayload?.responsetime ?? null,
+    data: merged
+  };
+}
+
+async function fetchDailyOutput(validated, date) {
+  if (validated.type !== 'fx' || validated.priceType !== 'BOTH') {
+    const payload = await fetchDailyPayload({
+      type: validated.type,
+      symbol: validated.symbol,
+      interval: validated.interval,
+      priceType: validated.priceType,
+      date
+    });
+
+    return {
+      type: validated.type,
+      symbol: validated.symbol,
+      interval: validated.interval,
+      priceType: MARKET_CONFIG[validated.type].requiresPriceType ? validated.priceType : null,
+      date,
+      count: payload.data.length,
+      responsetime: payload.responsetime ?? null,
+      data: payload.data
+    };
+  }
+
+  const [bidPayload, askPayload] = await Promise.all([
+    fetchDailyPayload({
+      type: validated.type,
+      symbol: validated.symbol,
+      interval: validated.interval,
+      priceType: 'BID',
+      date
+    }),
+    fetchDailyPayload({
+      type: validated.type,
+      symbol: validated.symbol,
+      interval: validated.interval,
+      priceType: 'ASK',
+      date
+    })
+  ]);
+
+  return mergeFxBidAskPayloads({
+    bidPayload,
+    askPayload,
+    symbol: validated.symbol,
+    interval: validated.interval,
+    date
+  });
+}
+
 async function main() {
   const rawArgs = parseArgs(process.argv);
   const validated = validateDownloadOptions(rawArgs);
@@ -180,25 +270,7 @@ async function main() {
     let retries = 3;
     while (retries > 0) {
       try {
-        const payload = await fetchDailyPayload({
-          type: validated.type,
-          symbol: validated.symbol,
-          interval: validated.interval,
-          priceType: validated.priceType,
-          date
-        });
-
-        const output = {
-          type: validated.type,
-          symbol: validated.symbol,
-          interval: validated.interval,
-          priceType: MARKET_CONFIG[validated.type].requiresPriceType ? validated.priceType : null,
-          date,
-          count: payload.data.length,
-          responsetime: payload.responsetime ?? null,
-          data: payload.data
-        };
-
+        const output = await fetchDailyOutput(validated, date);
         fs.writeFileSync(filePath, JSON.stringify(output) + '\n', 'utf8');
         downloaded++;
         break;

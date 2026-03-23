@@ -167,6 +167,9 @@ function getValidationProfile(validationConfig, fallbackName) {
   }
 
   const fileText = normalizeText([fallbackName, validationConfig?.name, validationConfig?.description].join(' '));
+  if (fileText.includes('rolling')) {
+    return 'rolling-window';
+  }
   if (fileText.includes('future')) {
     return 'future-window';
   }
@@ -184,9 +187,9 @@ function getValidationPriority(profile) {
   switch (String(profile || '')) {
     case 'future-window':
       return 1;
-    case 'custom-range':
+    case 'rolling-window':
       return 2;
-    case 'annual-template':
+    case 'custom-range':
       return 3;
     case 'legacy-annual':
       return 4;
@@ -253,6 +256,8 @@ function buildNextAction(training, validationRecords, reports, routerFiles) {
   const costSensitivityPath = reports?.costSensitivity?.path || null;
   const featureCausalityPath = reports?.featureCausality?.path || null;
   const routerValidationPath = reports?.routerValidation?.path || null;
+  const latestGenerateValidationRequest = training.latestGenerateValidationRequest || null;
+  const hasActiveGenerateValidationRequest = isActiveRequestStatus(latestGenerateValidationRequest?.status);
   if (!training.trainingRun) {
     return {
       key: 'run-training',
@@ -261,6 +266,15 @@ function buildNextAction(training, validationRecords, reports, routerFiles) {
       commands: [
         '优先直接在 UI 中点击“运行训练”。如需 CLI 离线执行，请先从配置库导出对应 training config。'
       ]
+    };
+  }
+
+  if (!training.topStrategySnapshot && hasActiveGenerateValidationRequest) {
+    return {
+      key: 'waiting-generate-validation',
+      title: '等待最终策略 config 生成',
+      reason: 'worker 正在根据训练结果生成最终策略 config 和 validation 配置。',
+      commands: []
     };
   }
 
@@ -286,8 +300,20 @@ function buildNextAction(training, validationRecords, reports, routerFiles) {
     };
   }
 
+  const activeValidation = validationRecords
+    .filter((item) => !item.latestRun && isActiveRequestStatus(item.latestRequest?.status))
+    .sort((left, right) => getValidationPriority(left.validationProfile) - getValidationPriority(right.validationProfile))[0];
+  if (activeValidation) {
+    return {
+      key: 'waiting-validation',
+      title: `等待 Validation ${activeValidation.targetLabel}`,
+      reason: 'validation 请求已经在 worker 中执行，无需重复排队。',
+      commands: []
+    };
+  }
+
   const pendingValidation = validationRecords
-    .filter((item) => !item.latestRun)
+    .filter((item) => !item.latestRun && !isActiveRequestStatus(item.latestRequest?.status))
     .sort((left, right) => getValidationPriority(left.validationProfile) - getValidationPriority(right.validationProfile))[0];
   if (pendingValidation) {
     return {
@@ -380,6 +406,7 @@ async function loadDbSummary() {
     runMap: new Map(),
     taskMap: new Map(),
     latestRequestMap: new Map(),
+    latestActionRequestMap: new Map(),
     configRegistry: {
       training: [],
       validation: [],
@@ -465,24 +492,26 @@ async function loadDbSummary() {
 
     if (tables.has('train_run_requests')) {
       const [rows] = await db.query(`
-        SELECT req.*
-        FROM train_run_requests req
-        INNER JOIN (
-          SELECT config_key, MAX(id) AS max_id
-          FROM train_run_requests
-          GROUP BY config_key
-        ) latest
-          ON latest.max_id = req.id
-        ORDER BY req.created_at DESC, req.id DESC
+        SELECT *
+        FROM train_run_requests
+        ORDER BY created_at DESC, id DESC
       `);
 
       for (const row of rows) {
         const configKey = String(row.config_key || '');
-        if (!configKey || result.latestRequestMap.has(configKey)) {
+        const action = String(row.action || '');
+        if (!configKey) {
           continue;
         }
 
-        result.latestRequestMap.set(configKey, toRequestSummary(row));
+        if (!result.latestRequestMap.has(configKey)) {
+          result.latestRequestMap.set(configKey, toRequestSummary(row));
+        }
+
+        const actionKey = `${configKey}::${action}`;
+        if (!result.latestActionRequestMap.has(actionKey)) {
+          result.latestActionRequestMap.set(actionKey, toRequestSummary(row));
+        }
       }
     }
 
@@ -491,7 +520,6 @@ async function loadDbSummary() {
         SELECT
           config_key,
           config_type,
-          file_name,
           config_name,
           symbol,
           interval_type,
@@ -499,7 +527,6 @@ async function loadDbSummary() {
           source_table,
           train_config_ref,
           training_year,
-          synced_at,
           updated_at,
           content
         FROM train_configs
@@ -509,7 +536,7 @@ async function loadDbSummary() {
       for (const row of rows) {
         const entry = {
           configKey: String(row.config_key || ''),
-          fileName: String(row.file_name || path.basename(String(row.config_key || ''))),
+          fileName: path.basename(String(row.config_key || '')),
           configType: String(row.config_type || ''),
           configName: row.config_name ? String(row.config_name) : null,
           symbol: row.symbol ? String(row.symbol) : null,
@@ -518,7 +545,6 @@ async function loadDbSummary() {
           sourceTable: row.source_table ? String(row.source_table) : null,
           trainConfigRef: row.train_config_ref ? String(row.train_config_ref) : null,
           trainingYear: row.training_year ? String(row.training_year) : null,
-          syncedAt: formatIso(row.synced_at),
           updatedAt: formatIso(row.updated_at),
           content: parseMaybeJson(row.content)
         };
@@ -549,7 +575,7 @@ router.get('/', async (req, res) => {
         path: entry.configKey,
         fileName: entry.fileName,
         config: entry.content,
-        updatedAt: entry.syncedAt || entry.updatedAt
+        updatedAt: entry.updatedAt
       }));
 
     const validationEntries = dbSummary.configRegistry.validation
@@ -566,8 +592,8 @@ router.get('/', async (req, res) => {
         fileName: entry.fileName,
         data: entry.content,
         stat: {
-          mtime: entry.syncedAt || entry.updatedAt,
-          mtimeMs: new Date(entry.syncedAt || entry.updatedAt || 0).getTime()
+          mtime: entry.updatedAt,
+          mtimeMs: new Date(entry.updatedAt || 0).getTime()
         }
       }));
 
@@ -597,6 +623,8 @@ router.get('/', async (req, res) => {
       const trainingRun = runBucket.training || null;
       const latestTask = dbSummary.taskMap.get(String(config.name || '')) || null;
       const trainingLatestRequest = dbSummary.latestRequestMap.get(trainingEntry.path) || null;
+      const latestGenerateValidationRequest = dbSummary.latestActionRequestMap.get(`${trainingEntry.path}::generate-validation`) || null;
+      const generateValidationRunning = isActiveRequestStatus(latestGenerateValidationRequest?.status);
 
       const snapshotMatch = topStrategyEntries
         .filter((entry) => {
@@ -695,18 +723,26 @@ router.get('/', async (req, res) => {
         {
           key: 'top-strategies',
           title: 'Final Strategy Config',
-          status: buildStatus(Boolean(snapshotMatch)),
+          status: generateValidationRunning ? 'running' : buildStatus(Boolean(snapshotMatch)),
           detail: snapshotMatch
             ? (String(snapshotMatch.fullPath).startsWith('/')
               ? toRepoRelative(snapshotMatch.fullPath)
               : String(snapshotMatch.fullPath))
-            : '尚未生成'
+            : generateValidationRunning
+              ? `queue ${latestGenerateValidationRequest.status}`
+              : '尚未生成'
         },
         {
           key: 'validation-config',
           title: 'Validation Configs',
-          status: buildStatus(matchedValidations.length > 0),
-          detail: matchedValidations.length > 0 ? `${matchedValidations.length} records` : '未找到'
+          status: generateValidationRunning
+            ? 'running'
+            : buildStatus(matchedValidations.length > 0),
+          detail: matchedValidations.length > 0
+            ? `${matchedValidations.length} records`
+            : generateValidationRunning
+              ? '派生生成中'
+              : '未找到'
         },
         {
           key: 'validation-run',
@@ -758,6 +794,7 @@ router.get('/', async (req, res) => {
         validationPlan: config.validationPlan || null,
         trainingRun,
         topStrategySnapshot: snapshotMatch,
+        latestGenerateValidationRequest,
         topN,
         trainingYear
       }, matchedValidations, reportSummary, { routerPath, policyPath: policyExists ? policyPath : null });
@@ -779,6 +816,7 @@ router.get('/', async (req, res) => {
         },
         latestTask,
         latestRequest: trainingLatestRequest,
+        latestGenerateValidationRequest,
         trainingRun,
         topStrategySnapshot: snapshotMatch ? {
           path: String(snapshotMatch.fullPath).startsWith('/')

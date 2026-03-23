@@ -5,6 +5,7 @@ import * as path from 'path';
 import type * as mysql from 'mysql2/promise';
 import db from '../configs/database';
 import { StrategyExecutor } from '../services/strategy-executor';
+import { validateFeeModelConfig } from '../services/fee-model';
 import { generateStrategyCombinations } from '../services/strategy-parameter-generator';
 import type {
   Strategy,
@@ -268,32 +269,30 @@ function selectStrategies(config: ConfigFile, args: CliArgs): readonly Strategy[
   return generated;
 }
 
-function pickFeeModel(config: ConfigFile, overrideRate: number | undefined): FeeModelConfig | null {
-  const existing = config.executor?.options?.feeModel;
+function pickFeeModel(config: ConfigFile, overrideRate: number | undefined): FeeModelConfig {
+  const existing = validateFeeModelConfig(config.executor?.options?.feeModel, 'config.executor.options.feeModel');
   if (overrideRate !== undefined) {
-    return {
+    return validateFeeModelConfig({
+      ...existing,
       venueCode: existing?.venueCode ?? 'CUSTOM',
       commissionRate: overrideRate,
       basis: existing?.basis ?? 'notional',
-      chargeOnEntry: existing?.chargeOnEntry ?? true,
-      chargeOnExit: existing?.chargeOnExit ?? true
-    };
+      chargeOnEntry: existing?.chargeOnEntry,
+      chargeOnExit: existing?.chargeOnExit
+    }, 'config.executor.options.feeModel');
   }
 
-  if (!existing) {
-    return null;
-  }
-
-  return {
+  return validateFeeModelConfig({
+    ...existing,
     venueCode: existing.venueCode,
     commissionRate: existing.commissionRate,
     basis: existing.basis ?? 'notional',
-    chargeOnEntry: existing.chargeOnEntry ?? true,
-    chargeOnExit: existing.chargeOnExit ?? true
-  };
+    chargeOnEntry: existing.chargeOnEntry,
+    chargeOnExit: existing.chargeOnExit
+  }, 'config.executor.options.feeModel');
 }
 
-function buildScenarioOptions(baseOptions: ExecutorOptions, feeModel: FeeModelConfig | null, stressMultiplier: number) {
+function buildScenarioOptions(baseOptions: ExecutorOptions, feeModel: FeeModelConfig, stressMultiplier: number) {
   return [
     {
       name: 'no_cost',
@@ -309,7 +308,7 @@ function buildScenarioOptions(baseOptions: ExecutorOptions, feeModel: FeeModelCo
       options: {
         ...baseOptions,
         enableSlippage: false,
-        ...(feeModel ? { feeModel } : {})
+        feeModel
       }
     },
     {
@@ -318,7 +317,7 @@ function buildScenarioOptions(baseOptions: ExecutorOptions, feeModel: FeeModelCo
       options: {
         ...baseOptions,
         enableSlippage: true,
-        ...(feeModel ? { feeModel } : {}),
+        feeModel,
         slippageConfig: {
           normalSlippage: 0.3,
           tokyoSlippage: 10.0,
@@ -334,7 +333,7 @@ function buildScenarioOptions(baseOptions: ExecutorOptions, feeModel: FeeModelCo
       options: {
         ...baseOptions,
         enableSlippage: true,
-        ...(feeModel ? { feeModel } : {}),
+        feeModel,
         slippageConfig: {
           normalSlippage: round(0.3 * stressMultiplier, 4),
           tokyoSlippage: round(10.0 * stressMultiplier, 4),
@@ -376,6 +375,16 @@ function buildMarkdown(
   lines.push(`- Period: \`${new Date(config.timeRange.startTimeMs).toISOString()}\` -> \`${new Date(config.timeRange.endTimeMs).toISOString()}\``);
   lines.push(`- Strategies tested: \`${strategies.length}\``);
   lines.push(`- Stress multiplier: \`${stressMultiplier}\``);
+  const feeModel = validateFeeModelConfig(config.executor?.options?.feeModel, 'config.executor.options.feeModel');
+  lines.push(`- Fee venue: \`${feeModel.venueCode}\``);
+  lines.push(`- Product: \`${feeModel.market ?? 'unknown'}\`${feeModel.productCode ? ` / \`${feeModel.productCode}\`` : ''}`);
+  lines.push(`- Commission rate: \`${feeModel.commissionRate}\``);
+  if (feeModel.dailyLeverageRate !== undefined) {
+    lines.push(`- Daily leverage rate metadata: \`${feeModel.dailyLeverageRate}\``);
+  }
+  if (feeModel.liquidationFeeRate !== undefined) {
+    lines.push(`- Liquidation fee metadata: \`${feeModel.liquidationFeeRate}\``);
+  }
   lines.push('');
   lines.push('## Scenario Definitions');
   lines.push('');

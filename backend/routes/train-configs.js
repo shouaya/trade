@@ -13,10 +13,6 @@ const TRAIN_ROOT = process.env.TRAIN_ROOT
 const TRAIN_CONFIGS_TABLE = 'train_configs';
 const BACKTEST_RESULTS_TABLE = 'backtest_results';
 
-function buildDbSourcePath(configKey) {
-  return `db://train-configs/${String(configKey || '').replace(/^\/+/, '')}`;
-}
-
 function formatIso(value) {
   if (!value) {
     return null;
@@ -61,6 +57,68 @@ function parseContent(content) {
   }
 
   throw new Error('content 必须是 JSON 对象或 JSON 字符串');
+}
+
+function assertBoolean(value, fieldName) {
+  if (typeof value !== 'boolean') {
+    throw new Error(`${fieldName} 必须显式设置为 true 或 false`);
+  }
+}
+
+function assertFiniteNumber(value, fieldName, min = null) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    throw new Error(`${fieldName} 必须是有限数字`);
+  }
+  if (min !== null && numeric < min) {
+    throw new Error(`${fieldName} 必须 >= ${min}`);
+  }
+  return numeric;
+}
+
+function validateFeeModelForRunnableConfig(configType, payload) {
+  if (!(configType === 'training' || configType === 'validation')) {
+    return;
+  }
+
+  const feeModel = payload?.executor?.options?.feeModel;
+  if (!feeModel || typeof feeModel !== 'object') {
+    throw new Error('executor.options.feeModel 为必填，未设置时不允许保存可运行配置');
+  }
+
+  if (!String(feeModel.venueCode || '').trim()) {
+    throw new Error('executor.options.feeModel.venueCode 为必填');
+  }
+
+  if (feeModel.basis !== 'notional') {
+    throw new Error('executor.options.feeModel.basis 必须显式设置为 notional');
+  }
+
+  assertFiniteNumber(feeModel.commissionRate, 'executor.options.feeModel.commissionRate', 0);
+  assertBoolean(feeModel.chargeOnEntry, 'executor.options.feeModel.chargeOnEntry');
+  assertBoolean(feeModel.chargeOnExit, 'executor.options.feeModel.chargeOnExit');
+
+  if (feeModel.market === 'exchange-leverage') {
+    if (!String(feeModel.productCode || '').trim()) {
+      throw new Error('exchange-leverage 模式要求设置 executor.options.feeModel.productCode');
+    }
+
+    const leverageMultiplier = assertFiniteNumber(feeModel.leverageMultiplier, 'executor.options.feeModel.leverageMultiplier', 0);
+    if (leverageMultiplier <= 0) {
+      throw new Error('executor.options.feeModel.leverageMultiplier 必须 > 0');
+    }
+
+    assertFiniteNumber(feeModel.dailyLeverageRate, 'executor.options.feeModel.dailyLeverageRate', 0);
+    assertFiniteNumber(feeModel.liquidationFeeRate, 'executor.options.feeModel.liquidationFeeRate', 0);
+    if (feeModel.forcedCloseFeeRate !== undefined) {
+      assertFiniteNumber(feeModel.forcedCloseFeeRate, 'executor.options.feeModel.forcedCloseFeeRate', 0);
+    }
+
+    const settlementHourJst = Number(feeModel.settlementHourJst);
+    if (!Number.isInteger(settlementHourJst) || settlementHourJst < 0 || settlementHourJst > 23) {
+      throw new Error('executor.options.feeModel.settlementHourJst 必须是 0-23 的整数');
+    }
+  }
 }
 
 function detectConfigType(configKey, payload, explicitType) {
@@ -108,11 +166,11 @@ function resolveTrainingYear(payload, configKey) {
 function buildMetadata(configKey, payload, explicitType) {
   const contentRaw = JSON.stringify(payload, null, 2);
   const configType = detectConfigType(configKey, payload, explicitType);
+  validateFeeModelForRunnableConfig(configType, payload);
 
   return {
     configKey,
     configType,
-    fileName: path.basename(configKey),
     configName: payload?.name || null,
     symbol: payload?.market?.symbol ? String(payload.market.symbol).toUpperCase() : null,
     intervalType: payload?.market?.intervalType || null,
@@ -135,7 +193,7 @@ function toConfigRecord(row, includeContent = false) {
     id: Number(row.id),
     configKey: String(row.config_key),
     configType: String(row.config_type),
-    fileName: String(row.file_name),
+    fileName: path.basename(String(row.config_key)),
     configName: row.config_name ? String(row.config_name) : null,
     symbol: row.symbol ? String(row.symbol) : null,
     intervalType: row.interval_type ? String(row.interval_type) : null,
@@ -145,8 +203,6 @@ function toConfigRecord(row, includeContent = false) {
     trainingYear: row.training_year ? String(row.training_year) : null,
     isGenerated: Boolean(row.is_generated),
     contentHash: String(row.content_hash),
-    fileMtime: formatIso(row.file_mtime),
-    syncedAt: formatIso(row.synced_at),
     updatedAt: formatIso(row.updated_at),
     ...(includeContent ? { content } : {})
   };
@@ -321,13 +377,11 @@ router.post('/', async (req, res) => {
 
     await db.query(
       `INSERT INTO ${TRAIN_CONFIGS_TABLE}
-        (config_key, config_type, file_path, file_name, config_name, symbol, interval_type, result_group,
-         source_table, train_config_ref, training_year, is_generated, content_hash, content, file_mtime, synced_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), NULL, NOW())
+        (config_key, config_type, config_name, symbol, interval_type, result_group,
+         source_table, train_config_ref, training_year, is_generated, content_hash, content)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON))
        ON DUPLICATE KEY UPDATE
          config_type = VALUES(config_type),
-         file_path = VALUES(file_path),
-         file_name = VALUES(file_name),
          config_name = VALUES(config_name),
          symbol = VALUES(symbol),
          interval_type = VALUES(interval_type),
@@ -337,13 +391,10 @@ router.post('/', async (req, res) => {
          training_year = VALUES(training_year),
          is_generated = VALUES(is_generated),
          content_hash = VALUES(content_hash),
-         content = VALUES(content),
-         synced_at = NOW()`,
+         content = VALUES(content)`,
       [
         metadata.configKey,
         metadata.configType,
-        buildDbSourcePath(metadata.configKey),
-        metadata.fileName,
         metadata.configName,
         metadata.symbol,
         metadata.intervalType,
@@ -399,13 +450,6 @@ router.post('/:id/export', async (req, res) => {
     const absolutePath = resolveAbsoluteConfigPath(record.configKey);
     fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
     fs.writeFileSync(absolutePath, `${JSON.stringify(record.content, null, 2)}\n`, 'utf8');
-
-    await db.query(
-      `UPDATE ${TRAIN_CONFIGS_TABLE}
-       SET file_path = ?, file_mtime = NOW(), synced_at = NOW()
-       WHERE id = ?`,
-      [absolutePath, record.id]
-    );
 
     res.json({
       success: true,

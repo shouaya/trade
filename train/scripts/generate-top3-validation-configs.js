@@ -75,6 +75,14 @@ function resolveTrainConfigRef(trainConfigPath, explicitRef) {
   return toPosix(relativePath);
 }
 
+function normalizeValidationProfile(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'future-window' || normalized === 'rolling-window' || normalized === 'custom-range') {
+    return normalized;
+  }
+  return 'future-window';
+}
+
 function buildValidationTableName(symbol, year) {
   return `backtest_results_validation_${symbol.toLowerCase()}_${year}`;
 }
@@ -105,6 +113,16 @@ function toUtcStartOfDay(value) {
 function toUtcEndOfDay(value) {
   const date = new Date(value);
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 0);
+}
+
+function toUtcStartOfMonth(value) {
+  const date = new Date(value);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1, 0, 0, 0);
+}
+
+function toUtcEndOfMonth(value) {
+  const date = new Date(value);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0, 23, 59, 0);
 }
 
 function buildTimeRange(startMs, endMs) {
@@ -335,30 +353,34 @@ function buildValidationDefinitions({
     ];
   }
 
-  if (profile === 'annual-template') {
+  if (profile === 'rolling-window') {
     const definitions = [];
-    const startYear = new Date(futureStartMs).getUTCFullYear();
-    const endYear = new Date(futureEndMs).getUTCFullYear();
+    let cursorMs = toUtcStartOfMonth(futureStartMs);
 
-    for (let year = startYear; year <= endYear; year += 1) {
-      const segmentStartMs = Math.max(futureStartMs, Date.UTC(year, 0, 1, 0, 0, 0));
-      const segmentEndMs = Math.min(futureEndMs, Date.UTC(year, 11, 31, 23, 59, 0));
+    while (cursorMs <= futureEndMs) {
+      const cursorDate = new Date(cursorMs);
+      const monthToken = `${cursorDate.getUTCFullYear()}_${String(cursorDate.getUTCMonth() + 1).padStart(2, '0')}`;
+      const segmentStartMs = Math.max(futureStartMs, cursorMs);
+      const segmentEndMs = Math.min(futureEndMs, toUtcEndOfMonth(cursorMs));
       if (segmentStartMs > segmentEndMs) {
+        cursorMs = Date.UTC(cursorDate.getUTCFullYear(), cursorDate.getUTCMonth() + 1, 1, 0, 0, 0);
         continue;
       }
 
       definitions.push({
-        suffix: `${year}_validation`,
-        label: String(year),
-        shortLabel: 'annual-template',
-        tableToken: `annual_${year}`,
-        descriptionLabel: `${year} 年度验证`,
+        suffix: `rolling_${monthToken}_validation`,
+        label: `rolling ${formatIsoDate(segmentStartMs)} -> ${formatIsoDate(segmentEndMs)}`,
+        shortLabel: 'rolling-window',
+        tableToken: `rolling_${monthToken}`,
+        descriptionLabel: `Rolling 验证 ${formatIsoDate(segmentStartMs)} -> ${formatIsoDate(segmentEndMs)}`,
         timeRange: buildTimeRange(segmentStartMs, segmentEndMs)
       });
+
+      cursorMs = Date.UTC(cursorDate.getUTCFullYear(), cursorDate.getUTCMonth() + 1, 1, 0, 0, 0);
     }
 
     if (!definitions.length) {
-      throw new Error(`annual-template produced no validation windows for ${symbol}`);
+      throw new Error(`rolling-window produced no validation windows for ${symbol}`);
     }
 
     return definitions;
@@ -392,7 +414,7 @@ async function main() {
   const descriptionPrefix = required(args, 'descriptionPrefix');
   const limit = Number(args.limit || '3');
   const exact = String(args.exact || 'false').toLowerCase() === 'true';
-  const profile = String(args.profile || 'future-window').trim().toLowerCase();
+  const profile = normalizeValidationProfile(args.profile || 'future-window');
   const outputMode = String(args.outputMode || 'files').trim().toLowerCase();
 
   if (!Number.isInteger(limit) || limit <= 0) {

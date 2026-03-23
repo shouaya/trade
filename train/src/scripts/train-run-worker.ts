@@ -29,10 +29,6 @@ const CANCEL_CHECK_INTERVAL_MS = 1000;
 const CANCEL_GRACE_MS = 5000;
 const RUNTIME_CONFIG_ROOT = path.join(os.tmpdir(), 'money-train-runtime');
 
-function buildDbSourcePath(configKey: string): string {
-  return `db://train-configs/${String(configKey || '').replace(/^\/+/, '')}`;
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -66,6 +62,14 @@ function deriveValidationPrefix(trainingName: string, symbol: string, topN: numb
   const symbolLower = String(symbol || 'asset').toLowerCase();
   const trainingYear = getYearFromConfig({}, trainingName) || 'run';
   return `${trainingYear}_${symbolLower}_top${topN}`;
+}
+
+function normalizeValidationProfile(profile: unknown): string {
+  const normalized = String(profile || '').trim().toLowerCase();
+  if (normalized === 'future-window' || normalized === 'rolling-window' || normalized === 'custom-range') {
+    return normalized;
+  }
+  return 'future-window';
 }
 
 function parseConfigContent(configRow: mysql.RowDataPacket): Record<string, any> {
@@ -124,13 +128,11 @@ async function upsertRegistryConfig(
 
   await db.query(
     `INSERT INTO ${TRAIN_CONFIGS_TABLE}
-      (config_key, config_type, file_path, file_name, config_name, symbol, interval_type, result_group,
-       source_table, train_config_ref, training_year, is_generated, content_hash, content, file_mtime, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, CAST(? AS JSON), NULL, NOW())
+      (config_key, config_type, config_name, symbol, interval_type, result_group,
+       source_table, train_config_ref, training_year, is_generated, content_hash, content)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, CAST(? AS JSON))
      ON DUPLICATE KEY UPDATE
        config_type = VALUES(config_type),
-       file_path = VALUES(file_path),
-       file_name = VALUES(file_name),
        config_name = VALUES(config_name),
        symbol = VALUES(symbol),
        interval_type = VALUES(interval_type),
@@ -140,14 +142,10 @@ async function upsertRegistryConfig(
        training_year = VALUES(training_year),
        is_generated = VALUES(is_generated),
        content_hash = VALUES(content_hash),
-       content = VALUES(content),
-       file_mtime = NULL,
-       synced_at = NOW()`,
+       content = VALUES(content)`,
     [
       configKey,
       configType,
-      buildDbSourcePath(configKey),
-      path.basename(configKey),
       configName,
       symbol,
       intervalType,
@@ -209,7 +207,7 @@ function resolveCommand(
     const symbol = String(market?.['symbol'] || 'UNKNOWN').toUpperCase();
     const sourceTable = String(database?.['tableName'] || '').trim();
     const topN = Number(output?.['topN'] || 10);
-    const validationProfile = String(validationPlan?.['profile'] || 'future-window');
+    const validationProfile = normalizeValidationProfile(validationPlan?.['profile']);
 
     if (!trainingYear) {
       throw new Error('training year is missing');
