@@ -21,6 +21,7 @@ import { TaskManager } from '../services/task-manager';
 import { StrategyExecutor } from '../services/strategy-executor';
 import { generateStrategyCombinations } from '../services/strategy-parameter-generator';
 import { loadRouterPolicyCatalogFromRefs, summarizePolicyCatalog } from '../services/router-policy-catalog';
+import { ensureTrainConfigRegistryTable, upsertTrainConfigFromFile } from '../services/train-config-registry';
 import type * as mysql from 'mysql2/promise';
 import type {
   Strategy,
@@ -796,6 +797,8 @@ async function main(): Promise<void> {
     // 1. 加载配置
     const resolvedConfigPath = resolveConfigPath(configPath);
     const config = loadConfig(configPath);
+    await ensureTrainConfigRegistryTable(db);
+    await upsertTrainConfigFromFile(db, resolvedConfigPath);
     const policyCatalog = loadRouterPolicyCatalogFromRefs({
       baseFilePath: resolvedConfigPath,
       routerConfigPath: config.regimeRouting?.routerConfigPath,

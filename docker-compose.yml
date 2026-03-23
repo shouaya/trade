@@ -48,10 +48,12 @@ services:
       DB_PASSWORD: traderpass
       DB_NAME: trading
       PORT: 3001
+      TRAIN_ROOT: /workspace/train
     ports:
       - "3001:3001"
     volumes:
       - ./backend:/app
+      - ./train:/workspace/train
       - /app/node_modules
     networks:
       - trading-network

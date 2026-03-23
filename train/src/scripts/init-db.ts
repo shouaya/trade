@@ -9,8 +9,10 @@ import {
   BACKTEST_RESULTS_DDL,
   STRATEGIES_DDL,
   TRADES_DDL,
-  TASKS_DDL
+  TASKS_DDL,
+  TRAIN_CONFIGS_DDL
 } from '../database';
+import { syncTrainConfigsFromDisk } from '../services/train-config-registry';
 
 interface TableCheckResult {
   readonly tableName: string;
@@ -137,6 +139,12 @@ async function createTasksTable(): Promise<void> {
   console.log('✅ tasks 表创建成功');
 }
 
+async function createTrainConfigsTable(): Promise<void> {
+  console.log('📊 创建 train_configs 表...');
+  await db.query(TRAIN_CONFIGS_DDL);
+  console.log('✅ train_configs 表创建成功');
+}
+
 async function main(): Promise<void> {
   console.log('='.repeat(80));
   console.log('🚀 开始初始化数据库');
@@ -161,6 +169,9 @@ async function main(): Promise<void> {
     await createStrategiesTable();
     await createTradesTable();
     await createTasksTable();
+    await createTrainConfigsTable();
+    const syncResult = await syncTrainConfigsFromDisk(db);
+    console.log(`✅ 配置注册表同步完成 (${syncResult.synced}/${syncResult.scanned})`);
 
     console.log('');
     console.log('='.repeat(80));
@@ -169,7 +180,7 @@ async function main(): Promise<void> {
     console.log('');
 
     // 检查所有表
-    const tables = ['klines', 'backtest_results', 'strategies', 'trades', 'tasks'];
+    const tables = ['klines', 'backtest_results', 'strategies', 'trades', 'tasks', 'train_configs'];
     const results: TableCheckResult[] = [];
 
     for (const tableName of tables) {

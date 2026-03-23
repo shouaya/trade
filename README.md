@@ -13,6 +13,10 @@
 
 ## 🚀 快速开始
 
+训练系统快速上手入口：
+
+- [TRAIN_OPERATOR_GUIDE.md](/Users/ts-changchang.zhuang/git/money/TRAIN_OPERATOR_GUIDE.md)
+
 ### 1. 获取样本数据
 
 ```bash

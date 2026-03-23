@@ -13,6 +13,7 @@
     "test": "node --experimental-strip-types test/run-tests.ts",
     "type-check": "tsc --noEmit",
     "init-db": "node dist/scripts/init-db.js",
+    "sync:configs": "node dist/scripts/sync-config-registry.js",
     "migrate:backtest-results": "node dist/scripts/migrate-backtest-results.js",
     "train": "node dist/scripts/train.js",
     "validate": "node dist/scripts/train.js",

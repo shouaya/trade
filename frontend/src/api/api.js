@@ -99,4 +99,28 @@ export const strategiesAPI = {
   },
 };
 
+export const trainPipelineAPI = {
+  getSummary: () => {
+    return api.get('/train-pipeline');
+  },
+};
+
+export const trainConfigsAPI = {
+  list: (params = {}) => {
+    return api.get('/train-configs', { params });
+  },
+
+  getById: (id) => {
+    return api.get(`/train-configs/${id}`);
+  },
+
+  save: (payload) => {
+    return api.post('/train-configs', payload);
+  },
+
+  exportConfig: (id) => {
+    return api.post(`/train-configs/${id}/export`);
+  },
+};
+
 export default api;

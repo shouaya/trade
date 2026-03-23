@@ -20,6 +20,7 @@
   border-radius: 8px 8px 0 0;
   transition: all 0.2s ease;
   position: relative;
+  text-decoration: none;
 }
 
 .tab-button:hover {

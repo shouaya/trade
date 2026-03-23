@@ -21,11 +21,15 @@ const klinesRouter = require('./routes/klines');
 const tradesRouter = require('./routes/trades');
 const strategiesRouter = require('./routes/strategies');
 const importRouter = require('./routes/import');
+const trainPipelineRouter = require('./routes/train-pipeline');
+const trainConfigsRouter = require('./routes/train-configs');
 
 app.use('/api/klines', klinesRouter);
 app.use('/api/trades', tradesRouter);
 app.use('/api/strategies', strategiesRouter);
 app.use('/api/import', importRouter);
+app.use('/api/train-pipeline', trainPipelineRouter);
+app.use('/api/train-configs', trainConfigsRouter);
 
 // 错误处理
 app.use((err, req, res, next) => {
