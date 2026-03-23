@@ -23,6 +23,7 @@ const strategiesRouter = require('./routes/strategies');
 const importRouter = require('./routes/import');
 const trainPipelineRouter = require('./routes/train-pipeline');
 const trainConfigsRouter = require('./routes/train-configs');
+const trainRunRequestsRouter = require('./routes/train-run-requests');
 
 app.use('/api/klines', klinesRouter);
 app.use('/api/trades', tradesRouter);
@@ -30,6 +31,7 @@ app.use('/api/strategies', strategiesRouter);
 app.use('/api/import', importRouter);
 app.use('/api/train-pipeline', trainPipelineRouter);
 app.use('/api/train-configs', trainConfigsRouter);
+app.use('/api/train-run-requests', trainRunRequestsRouter);
 
 // 错误处理
 app.use((err, req, res, next) => {

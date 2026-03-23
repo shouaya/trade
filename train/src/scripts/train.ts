@@ -46,6 +46,8 @@ async function createTaskManager(): Promise<TaskManager> {
 const PROGRESS_INTERVAL_MS = 10000;
 const TRADE_BATCH_SIZE = 1000;
 const BACKTEST_RESULTS_TABLE = 'backtest_results';
+const TRAIN_ROOT = path.resolve(__dirname, '..', '..');
+const CONFIGS_ROOT = path.join(TRAIN_ROOT, 'configs');
 
 interface TrainingConfig {
   readonly name: string;
@@ -158,6 +160,15 @@ function resolveConfigPath(configPath: string): string {
   return path.isAbsolute(configPath)
     ? configPath
     : path.resolve(__dirname, '..', '..', configPath);
+}
+
+function shouldSyncConfigToRegistry(filePath: string): boolean {
+  if (process.env['TRAIN_SKIP_CONFIG_REGISTRY_UPSERT'] === '1') {
+    return false;
+  }
+
+  const normalizedConfigsRoot = `${CONFIGS_ROOT}${path.sep}`;
+  return filePath === CONFIGS_ROOT || filePath.startsWith(normalizedConfigsRoot);
 }
 
 function loadConfig(configPath: string): TrainingConfig {
@@ -797,8 +808,10 @@ async function main(): Promise<void> {
     // 1. 加载配置
     const resolvedConfigPath = resolveConfigPath(configPath);
     const config = loadConfig(configPath);
-    await ensureTrainConfigRegistryTable(db);
-    await upsertTrainConfigFromFile(db, resolvedConfigPath);
+    if (shouldSyncConfigToRegistry(resolvedConfigPath)) {
+      await ensureTrainConfigRegistryTable(db);
+      await upsertTrainConfigFromFile(db, resolvedConfigPath);
+    }
     const policyCatalog = loadRouterPolicyCatalogFromRefs({
       baseFilePath: resolvedConfigPath,
       routerConfigPath: config.regimeRouting?.routerConfigPath,

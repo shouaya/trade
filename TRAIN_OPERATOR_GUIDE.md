@@ -49,6 +49,12 @@
 docker compose up -d mysql api frontend adminer
 ```
 
+如果你要使用 UI 里的一键训练/验证，请把 `train` worker 也启动：
+
+```bash
+docker compose up -d train
+```
+
 第一次使用 `train` 时，建议先初始化：
 
 ```bash
@@ -56,6 +62,7 @@ docker compose run --rm train sh -lc "npm install && npm run build && npm run in
 ```
 
 这一步现在还会自动把 `train/configs/**/*.json` 同步进数据库里的 `train_configs`。
+同时也会创建 UI 运行队列使用的 `train_run_requests` 表。
 
 如果只是更新代码后重新跑：
 

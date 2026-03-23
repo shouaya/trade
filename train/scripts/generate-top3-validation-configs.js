@@ -31,6 +31,27 @@ function required(args, key) {
   return value;
 }
 
+function getYearFromConfig(config, fallbackName) {
+  const baseYear = String(fallbackName || '').match(/^(\d{4})_/);
+  if (baseYear) {
+    return baseYear[1] || null;
+  }
+
+  const startIso = config?.timeRange?.startIso;
+  if (startIso) {
+    const year = new Date(startIso).getUTCFullYear();
+    return Number.isNaN(year) ? null : String(year);
+  }
+
+  const startMs = config?.timeRange?.startTimeMs;
+  if (startMs != null) {
+    const year = new Date(Number(startMs)).getUTCFullYear();
+    return Number.isNaN(year) ? null : String(year);
+  }
+
+  return null;
+}
+
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
@@ -40,8 +61,22 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2) + '\n', 'utf8');
 }
 
+function toPosix(value) {
+  return String(value || '').replace(/\\/g, '/');
+}
+
+function resolveTrainConfigRef(trainConfigPath, explicitRef) {
+  if (explicitRef) {
+    return toPosix(explicitRef);
+  }
+
+  const trainRoot = path.resolve(__dirname, '..');
+  const relativePath = path.relative(trainRoot, trainConfigPath);
+  return toPosix(relativePath);
+}
+
 function buildValidationTableName(symbol, year) {
-  return `backtest_results_top3_from_2025_${symbol.toLowerCase()}_${year}`;
+  return `backtest_results_validation_${symbol.toLowerCase()}_${year}`;
 }
 
 function buildExactValidationTableName(symbol, year, limit, outPrefix) {
@@ -52,6 +87,284 @@ function buildExactValidationTableName(symbol, year, limit, outPrefix) {
     .slice(0, 8);
 
   return `backtest_results_top${limit}_${symbol.toLowerCase()}_${year}_${digest}`;
+}
+
+function formatIsoDate(value) {
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+function formatCompactDate(value) {
+  return formatIsoDate(value).replace(/-/g, '_');
+}
+
+function toUtcStartOfDay(value) {
+  const date = new Date(value);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0);
+}
+
+function toUtcEndOfDay(value) {
+  const date = new Date(value);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 0);
+}
+
+function buildTimeRange(startMs, endMs) {
+  return {
+    startTimeMs: startMs,
+    endTimeMs: endMs,
+    startIso: new Date(startMs).toISOString(),
+    endIso: new Date(endMs).toISOString()
+  };
+}
+
+function buildSnapshotFileName(outPrefix, limit) {
+  return outPrefix.endsWith(`top${limit}`)
+    ? `${outPrefix}.generated.json`
+    : `${outPrefix}_top${limit}.generated.json`;
+}
+
+function buildValidationArtifacts({
+  validationDefinitions,
+  outPrefix,
+  limit,
+  symbol,
+  trainingYear,
+  trainConfig,
+  sourceTable,
+  trainConfigRef,
+  exact,
+  strategyPrefix,
+  descriptionPrefix,
+  explicitStrategies,
+  merged,
+  sourceRunId,
+  rows,
+  profile
+}) {
+  const validationConfigs = validationDefinitions.map((definition) => {
+    const configKey = `configs/validation/${outPrefix}_${definition.suffix}.json`;
+    return {
+      configKey,
+      configType: 'validation',
+      content: {
+        name: `${symbol}_TOP${limit}_${definition.shortLabel.toUpperCase().replace(/-/g, '_')}_FROM_${trainingYear}_VALIDATION`,
+        description: `${symbol} ${definition.descriptionLabel} - 基于 ${trainingYear} training Top${limit} 参数`,
+        timeRange: definition.timeRange,
+        market: {
+          symbol,
+          intervalType: trainConfig.market.intervalType
+        },
+        database: {
+          tableName: exact
+            ? buildExactValidationTableName(symbol, definition.tableToken, limit, `${outPrefix}_${definition.suffix}`)
+            : buildValidationTableName(symbol, definition.tableToken),
+          resetTableBeforeRun: true
+        },
+        strategy: {
+          ...(exact
+            ? { explicitStrategies }
+            : {
+                types: trainConfig.strategy.types,
+                parameters: merged
+              })
+        },
+        executor: trainConfig.executor,
+        output: {
+          topN: limit,
+          strategyNamePrefix: `${strategyPrefix}${definition.shortLabel.toUpperCase()}-`,
+          descriptionPrefix: `${descriptionPrefix} ${definition.descriptionLabel}`
+        },
+        sourceTable,
+        trainConfig: trainConfigRef,
+        validationProfile: profile,
+        validationTarget: {
+          label: definition.label,
+          cutoffDate: formatIsoDate(definition.timeRange.endTimeMs),
+          startIso: definition.timeRange.startIso,
+          endIso: definition.timeRange.endIso
+        }
+      }
+    };
+  });
+
+  const snapshotConfigKey = `configs/top-strategies/${buildSnapshotFileName(outPrefix, limit)}`;
+  const snapshotContent = {
+    artifactType: 'final-strategy-config',
+    name: `${symbol}_TOP${limit}_FINAL_CONFIG_FROM_${trainingYear}`,
+    description: `${symbol} Top${limit} 最终策略配置 - 基于 ${trainingYear} training 候选池`,
+    generatedAt: new Date().toISOString(),
+    sourceTable,
+    sourcePhysicalTable: BACKTEST_RESULTS_TABLE,
+    sourceRunId,
+    symbol,
+    market: {
+      symbol,
+      intervalType: trainConfig.market.intervalType
+    },
+    executor: trainConfig.executor,
+    strategy: {
+      explicitStrategies
+    },
+    output: {
+      topN: limit,
+      persistTopStrategies: false,
+      persistTrades: false,
+      strategyNamePrefix: `${strategyPrefix}FINAL-`,
+      descriptionPrefix: `${descriptionPrefix} final strategy package`
+    },
+    trainingContext: {
+      trainingYear,
+      timeRange: trainConfig.timeRange,
+      resultGroup: sourceTable
+    },
+    validationTargets: validationDefinitions.map((definition) => ({
+      label: definition.label,
+      startIso: definition.timeRange.startIso,
+      endIso: definition.timeRange.endIso
+    })),
+    validationProfile: profile,
+    exact,
+    limit,
+    trainConfig: trainConfigRef,
+    strategies: rows.map((row, index) => ({
+      rank: index + 1,
+      strategyName: row.strategy_name,
+      strategyType: row.strategy_type,
+      totalTrades: row.total_trades,
+      winRate: row.win_rate,
+      totalPnl: row.total_pnl,
+      score: row.score,
+      parameters: typeof row.parameters === 'string' ? JSON.parse(row.parameters) : row.parameters
+    }))
+  };
+
+  return {
+    validationConfigs,
+    snapshot: {
+      configKey: snapshotConfigKey,
+      configType: 'top-strategies',
+      content: snapshotContent
+    }
+  };
+}
+
+async function loadKlineCoverage(connection, symbol, intervalType) {
+  const [rows] = await connection.query(
+    `SELECT MIN(open_time) AS min_open_time, MAX(open_time) AS max_open_time
+     FROM klines
+     WHERE symbol = ?
+       AND interval_type = ?`,
+    [symbol, intervalType]
+  );
+
+  const row = rows[0] || {};
+  const minOpenTime = row.min_open_time == null ? null : Number(row.min_open_time);
+  const maxOpenTime = row.max_open_time == null ? null : Number(row.max_open_time);
+
+  if (minOpenTime == null || maxOpenTime == null) {
+    throw new Error(`no klines found for symbol=${symbol} interval=${intervalType}`);
+  }
+
+  return {
+    minOpenTime,
+    maxOpenTime
+  };
+}
+
+function buildValidationDefinitions({
+  profile,
+  trainingYear,
+  symbol,
+  limit,
+  trainConfig,
+  coverage,
+  customStartIso,
+  customEndIso
+}) {
+  const trainingEndSource = trainConfig?.timeRange?.endIso || trainConfig?.timeRange?.endTimeMs;
+  if (!trainingEndSource) {
+    throw new Error('training end time is missing');
+  }
+
+  const trainingEndDate = new Date(trainingEndSource);
+  if (Number.isNaN(trainingEndDate.getTime())) {
+    throw new Error('training end time is invalid');
+  }
+
+  const futureStartMs = toUtcStartOfDay(trainingEndDate.getTime() + 24 * 60 * 60 * 1000);
+  const futureEndMs = Number(coverage.maxOpenTime);
+
+  if (futureStartMs > futureEndMs) {
+    throw new Error(`future window is empty for symbol=${symbol}`);
+  }
+
+  if (profile === 'future-window') {
+    const startLabel = formatIsoDate(futureStartMs);
+    const cutoffLabel = formatIsoDate(futureEndMs);
+    return [
+      {
+        suffix: `future_from_${trainingYear}_to_${formatCompactDate(futureEndMs)}_validation`,
+        label: `future ${startLabel} -> ${cutoffLabel}`,
+        shortLabel: 'future-window',
+        tableToken: `future_${formatCompactDate(futureEndMs)}`,
+        descriptionLabel: `未来期 ${startLabel} -> ${cutoffLabel}`,
+        timeRange: buildTimeRange(futureStartMs, futureEndMs)
+      }
+    ];
+  }
+
+  if (profile === 'custom-range') {
+    if (!customStartIso || !customEndIso) {
+      throw new Error('custom-range requires validationPlan.customRange');
+    }
+
+    const startMs = toUtcStartOfDay(customStartIso);
+    const endMs = toUtcEndOfDay(customEndIso);
+    if (startMs > endMs) {
+      throw new Error('custom validation range is invalid');
+    }
+
+    return [
+      {
+        suffix: `custom_${formatCompactDate(startMs)}_to_${formatCompactDate(endMs)}_validation`,
+        label: `custom ${formatIsoDate(startMs)} -> ${formatIsoDate(endMs)}`,
+        shortLabel: 'custom-range',
+        tableToken: `custom_${formatCompactDate(startMs)}_${formatCompactDate(endMs)}`,
+        descriptionLabel: `自定义验证 ${formatIsoDate(startMs)} -> ${formatIsoDate(endMs)}`,
+        timeRange: buildTimeRange(startMs, endMs)
+      }
+    ];
+  }
+
+  if (profile === 'annual-template') {
+    const definitions = [];
+    const startYear = new Date(futureStartMs).getUTCFullYear();
+    const endYear = new Date(futureEndMs).getUTCFullYear();
+
+    for (let year = startYear; year <= endYear; year += 1) {
+      const segmentStartMs = Math.max(futureStartMs, Date.UTC(year, 0, 1, 0, 0, 0));
+      const segmentEndMs = Math.min(futureEndMs, Date.UTC(year, 11, 31, 23, 59, 0));
+      if (segmentStartMs > segmentEndMs) {
+        continue;
+      }
+
+      definitions.push({
+        suffix: `${year}_validation`,
+        label: String(year),
+        shortLabel: 'annual-template',
+        tableToken: `annual_${year}`,
+        descriptionLabel: `${year} 年度验证`,
+        timeRange: buildTimeRange(segmentStartMs, segmentEndMs)
+      });
+    }
+
+    if (!definitions.length) {
+      throw new Error(`annual-template produced no validation windows for ${symbol}`);
+    }
+
+    return definitions;
+  }
+
+  throw new Error(`unsupported validation profile: ${profile}`);
 }
 
 async function findLatestRunId(connection, resultGroup) {
@@ -74,29 +387,17 @@ async function main() {
   const symbol = required(args, 'symbol').toUpperCase();
   const sourceTable = required(args, 'sourceTable');
   const outPrefix = required(args, 'outPrefix');
+  const trainConfigRef = resolveTrainConfigRef(trainConfigPath, args.trainConfigRef);
   const strategyPrefix = required(args, 'strategyPrefix');
   const descriptionPrefix = required(args, 'descriptionPrefix');
   const limit = Number(args.limit || '3');
   const exact = String(args.exact || 'false').toLowerCase() === 'true';
+  const profile = String(args.profile || 'future-window').trim().toLowerCase();
+  const outputMode = String(args.outputMode || 'files').trim().toLowerCase();
 
   if (!Number.isInteger(limit) || limit <= 0) {
     throw new Error(`invalid --limit=${args.limit}`);
   }
-
-  const timeRanges = {
-    '2024': {
-      startTimeMs: 1704067200000,
-      endTimeMs: 1735689540000,
-      startIso: '2024-01-01T00:00:00.000Z',
-      endIso: '2024-12-31T23:59:00.000Z'
-    },
-    '2026': {
-      startTimeMs: 1767225600000,
-      endTimeMs: 1773964740000,
-      startIso: '2026-01-01T00:00:00.000Z',
-      endIso: '2026-03-19T23:59:00.000Z'
-    }
-  };
 
   const connection = await mysql.createConnection({
     host: process.env.DB_HOST || '127.0.0.1',
@@ -120,6 +421,24 @@ async function main() {
   });
 
   try {
+    const trainingYear = getYearFromConfig(trainConfig, path.basename(trainConfigPath)) || 'run';
+    const validationPlan = trainConfig.validationPlan && typeof trainConfig.validationPlan === 'object'
+      ? trainConfig.validationPlan
+      : {};
+    const customRange = validationPlan.customRange && typeof validationPlan.customRange === 'object'
+      ? validationPlan.customRange
+      : {};
+    const coverage = await loadKlineCoverage(connection, symbol, trainConfig.market.intervalType);
+    const validationDefinitions = buildValidationDefinitions({
+      profile,
+      trainingYear,
+      symbol,
+      limit,
+      trainConfig,
+      coverage,
+      customStartIso: customRange.startIso,
+      customEndIso: customRange.endIso
+    });
     const sourceRunId = await findLatestRunId(connection, sourceTable);
     if (!sourceRunId) {
       throw new Error(`no run found in logical result group ${sourceTable}`);
@@ -169,70 +488,51 @@ async function main() {
       parameters: typeof row.parameters === 'string' ? JSON.parse(row.parameters) : row.parameters
     }));
 
-    for (const year of ['2024', '2026']) {
-      const outputPath = path.resolve(__dirname, `../configs/validation/${outPrefix}_${year}_validation.json`);
-      const config = {
-        name: `${year}_${symbol}_TOP${limit}_FROM_2025_VALIDATION`,
-        description: `${year}年 ${symbol} 验证 - 使用2025训练 Top${limit} 参数`,
-        timeRange: timeRanges[year],
-        market: {
-          symbol,
-          intervalType: trainConfig.market.intervalType
-        },
-        database: {
-          tableName: exact
-            ? buildExactValidationTableName(symbol, year, limit, outPrefix)
-            : buildValidationTableName(symbol, year),
-          resetTableBeforeRun: true
-        },
-        strategy: {
-          ...(exact
-            ? { explicitStrategies }
-            : {
-                types: trainConfig.strategy.types,
-                parameters: merged
-              })
-        },
-        executor: trainConfig.executor,
-        output: {
-          topN: limit,
-          strategyNamePrefix: `${strategyPrefix}${year}-`,
-          descriptionPrefix: `${descriptionPrefix} ${year} 验证`
-        }
-      };
+    const artifacts = buildValidationArtifacts({
+      validationDefinitions,
+      outPrefix,
+      limit,
+      symbol,
+      trainingYear,
+      trainConfig,
+      sourceTable,
+      trainConfigRef,
+      exact,
+      strategyPrefix,
+      descriptionPrefix,
+      explicitStrategies,
+      merged,
+      sourceRunId,
+      rows,
+      profile
+    });
 
-      writeJson(outputPath, config);
+    if (outputMode === 'json') {
+      process.stdout.write(`${JSON.stringify(artifacts)}\n`);
+      return;
+    }
+
+    for (const item of artifacts.validationConfigs) {
+      const outputPath = path.resolve(__dirname, `../${item.configKey}`);
+      writeJson(outputPath, item.content);
       console.log(`Validation config written: ${outputPath}`);
     }
 
-    const snapshotPath = path.resolve(__dirname, `../configs/top-strategies/${outPrefix}_top${limit}.generated.json`);
-    writeJson(snapshotPath, {
-      generatedAt: new Date().toISOString(),
-      sourceTable,
-      sourcePhysicalTable: BACKTEST_RESULTS_TABLE,
-      sourceRunId,
-      symbol,
-      exact,
-      limit,
-      trainConfig: path.relative(path.resolve(__dirname, '..'), trainConfigPath),
-      strategies: rows.map((row, index) => ({
-        rank: index + 1,
-        strategyName: row.strategy_name,
-        strategyType: row.strategy_type,
-        totalTrades: row.total_trades,
-        winRate: row.win_rate,
-        totalPnl: row.total_pnl,
-        score: row.score,
-        parameters: typeof row.parameters === 'string' ? JSON.parse(row.parameters) : row.parameters
-      }))
-    });
+    const snapshotPath = path.resolve(__dirname, `../${artifacts.snapshot.configKey}`);
+    writeJson(snapshotPath, artifacts.snapshot.content);
     console.log(`Top${limit} snapshot written: ${snapshotPath}`);
   } finally {
     await connection.end();
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+module.exports = {
+  buildValidationArtifacts
+};
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

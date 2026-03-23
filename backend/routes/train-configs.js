@@ -11,6 +11,11 @@ const TRAIN_ROOT = process.env.TRAIN_ROOT
   ? path.resolve(process.env.TRAIN_ROOT)
   : path.join(REPO_ROOT, 'train');
 const TRAIN_CONFIGS_TABLE = 'train_configs';
+const BACKTEST_RESULTS_TABLE = 'backtest_results';
+
+function buildDbSourcePath(configKey) {
+  return `db://train-configs/${String(configKey || '').replace(/^\/+/, '')}`;
+}
 
 function formatIso(value) {
   if (!value) {
@@ -152,6 +157,14 @@ async function ensureRegistryTableExists() {
   return rows.length > 0;
 }
 
+function sendRegistryNotReady(res) {
+  return res.status(503).json({
+    success: false,
+    error: 'Train config registry not ready',
+    message: 'train_configs 表不存在，请先执行 docker compose run --rm train sh -lc "npm install && npm run build && npm run init-db"；如果要导入初始样例配置，再执行 npm run seed:configs'
+  });
+}
+
 async function loadConfigById(id) {
   const [rows] = await db.query(
     `SELECT *
@@ -171,6 +184,35 @@ function resolveAbsoluteConfigPath(configKey) {
     throw new Error('导出路径超出 train 根目录');
   }
   return fullPath;
+}
+
+function safeUnlink(filePath) {
+  try {
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      return true;
+    }
+  } catch (error) {
+    console.warn('删除文件失败:', filePath, error.message);
+  }
+
+  return false;
+}
+
+async function loadDerivedConfigs(trainingRecord) {
+  const [rows] = await db.query(
+    `SELECT *
+     FROM ${TRAIN_CONFIGS_TABLE}
+     WHERE id <> ?
+       AND (
+         train_config_ref = ?
+         OR source_table = ?
+       )
+     ORDER BY id ASC`,
+    [trainingRecord.id, trainingRecord.configKey, trainingRecord.resultGroup || '']
+  );
+
+  return rows.map((row) => toConfigRecord(row, true));
 }
 
 function buildRunCommand(configType, configKey) {
@@ -199,6 +241,7 @@ router.get('/', async (req, res) => {
     }
 
     const includeContent = String(req.query.includeContent || 'false') === 'true';
+    const includeDerived = String(req.query.includeDerived || 'false') === 'true';
     const configType = req.query.type ? String(req.query.type) : null;
     const params = [];
     let query = `
@@ -209,6 +252,8 @@ router.get('/', async (req, res) => {
     if (configType) {
       query += ' WHERE config_type = ?';
       params.push(configType);
+    } else if (!includeDerived) {
+      query += ` WHERE config_type = 'training'`;
     }
 
     query += ' ORDER BY updated_at DESC, id DESC';
@@ -235,6 +280,11 @@ router.get('/', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
+    const hasRegistry = await ensureRegistryTableExists();
+    if (!hasRegistry) {
+      return sendRegistryNotReady(res);
+    }
+
     const row = await loadConfigById(req.params.id);
     if (!row) {
       return res.status(404).json({
@@ -259,6 +309,11 @@ router.get('/:id', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
+    const hasRegistry = await ensureRegistryTableExists();
+    if (!hasRegistry) {
+      return sendRegistryNotReady(res);
+    }
+
     const body = req.body || {};
     const payload = parseContent(body.content);
     const configKey = normalizeConfigKey(body.configKey || body.config_key);
@@ -287,7 +342,7 @@ router.post('/', async (req, res) => {
       [
         metadata.configKey,
         metadata.configType,
-        resolveAbsoluteConfigPath(metadata.configKey),
+        buildDbSourcePath(metadata.configKey),
         metadata.fileName,
         metadata.configName,
         metadata.symbol,
@@ -327,6 +382,11 @@ router.post('/', async (req, res) => {
 
 router.post('/:id/export', async (req, res) => {
   try {
+    const hasRegistry = await ensureRegistryTableExists();
+    if (!hasRegistry) {
+      return sendRegistryNotReady(res);
+    }
+
     const row = await loadConfigById(req.params.id);
     if (!row) {
       return res.status(404).json({
@@ -362,6 +422,101 @@ router.post('/:id/export', async (req, res) => {
     res.status(400).json({
       success: false,
       error: 'Failed to export train config',
+      message: error.message
+    });
+  }
+});
+
+router.post('/:id/clear-results', async (req, res) => {
+  let connection;
+
+  try {
+    const hasRegistry = await ensureRegistryTableExists();
+    if (!hasRegistry) {
+      return sendRegistryNotReady(res);
+    }
+
+    const row = await loadConfigById(req.params.id);
+    if (!row) {
+      return res.status(404).json({
+        success: false,
+        error: 'Train config not found'
+      });
+    }
+
+    const record = toConfigRecord(row, true);
+    const relatedConfigs = record.configType === 'training'
+      ? await loadDerivedConfigs(record)
+      : [];
+
+    const resultGroups = new Set(
+      [record.resultGroup, ...relatedConfigs.map((item) => item.resultGroup)]
+        .filter(Boolean)
+        .map((item) => String(item))
+    );
+
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    let deletedBacktestRows = 0;
+    for (const resultGroup of resultGroups) {
+      const [deleteResult] = await connection.query(
+        `DELETE FROM ${BACKTEST_RESULTS_TABLE}
+         WHERE result_group = ?`,
+        [resultGroup]
+      );
+      deletedBacktestRows += Number(deleteResult.affectedRows || 0);
+    }
+
+    const deletedFiles = [];
+    let deletedRegistryRows = 0;
+    if (record.configType === 'training') {
+      const removableConfigs = relatedConfigs.filter((item) => item.configType === 'validation' || item.configType === 'top-strategies');
+      for (const item of removableConfigs) {
+        const absolutePath = resolveAbsoluteConfigPath(item.configKey);
+        if (safeUnlink(absolutePath)) {
+          deletedFiles.push(item.configKey);
+        }
+      }
+
+      if (removableConfigs.length > 0) {
+        const ids = removableConfigs.map((item) => item.id);
+        const [deleteRegistryResult] = await connection.query(
+          `DELETE FROM ${TRAIN_CONFIGS_TABLE}
+           WHERE id IN (${ids.map(() => '?').join(', ')})`,
+          ids
+        );
+        deletedRegistryRows = Number(deleteRegistryResult.affectedRows || 0);
+      }
+    }
+
+    await connection.commit();
+    connection.release();
+    connection = null;
+
+    res.json({
+      success: true,
+      data: {
+        configId: record.id,
+        configKey: record.configKey,
+        configType: record.configType,
+        clearedResultGroups: Array.from(resultGroups),
+        deletedBacktestRows,
+        deletedRegistryRows,
+        deletedFiles
+      },
+      message: 'Train results cleared'
+    });
+  } catch (error) {
+    if (connection) {
+      await connection.rollback();
+      connection.release();
+    }
+
+    console.error('清除 train 结果失败:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to clear train results',
       message: error.message
     });
   }

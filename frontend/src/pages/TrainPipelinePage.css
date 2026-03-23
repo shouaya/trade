@@ -164,7 +164,9 @@
 
 .config-message button,
 .config-row-actions button,
-.editor-close {
+.editor-close,
+.summary-box-action,
+.validation-item-actions button {
   border: none;
   border-radius: 12px;
   padding: 10px 12px;
@@ -172,6 +174,93 @@
   color: #f5f7fb;
   background: rgba(85, 213, 190, 0.16);
   cursor: pointer;
+}
+
+.queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.queue-row {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(127, 145, 170, 0.16);
+  background: rgba(15, 22, 32, 0.84);
+}
+
+.queue-row-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.queue-row-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.queue-row-actions button {
+  border: none;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 700;
+  color: #f5f7fb;
+  background: rgba(85, 213, 190, 0.16);
+  cursor: pointer;
+}
+
+.request-status-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.request-status-chip.queued,
+.request-status-chip.exporting {
+  color: #ffd38a;
+  background: rgba(176, 109, 21, 0.18);
+}
+
+.request-status-chip.running {
+  color: #9bd0ff;
+  background: rgba(50, 94, 168, 0.2);
+}
+
+.request-status-chip.cancelling {
+  color: #ffd38a;
+  background: rgba(176, 109, 21, 0.18);
+}
+
+.request-status-chip.completed {
+  color: #8cf2cb;
+  background: rgba(37, 122, 97, 0.18);
+}
+
+.request-status-chip.failed,
+.queue-error {
+  color: #ff9c9c;
+}
+
+.request-status-chip.failed {
+  background: rgba(173, 58, 58, 0.18);
+}
+
+.request-status-chip.cancelled {
+  color: #cbb8ff;
+  background: rgba(100, 77, 172, 0.22);
+}
+
+.queue-error {
+  margin-top: 8px;
+  font-size: 0.84rem;
+  line-height: 1.5;
 }
 
 .config-list {
@@ -238,6 +327,105 @@
   margin-top: 18px;
 }
 
+.training-guide-panel,
+.editor-guide-note {
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(127, 145, 170, 0.16);
+  background: rgba(15, 22, 32, 0.84);
+}
+
+.training-guide-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.training-guide-copy strong,
+.editor-guide-note strong {
+  color: #f3f6fb;
+}
+
+.training-guide-copy p,
+.editor-guide-note p {
+  color: #90a2bb;
+  line-height: 1.6;
+}
+
+.training-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.training-guide-span-2 {
+  grid-column: span 2;
+}
+
+.training-guide-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.training-guide-tips {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.training-guide-tip {
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(85, 213, 190, 0.14);
+  background: rgba(13, 33, 35, 0.55);
+  color: #d7e5f8;
+  line-height: 1.6;
+}
+
+.training-guide-validation-preview {
+  margin-top: 16px;
+}
+
+.editor-mode-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.editor-mode-tabs {
+  display: inline-flex;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(10, 16, 24, 0.95);
+  border: 1px solid rgba(127, 145, 170, 0.18);
+}
+
+.editor-mode-tab {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-weight: 700;
+  color: #9fb0c8;
+  background: transparent;
+  cursor: pointer;
+}
+
+.editor-mode-tab.active {
+  color: #081219;
+  background: linear-gradient(135deg, #55d5be 0%, #87f0d0 100%);
+}
+
+.editor-mode-note {
+  color: #90a2bb;
+  line-height: 1.5;
+}
+
 .editor-form label {
   display: flex;
   flex-direction: column;
@@ -256,6 +444,35 @@
 .editor-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+.request-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.request-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #d7e5f8;
+}
+
+.request-log-card {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(127, 145, 170, 0.16);
+  background: rgba(15, 22, 32, 0.84);
+}
+
+.request-log-card pre {
+  white-space: pre-wrap;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: #dce6f5;
 }
 
 .pipeline-grid {
@@ -340,9 +557,38 @@
   line-height: 1.5;
 }
 
+.methodology-current-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.methodology-current-chip.done {
+  color: #8cf2cb;
+  background: rgba(37, 122, 97, 0.18);
+}
+
+.methodology-current-chip.partial {
+  color: #ffd38a;
+  background: rgba(176, 109, 21, 0.18);
+}
+
+.methodology-current-chip.todo {
+  color: #9fb0c8;
+  background: rgba(127, 145, 170, 0.14);
+}
+
+.methodology-current-chip.running {
+  color: #9bd0ff;
+  background: rgba(50, 94, 168, 0.2);
+}
+
 .pipeline-summary-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
 }
 
@@ -361,6 +607,11 @@
   gap: 8px;
   padding: 14px;
   border-radius: 16px;
+}
+
+.summary-box-action {
+  align-self: flex-start;
+  margin-top: 4px;
 }
 
 .summary-box span,
@@ -383,6 +634,163 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 12px;
+}
+
+.methodology-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.methodology-stage-tile {
+  border: 1px solid rgba(127, 145, 170, 0.16);
+  border-radius: 18px;
+  padding: 14px;
+  background: rgba(15, 22, 32, 0.84);
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.methodology-stage-tile span,
+.methodology-stage-list span,
+.methodology-stage-evidence span {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6e829e;
+}
+
+.methodology-stage-tile strong,
+.methodology-stage-focus-head h3 {
+  color: #f3f6fb;
+}
+
+.methodology-stage-tile em {
+  font-style: normal;
+  color: #90a2bb;
+}
+
+.methodology-stage-tile.selected {
+  border-color: rgba(85, 213, 190, 0.45);
+  box-shadow: 0 0 0 1px rgba(85, 213, 190, 0.12);
+}
+
+.methodology-stage-tile.done {
+  background: linear-gradient(180deg, rgba(17, 41, 37, 0.9) 0%, rgba(12, 22, 24, 0.94) 100%);
+}
+
+.methodology-stage-tile.partial {
+  background: linear-gradient(180deg, rgba(41, 31, 18, 0.88) 0%, rgba(25, 19, 11, 0.94) 100%);
+}
+
+.methodology-stage-tile.running {
+  background: linear-gradient(180deg, rgba(18, 34, 57, 0.9) 0%, rgba(12, 20, 31, 0.94) 100%);
+}
+
+.methodology-stage-focus {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(127, 145, 170, 0.16);
+  background: rgba(15, 22, 32, 0.84);
+}
+
+.methodology-stage-focus.done {
+  border-color: rgba(85, 213, 190, 0.24);
+}
+
+.methodology-stage-focus.partial {
+  border-color: rgba(255, 167, 38, 0.24);
+}
+
+.methodology-stage-focus.running {
+  border-color: rgba(105, 168, 255, 0.28);
+}
+
+.methodology-stage-focus-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.methodology-stage-focus-head h3 {
+  margin: 8px 0;
+  font-size: 1.08rem;
+}
+
+.methodology-stage-focus-head p,
+.methodology-stage-note {
+  color: #90a2bb;
+  line-height: 1.6;
+}
+
+.methodology-stage-status {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.methodology-stage-status.done {
+  color: #8cf2cb;
+  background: rgba(37, 122, 97, 0.18);
+}
+
+.methodology-stage-status.partial {
+  color: #ffd38a;
+  background: rgba(176, 109, 21, 0.18);
+}
+
+.methodology-stage-status.todo {
+  color: #9fb0c8;
+  background: rgba(127, 145, 170, 0.14);
+}
+
+.methodology-stage-status.running {
+  color: #9bd0ff;
+  background: rgba(50, 94, 168, 0.2);
+}
+
+.methodology-stage-lists {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.methodology-stage-list,
+.methodology-stage-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.methodology-stage-item {
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(127, 145, 170, 0.16);
+  background: rgba(10, 16, 24, 0.95);
+  color: #dce6f5;
+  line-height: 1.55;
+}
+
+.methodology-stage-item.mono {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.8rem;
+}
+
+.methodology-action-card {
+  margin-top: 4px;
+}
+
+.methodology-deviation-card {
+  margin-top: 12px;
 }
 
 .pipeline-step {
@@ -462,6 +870,13 @@
   margin-bottom: 8px;
 }
 
+.validation-item-statuses {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .validation-chip.done {
   color: #8cf2cb;
   background: rgba(37, 122, 97, 0.18);
@@ -470,6 +885,10 @@
 .validation-chip.todo {
   color: #9fb0c8;
   background: rgba(127, 145, 170, 0.14);
+}
+
+.validation-item-actions {
+  margin-top: 10px;
 }
 
 .next-action-card {
@@ -482,6 +901,38 @@
   flex-direction: column;
   gap: 6px;
   margin-bottom: 12px;
+}
+
+.next-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.next-action-primary {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.next-action-secondary {
+  border: 1px solid rgba(127, 145, 170, 0.2);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 700;
+  color: #dce6f5;
+  background: rgba(15, 22, 32, 0.84);
+  cursor: pointer;
+}
+
+.next-action-feedback {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(85, 213, 190, 0.16);
+  background: rgba(13, 33, 35, 0.55);
+  color: #d7e5f8;
+  line-height: 1.6;
 }
 
 .command-list {
@@ -515,6 +966,27 @@
   .pipeline-summary-row {
     grid-template-columns: 1fr;
   }
+
+  .methodology-stage-lists {
+    grid-template-columns: 1fr;
+  }
+
+  .editor-mode-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .training-guide-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .training-guide-span-2 {
+    grid-column: span 1;
+  }
+
+  .request-detail-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 768px) {
@@ -524,6 +996,7 @@
 
   .train-pipeline-hero,
   .pipeline-card-head,
+  .methodology-stage-focus-head,
   .config-studio-head,
   .editor-panel-head,
   .config-row {

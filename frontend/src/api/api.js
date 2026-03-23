@@ -121,6 +121,32 @@ export const trainConfigsAPI = {
   exportConfig: (id) => {
     return api.post(`/train-configs/${id}/export`);
   },
+
+  clearResults: (id) => {
+    return api.post(`/train-configs/${id}/clear-results`);
+  },
+};
+
+export const trainRunRequestsAPI = {
+  list: (params = {}) => {
+    return api.get('/train-run-requests', { params });
+  },
+
+  getById: (id) => {
+    return api.get(`/train-run-requests/${id}`);
+  },
+
+  create: (payload) => {
+    return api.post('/train-run-requests', payload);
+  },
+
+  retry: (id, payload = {}) => {
+    return api.post(`/train-run-requests/${id}/retry`, payload);
+  },
+
+  cancel: (id) => {
+    return api.post(`/train-run-requests/${id}/cancel`);
+  },
 };
 
 export default api;

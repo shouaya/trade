@@ -9,9 +9,6 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const TRAIN_ROOT = process.env.TRAIN_ROOT
   ? path.resolve(process.env.TRAIN_ROOT)
   : path.join(REPO_ROOT, 'train');
-const TRAINING_CONFIG_DIR = path.join(TRAIN_ROOT, 'configs', 'training');
-const VALIDATION_CONFIG_DIR = path.join(TRAIN_ROOT, 'configs', 'validation');
-const TOP_STRATEGY_DIR = path.join(TRAIN_ROOT, 'configs', 'top-strategies');
 const ROUTER_CONFIG_DIR = path.join(TRAIN_ROOT, 'configs', 'generated', 'regime-routing');
 const REPORTS_ROOT = path.join(TRAIN_ROOT, 'reports');
 
@@ -91,6 +88,35 @@ function formatIso(value) {
   return date.toISOString();
 }
 
+function toRequestSummary(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: Number(row.id),
+    requestId: String(row.request_id),
+    configId: Number(row.config_id),
+    configKey: String(row.config_key),
+    configName: row.config_name ? String(row.config_name) : null,
+    configType: String(row.config_type),
+    action: String(row.action),
+    status: String(row.status),
+    errorMessage: row.error_message ? String(row.error_message) : null,
+    startedAt: formatIso(row.started_at),
+    completedAt: formatIso(row.completed_at),
+    createdAt: formatIso(row.created_at),
+    updatedAt: formatIso(row.updated_at)
+  };
+}
+
+function isActiveRequestStatus(status) {
+  return status === 'queued'
+    || status === 'exporting'
+    || status === 'running'
+    || status === 'cancelling';
+}
+
 function getYearFromConfig(config, fallbackName) {
   const baseYear = String(fallbackName || '').match(/^(\d{4})_/);
   if (baseYear) {
@@ -111,27 +137,66 @@ function getYearFromConfig(config, fallbackName) {
 }
 
 function getValidationTargetLabel(validationConfig, fallbackName) {
+  const explicitLabel = validationConfig?.validationTarget?.label;
+  if (explicitLabel) {
+    return String(explicitLabel);
+  }
+
   const yearMatch = String(fallbackName).match(/_(\d{4})_validation\.json$/i);
   if (yearMatch) {
     return yearMatch[1];
   }
 
+  const endIso = validationConfig?.timeRange?.endIso;
   const startIso = validationConfig?.timeRange?.startIso;
+  if (startIso && endIso) {
+    return `${String(startIso).slice(0, 10)} -> ${String(endIso).slice(0, 10)}`;
+  }
+
   if (startIso) {
-    return String(new Date(startIso).getUTCFullYear());
+    return String(startIso).slice(0, 10);
   }
 
   return 'validation';
 }
 
-function normalizeText(value) {
-  return String(value || '').toLowerCase();
+function getValidationProfile(validationConfig, fallbackName) {
+  const explicitProfile = validationConfig?.validationProfile;
+  if (explicitProfile) {
+    return String(explicitProfile);
+  }
+
+  const fileText = normalizeText([fallbackName, validationConfig?.name, validationConfig?.description].join(' '));
+  if (fileText.includes('future')) {
+    return 'future-window';
+  }
+  if (fileText.includes('custom')) {
+    return 'custom-range';
+  }
+  if (String(fallbackName || '').match(/_(\d{4})_validation\.json$/i)) {
+    return 'legacy-annual';
+  }
+
+  return 'unknown';
 }
 
-function deriveValidationPrefix(trainingName, symbol, topN) {
-  const symbolLower = String(symbol || 'asset').toLowerCase();
-  const trainingYear = getYearFromConfig({}, trainingName) || 'run';
-  return `${trainingYear}_${symbolLower}_top${topN}_exact_from_${trainingYear}`;
+function getValidationPriority(profile) {
+  switch (String(profile || '')) {
+    case 'future-window':
+      return 1;
+    case 'custom-range':
+      return 2;
+    case 'annual-template':
+      return 3;
+    case 'legacy-annual':
+      return 4;
+    default:
+      return 9;
+  }
+}
+
+function normalizeText(value) {
+  return String(value || '').toLowerCase();
 }
 
 function matchValidationToTraining(training, validation) {
@@ -144,7 +209,10 @@ function matchValidationToTraining(training, validation) {
     validation.fileName,
     validation.config?.name,
     validation.config?.description,
-    validation.config?.database?.tableName
+    validation.config?.database?.tableName,
+    validation.config?.trainConfig,
+    validation.config?.validationProfile,
+    validation.config?.validationTarget?.label
   ].join(' '));
 
   if (trainingYear && (fileText.includes(`from_${trainingYear}`) || fileText.includes(`from ${trainingYear}`))) {
@@ -182,24 +250,27 @@ function buildStatus(stepDone, partial = false) {
 }
 
 function buildNextAction(training, validationRecords, reports, routerFiles) {
-  const trainCommand = `docker compose run --rm train sh -lc "npm install && npm run build && npm run train -- configs/training/${training.fileName}"`;
+  const costSensitivityPath = reports?.costSensitivity?.path || null;
+  const featureCausalityPath = reports?.featureCausality?.path || null;
+  const routerValidationPath = reports?.routerValidation?.path || null;
   if (!training.trainingRun) {
     return {
       key: 'run-training',
       title: '先跑训练候选池',
       reason: '数据库里还没有这个 training config 的训练结果。',
-      commands: [trainCommand]
+      commands: [
+        '优先直接在 UI 中点击“运行训练”。如需 CLI 离线执行，请先从配置库导出对应 training config。'
+      ]
     };
   }
 
   if (!training.topStrategySnapshot) {
-    const outPrefix = deriveValidationPrefix(training.fileName, training.symbol, training.topN);
     return {
       key: 'generate-validation',
-      title: '生成 Top 策略快照和 validation 配置',
-      reason: '训练结果已经存在，但还没有看到导出的 Top 策略快照。',
+      title: '生成最终策略 config 和未来期 validation 配置',
+      reason: '训练结果已经存在，但数据库里还没有看到对应的最终策略 config。',
       commands: [
-        `docker compose run --rm train sh -lc "npm install && node scripts/generate-top3-validation-configs.js --trainConfig=$(pwd)/configs/training/${training.fileName} --symbol=${training.symbol} --sourceTable=${training.resultGroup} --outPrefix=${outPrefix} --strategyPrefix=${training.trainingYear || 'RUN'}-${training.symbol}-VAL- --descriptionPrefix='${training.trainingYear || 'Run'} ${training.symbol} validation' --limit=${training.topN} --exact=true"`
+        '优先直接在 UI 中点击“下一步”，系统会把最终策略 config 与 validation config 直接写入数据库；只有需要离线保存时再手动导出。'
       ]
     };
   }
@@ -208,21 +279,23 @@ function buildNextAction(training, validationRecords, reports, routerFiles) {
     return {
       key: 'prepare-validation',
       title: '补生成 validation 配置',
-      reason: '已经有训练结果，但还没有找到匹配的 validation 配置文件。',
+      reason: '已经有训练结果，但数据库里还没有找到匹配的 validation 配置记录。',
       commands: [
-        `docker compose run --rm train sh -lc "ls configs/validation && ls configs/top-strategies"`
+        '重新触发一次“生成 Validation”，系统会把 validation config 和最终策略 config 一起写入数据库。'
       ]
     };
   }
 
-  const pendingValidation = validationRecords.find((item) => !item.latestRun);
+  const pendingValidation = validationRecords
+    .filter((item) => !item.latestRun)
+    .sort((left, right) => getValidationPriority(left.validationProfile) - getValidationPriority(right.validationProfile))[0];
   if (pendingValidation) {
     return {
       key: 'run-validation',
       title: `跑验证 ${pendingValidation.targetLabel}`,
       reason: 'validation config 已存在，但该验证期还没有落库结果。',
       commands: [
-        `docker compose run --rm train sh -lc "npm install && npm run build && npm run validate -- ${pendingValidation.path}"`
+        '优先直接在 UI 中点击“运行验证”。如需 CLI 离线执行，请先导出对应 validation config。'
       ]
     };
   }
@@ -231,7 +304,7 @@ function buildNextAction(training, validationRecords, reports, routerFiles) {
     .filter((item) => item.latestRun)
     .sort((left, right) => new Date(right.latestRun.latestAt || 0).getTime() - new Date(left.latestRun.latestAt || 0).getTime())[0];
 
-  if (!reports.costSensitivity.path && latestValidation) {
+  if (!costSensitivityPath && latestValidation) {
     return {
       key: 'cost-sensitivity',
       title: '补跑成本敏感度报告',
@@ -242,7 +315,7 @@ function buildNextAction(training, validationRecords, reports, routerFiles) {
     };
   }
 
-  if (!reports.featureCausality.path) {
+  if (!featureCausalityPath) {
     const startDate = String(latestValidation?.timeRange?.startIso || training.timeRange?.startIso || '').slice(0, 10);
     const endDate = String(latestValidation?.timeRange?.endIso || training.timeRange?.endIso || '').slice(0, 10);
     return {
@@ -266,7 +339,7 @@ function buildNextAction(training, validationRecords, reports, routerFiles) {
     };
   }
 
-  if (!reports.routerValidation.path && latestValidation) {
+  if (!routerValidationPath && latestValidation) {
     return {
       key: 'router-validate',
       title: '跑 router 验证',
@@ -306,6 +379,7 @@ async function loadDbSummary() {
     warning: null,
     runMap: new Map(),
     taskMap: new Map(),
+    latestRequestMap: new Map(),
     configRegistry: {
       training: [],
       validation: [],
@@ -389,6 +463,29 @@ async function loadDbSummary() {
       }
     }
 
+    if (tables.has('train_run_requests')) {
+      const [rows] = await db.query(`
+        SELECT req.*
+        FROM train_run_requests req
+        INNER JOIN (
+          SELECT config_key, MAX(id) AS max_id
+          FROM train_run_requests
+          GROUP BY config_key
+        ) latest
+          ON latest.max_id = req.id
+        ORDER BY req.created_at DESC, req.id DESC
+      `);
+
+      for (const row of rows) {
+        const configKey = String(row.config_key || '');
+        if (!configKey || result.latestRequestMap.has(configKey)) {
+          continue;
+        }
+
+        result.latestRequestMap.set(configKey, toRequestSummary(row));
+      }
+    }
+
     if (tables.has('train_configs')) {
       const [rows] = await db.query(`
         SELECT
@@ -447,59 +544,32 @@ async function loadDbSummary() {
 router.get('/', async (req, res) => {
   try {
     const dbSummary = await loadDbSummary();
-    const trainingEntries = dbSummary.configRegistry.training.length > 0
-      ? dbSummary.configRegistry.training
-        .map((entry) => ({
-          path: entry.configKey,
-          fileName: entry.fileName,
-          config: entry.content,
-          updatedAt: entry.syncedAt || entry.updatedAt
-        }))
-      : listFiles(TRAINING_CONFIG_DIR, (filePath) => filePath.endsWith('.json')).sort()
-        .map((filePath) => ({
-          path: `configs/training/${path.basename(filePath)}`,
-          fileName: path.basename(filePath),
-          config: safeReadJson(filePath),
-          updatedAt: formatIso(safeStat(filePath)?.mtime)
-        }))
-        .filter((entry) => entry.config);
+    const trainingEntries = dbSummary.configRegistry.training
+      .map((entry) => ({
+        path: entry.configKey,
+        fileName: entry.fileName,
+        config: entry.content,
+        updatedAt: entry.syncedAt || entry.updatedAt
+      }));
 
-    const validationEntries = dbSummary.configRegistry.validation.length > 0
-      ? dbSummary.configRegistry.validation
-        .map((entry) => ({
-          path: entry.configKey,
-          fileName: entry.fileName,
-          fullPath: null,
-          config: entry.content
-        }))
-      : listFiles(VALIDATION_CONFIG_DIR, (filePath) => filePath.endsWith('.json'))
-        .map((filePath) => ({
-          path: `configs/validation/${path.basename(filePath)}`,
-          fileName: path.basename(filePath),
-          fullPath: filePath,
-          config: safeReadJson(filePath)
-        }))
-        .filter((entry) => entry.config);
+    const validationEntries = dbSummary.configRegistry.validation
+      .map((entry) => ({
+        path: entry.configKey,
+        fileName: entry.fileName,
+        fullPath: null,
+        config: entry.content
+      }));
 
-    const topStrategyEntries = dbSummary.configRegistry.topStrategies.length > 0
-      ? dbSummary.configRegistry.topStrategies
-        .map((entry) => ({
-          fullPath: entry.configKey,
-          fileName: entry.fileName,
-          data: entry.content,
-          stat: {
-            mtime: entry.syncedAt || entry.updatedAt,
-            mtimeMs: new Date(entry.syncedAt || entry.updatedAt || 0).getTime()
-          }
-        }))
-      : listFiles(TOP_STRATEGY_DIR, (filePath) => filePath.endsWith('.json'))
-        .map((filePath) => ({
-          fullPath: filePath,
-          fileName: path.basename(filePath),
-          data: safeReadJson(filePath),
-          stat: safeStat(filePath)
-        }))
-        .filter((entry) => entry.data);
+    const topStrategyEntries = dbSummary.configRegistry.topStrategies
+      .map((entry) => ({
+        fullPath: entry.configKey,
+        fileName: entry.fileName,
+        data: entry.content,
+        stat: {
+          mtime: entry.syncedAt || entry.updatedAt,
+          mtimeMs: new Date(entry.syncedAt || entry.updatedAt || 0).getTime()
+        }
+      }));
 
     const routerRegistryKeys = dbSummary.configRegistry.router.map((entry) => entry.configKey);
     const routerFiles = routerRegistryKeys.length > 0
@@ -526,6 +596,7 @@ router.get('/', async (req, res) => {
       const runBucket = dbSummary.runMap.get(resultGroup) || {};
       const trainingRun = runBucket.training || null;
       const latestTask = dbSummary.taskMap.get(String(config.name || '')) || null;
+      const trainingLatestRequest = dbSummary.latestRequestMap.get(trainingEntry.path) || null;
 
       const snapshotMatch = topStrategyEntries
         .filter((entry) => {
@@ -537,6 +608,7 @@ router.get('/', async (req, res) => {
         .sort((left, right) => (right.stat?.mtimeMs || 0) - (left.stat?.mtimeMs || 0))[0] || null;
 
       const matchedValidations = validationEntries
+        .filter((entry) => !entry.config?.draftFromTraining)
         .filter((entry) => matchValidationToTraining({
           symbol,
           trainingYear,
@@ -545,9 +617,11 @@ router.get('/', async (req, res) => {
         .map((entry) => {
           const validationResultGroup = String(entry.config.database?.tableName || '').trim();
           const validationRunBucket = dbSummary.runMap.get(validationResultGroup) || {};
+          const validationProfile = getValidationProfile(entry.config, entry.fileName);
           return {
             name: entry.config.name,
             path: entry.path,
+            validationProfile,
             resultGroup: validationResultGroup,
             targetLabel: getValidationTargetLabel(entry.config, entry.fileName),
             timeRange: {
@@ -555,10 +629,19 @@ router.get('/', async (req, res) => {
               endIso: entry.config.timeRange?.endIso || formatIso(entry.config.timeRange?.endTimeMs)
             },
             latestRun: validationRunBucket.validation || null,
+            latestRequest: dbSummary.latestRequestMap.get(entry.path) || null,
             latestTask: dbSummary.taskMap.get(String(entry.config.name || '')) || null
           };
         })
-        .sort((left, right) => String(left.targetLabel).localeCompare(String(right.targetLabel)));
+        .sort((left, right) => {
+          const priorityDiff = getValidationPriority(left.validationProfile) - getValidationPriority(right.validationProfile);
+          if (priorityDiff !== 0) {
+            return priorityDiff;
+          }
+          return String(left.targetLabel).localeCompare(String(right.targetLabel));
+        });
+
+      const hasActiveValidationRequest = matchedValidations.some((item) => isActiveRequestStatus(item.latestRequest?.status));
 
       const routerConfigRef = config.regimeRouting?.routerConfigPath || null;
       const normalizedRouterConfigRef = routerConfigRef
@@ -598,14 +681,20 @@ router.get('/', async (req, res) => {
         {
           key: 'training-run',
           title: 'Training Run',
-          status: latestTask?.status === 'running' ? 'running' : buildStatus(Boolean(trainingRun)),
+          status: isActiveRequestStatus(trainingLatestRequest?.status)
+            ? 'running'
+            : latestTask?.status === 'running'
+              ? 'running'
+              : buildStatus(Boolean(trainingRun)),
           detail: trainingRun
             ? `${trainingRun.strategyCount} strategies · latest ${trainingRun.latestAt || 'n/a'}`
-            : '尚未落库'
+            : trainingLatestRequest
+              ? `queue ${trainingLatestRequest.status}`
+              : '尚未落库'
         },
         {
           key: 'top-strategies',
-          title: 'Top Snapshot',
+          title: 'Final Strategy Config',
           status: buildStatus(Boolean(snapshotMatch)),
           detail: snapshotMatch
             ? (String(snapshotMatch.fullPath).startsWith('/')
@@ -617,17 +706,21 @@ router.get('/', async (req, res) => {
           key: 'validation-config',
           title: 'Validation Configs',
           status: buildStatus(matchedValidations.length > 0),
-          detail: matchedValidations.length > 0 ? `${matchedValidations.length} files` : '未找到'
+          detail: matchedValidations.length > 0 ? `${matchedValidations.length} records` : '未找到'
         },
         {
           key: 'validation-run',
           title: 'Validation Runs',
-          status: buildStatus(
-            matchedValidations.length > 0 && matchedValidations.every((item) => Boolean(item.latestRun)),
-            matchedValidations.some((item) => Boolean(item.latestRun))
-          ),
+          status: hasActiveValidationRequest
+            ? 'running'
+            : buildStatus(
+              matchedValidations.length > 0 && matchedValidations.every((item) => Boolean(item.latestRun)),
+              matchedValidations.some((item) => Boolean(item.latestRun))
+            ),
           detail: matchedValidations.length > 0
-            ? matchedValidations.map((item) => `${item.targetLabel}:${item.latestRun ? 'done' : 'todo'}`).join(' | ')
+            ? matchedValidations
+              .map((item) => `${item.targetLabel}:${item.latestRequest?.status || (item.latestRun ? 'done' : 'todo')}`)
+              .join(' | ')
             : '等待 validation config'
         },
         {
@@ -662,6 +755,7 @@ router.get('/', async (req, res) => {
         symbol,
         resultGroup,
         timeRange: config.timeRange,
+        validationPlan: config.validationPlan || null,
         trainingRun,
         topStrategySnapshot: snapshotMatch,
         topN,
@@ -677,18 +771,20 @@ router.get('/', async (req, res) => {
         trainingYear,
         topN,
         resultGroup,
-        trainingConfigPath: `configs/training/${fileName}`,
+        trainingConfigPath: trainingEntry.path,
         configUpdatedAt: trainingEntry.updatedAt || null,
         timeRange: {
           startIso: config.timeRange?.startIso || formatIso(config.timeRange?.startTimeMs),
           endIso: config.timeRange?.endIso || formatIso(config.timeRange?.endTimeMs)
         },
         latestTask,
+        latestRequest: trainingLatestRequest,
         trainingRun,
         topStrategySnapshot: snapshotMatch ? {
           path: String(snapshotMatch.fullPath).startsWith('/')
             ? toRepoRelative(snapshotMatch.fullPath)
             : String(snapshotMatch.fullPath),
+          configName: snapshotMatch.data.name || null,
           generatedAt: snapshotMatch.data.generatedAt || formatIso(snapshotMatch.stat?.mtime),
           sourceRunId: snapshotMatch.data.sourceRunId || null,
           limit: snapshotMatch.data.limit || null,

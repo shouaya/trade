@@ -10,9 +10,9 @@ import {
   STRATEGIES_DDL,
   TRADES_DDL,
   TASKS_DDL,
-  TRAIN_CONFIGS_DDL
+  TRAIN_CONFIGS_DDL,
+  TRAIN_RUN_REQUESTS_DDL
 } from '../database';
-import { syncTrainConfigsFromDisk } from '../services/train-config-registry';
 
 interface TableCheckResult {
   readonly tableName: string;
@@ -145,6 +145,14 @@ async function createTrainConfigsTable(): Promise<void> {
   console.log('✅ train_configs 表创建成功');
 }
 
+async function createTrainRunRequestsTable(): Promise<void> {
+  console.log('📊 创建 train_run_requests 表...');
+  await db.query(TRAIN_RUN_REQUESTS_DDL);
+  await ensureColumn('train_run_requests', 'execution_pid', `INT NULL AFTER worker_pid`);
+  await ensureColumn('train_run_requests', 'cancel_requested', `TINYINT(1) NOT NULL DEFAULT 0 AFTER execution_pid`);
+  console.log('✅ train_run_requests 表创建成功');
+}
+
 async function main(): Promise<void> {
   console.log('='.repeat(80));
   console.log('🚀 开始初始化数据库');
@@ -170,8 +178,7 @@ async function main(): Promise<void> {
     await createTradesTable();
     await createTasksTable();
     await createTrainConfigsTable();
-    const syncResult = await syncTrainConfigsFromDisk(db);
-    console.log(`✅ 配置注册表同步完成 (${syncResult.synced}/${syncResult.scanned})`);
+    await createTrainRunRequestsTable();
 
     console.log('');
     console.log('='.repeat(80));
@@ -180,7 +187,7 @@ async function main(): Promise<void> {
     console.log('');
 
     // 检查所有表
-    const tables = ['klines', 'backtest_results', 'strategies', 'trades', 'tasks', 'train_configs'];
+    const tables = ['klines', 'backtest_results', 'strategies', 'trades', 'tasks', 'train_configs', 'train_run_requests'];
     const results: TableCheckResult[] = [];
 
     for (const tableName of tables) {
@@ -211,13 +218,14 @@ async function main(): Promise<void> {
     if (!klinesExists) {
       console.log('📝 下一步操作:');
       console.log('  1. 导入 K 线数据到 klines 表');
-      console.log('  2. 运行训练脚本开始回测');
+      console.log('  2. 如需初始化样例配置，执行 npm run seed:configs');
+      console.log('  3. 通过 UI 或 API 创建训练配置并开始回测');
       console.log('');
     } else {
       console.log('📝 可以开始使用:');
-      console.log('  npm run train -- configs/training/2025_btcjpy_hf_rsi_macd_tp_atr.json');
-      console.log('  npm run validate    # 验证策略');
-      console.log('  npm run router:validate # 路由验证');
+      console.log('  1. 通过 UI 或 API 把 training config 保存到 train_configs');
+      console.log('  2. 如需导入样例配置，执行 npm run seed:configs');
+      console.log('  3. 在 UI 中直接运行 train / validation；仅在需要离线文件时再导出');
       console.log('');
     }
 

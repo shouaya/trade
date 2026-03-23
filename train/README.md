@@ -24,6 +24,7 @@ npm run build
 npm test
 npm run init-db
 npm run sync:configs
+npm run worker:run-queue
 npm run train -- configs/training/2025_btcjpy_hf_rsi_macd_tp_atr.json
 npm run validate -- configs/validation/2025_btcjpy_v7_hf_rsi_macd_top10_exact_from_2025_2024_validation.json
 npm run router:validate
@@ -64,5 +65,6 @@ configs/
 - `trades`
 - `tasks`
 - `train_configs`
+- `train_run_requests`
 
 旧的 `rsi_only / rolling / dynamic_ma200 / regression / multi-timeframe / signal-generator` 链路已经从当前实现中移除。
