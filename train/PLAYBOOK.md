@@ -16,6 +16,10 @@
 6. 未来期验证
 7. 文档固化
 
+结果评估建议同时参考：
+
+- [REPORT_SCORECARD.md](/Users/ts-changchang.zhuang/git/money/train/REPORT_SCORECARD.md)
+
 ## 使用范围
 
 适用于：
@@ -256,6 +260,18 @@ reports/regime-routing-results/<SYMBOL>_<router_name>_<period>.md
 - `ATR SL/TP`
 - 高频短持仓
 
+### 家族适配性预检
+
+在正式大规模网格训练前，建议先用 3 到 5 组代表性参数做快速预检。
+
+预检主要回答：
+
+- 这个家族是否至少在部分阶段存在可盈利样本；
+- 高波与低波阶段是否能出现差异化行为；
+- 是否从一开始就在所有主要阶段持续整体失效。
+
+如果代表性参数全部持续失效，不要急着扩大参数空间，优先更换家族。
+
 ### 参数空间设计原则
 
 1. 要覆盖快慢两类节奏
@@ -385,6 +401,8 @@ npm run train -- configs/training/<training_config>.json
 3. 新规则必须能说明为什么当前策略错
 4. 条件从窄到宽，先窄后宽
 5. 宽 stop 规则要极其谨慎
+6. 规则应尽量覆盖多个同结构样本
+7. 如果未来期明显恶化，不应入库
 
 ### AI 必须写下的说明
 
@@ -467,6 +485,8 @@ npm run train -- configs/training/<training_config>.json
 1. 用未来区间跑显式策略池
 2. 用相同 router 回放
 3. 与多个基准比较
+4. 生成统一 scorecard
+5. 对关键版本补做成本敏感度验证
 
 ### 推荐命令模板
 
@@ -499,12 +519,49 @@ DB_HOST=127.0.0.1 node dist/scripts/router-validate.js \
 - `top10EqualWeight`
 - `oracleBestOfDay`
 
+### 必须输出的 scorecard 项
+
+至少包括：
+
+- `totalPnl`
+- `returnPct`
+- `maxDrawdown`
+- `profitFactor`
+- `tradeCount`
+- `positiveDays / negativeDays`
+- `positiveWeeks / negativeWeeks`
+- 相对 `default / rank1 / top10 / oracle` 的增益
+- stop / reduce / full-size / `loss_recheck`
+- strategy churn / action churn
+
 ### 未来期通过标准
 
 - 总收益为正，或明显优于默认策略
 - 最大回撤可接受
 - 主要坏周数量下降
 - 坏日可解释
+
+### 默认失败红线
+
+- 未来期总收益为负
+- 明显弱于 `defaultStrategy`
+- 回撤显著恶化且没有收益补偿
+- 收益主要来自极少数偶然日或偶然周
+- 大量新增规则只能解释训练期，不能解释未来期
+
+### 成本敏感度检查
+
+高频短持仓体系建议至少再补跑：
+
+- 基础手续费
+- 手续费 + 默认滑点
+- 手续费 + 压力滑点
+
+如果成本一加上去就显著失真，优先回查：
+
+- 交易频率是否过高
+- 候选池是否太依赖薄 edge
+- router 是否用过多切换来堆理论收益
 
 ### 未来期失败后如何处理
 
@@ -518,6 +575,14 @@ DB_HOST=127.0.0.1 node dist/scripts/router-validate.js \
    - 日级规则误伤
    - 应停做却未停做
 4. 只在有结构共性的情况下新增规则
+
+### 强化验证轨道
+
+当交易对已经进入稳定迭代阶段时，建议在主链路之外追加：
+
+- rolling / walk-forward 验证
+- 成本敏感度验证
+- 路由稳定性验证
 
 ## 产出物检查表
 
@@ -548,6 +613,7 @@ DB_HOST=127.0.0.1 node dist/scripts/router-validate.js \
 3. 先看候选池是否足够，再写规则
 4. 先修系统性误伤，再修个别极端日
 5. 先让未来期稳定，再追求训练期更高收益
+6. 先确认成本下是否仍成立，再讨论上线价值
 
 ## 标准任务模板
 

@@ -15,6 +15,7 @@
 - [METHODOLOGY.md](/Users/ts-changchang.zhuang/git/money/train/METHODOLOGY.md)
 - [PLAYBOOK.md](/Users/ts-changchang.zhuang/git/money/train/PLAYBOOK.md)
 - [TASK_TEMPLATE.md](/Users/ts-changchang.zhuang/git/money/train/TASK_TEMPLATE.md)
+- [REPORT_SCORECARD.md](/Users/ts-changchang.zhuang/git/money/train/REPORT_SCORECARD.md)
 
 ## 常用命令
 

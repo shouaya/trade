@@ -13,6 +13,10 @@
 
 **实际发起任务时，应该如何向 AI 描述任务。**
 
+结果评估建议同时参考：
+
+- [REPORT_SCORECARD.md](/Users/ts-changchang.zhuang/git/money/train/REPORT_SCORECARD.md)
+
 目标是让后续每次开新交易对、新训练周期或 router 迭代时，都尽量使用统一模板，而不是临时组织 prompt。
 
 ## 使用原则
@@ -85,7 +89,9 @@
 5. 如有必要，再增加 loss_recheck 保护层。
 6. 必须把 router 和 policy catalog 固化成文件。
 7. 必须用未来期做验证，并与 default strategy、rank1 strategy、topN equal weight、oracle best-of-day 比较。
-8. 最终要输出一份总结，说明哪些方法是通用的，哪些策略/参数是该交易对专属的。
+8. 必须输出统一 scorecard，至少包含 totalPnl、maxDrawdown、profitFactor、positive/negative days、positive/negative weeks、相对基准增益。
+9. 对高频短持仓体系，必须补做至少一轮成本敏感度验证（手续费或手续费+滑点）。
+10. 最终要输出一份总结，说明哪些方法是通用的，哪些策略/参数是该交易对专属的。
 
 产出要求：
 1. 训练配置文件
@@ -100,6 +106,7 @@
 1. 不要只给计划，要尽量直接执行。
 2. 每次增加规则时，要说明修复了哪些坏周/坏日。
 3. 如果未来期验证不通过，不要停在失败结论，要继续定位坏周/坏日并修正。
+4. 对进入稳定阶段的交易对，可追加 rolling / walk-forward 作为强化验证。
 ```
 
 ### 占位符说明
@@ -135,6 +142,8 @@
 4. 新规则必须能解释明确坏样本，不要写记忆日期规则。
 5. 每次改动后都要重新跑训练期和验证期。
 6. 如果训练期改善但验证期恶化，不接受该版本。
+7. 新规则应尽量覆盖多个同结构样本，不接受只修单个日期的记忆规则。
+8. 最终输出必须包含统一 scorecard，并说明是否触发默认失败红线。
 
 目标：
 1. 优先提升未来期总收益。
@@ -222,7 +231,9 @@
 3. 输出 totalPnl、maxDrawdown、positiveDays、negativeDays、tradedDays。
 4. 与 default strategy、rank1 strategy、topN equal weight、oracle best-of-day 比较。
 5. 列出最差的周和最差的日。
-6. 给出是否需要继续迭代的判断。
+6. 给出是否触发默认失败红线。
+7. 输出统一 scorecard。
+8. 给出是否需要继续迭代的判断。
 ```
 
 ## AI 任务描述中的强制关键词
@@ -270,7 +281,7 @@
 请针对 <SYMBOL> 做单品种自适应策略系统训练。
 训练期用 <TRAIN_RANGE>，验证期用 <VALIDATE_RANGE>。
 目标不是找 Top1，而是生成候选池、周级/日级 router、policy catalog 和验证报告。
-请遵循 train/METHODOLOGY.md 与 train/PLAYBOOK.md，先做结构分析，再训练，再生成 router，最后做未来期验证。
+请遵循 train/METHODOLOGY.md、train/PLAYBOOK.md 与 train/REPORT_SCORECARD.md，先做结构分析，再训练，再生成 router，最后做未来期验证和 scorecard 汇总。
 ```
 
 ## 与其他文档的关系

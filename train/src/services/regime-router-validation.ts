@@ -175,6 +175,8 @@ interface ComparisonMetrics {
   readonly positiveDays: number;
   readonly negativeDays: number;
   readonly tradedDays: number;
+  readonly positiveWeeks: number;
+  readonly negativeWeeks: number;
   readonly finalEquity: number;
 }
 
@@ -475,7 +477,8 @@ function computeMetrics(
   name: string,
   label: string,
   pnls: readonly number[],
-  initialCapital: number
+  initialCapital: number,
+  weekKeys: readonly string[]
 ): ComparisonMetrics {
   let cumulativePnl = 0;
   let peakEquity = initialCapital;
@@ -483,11 +486,17 @@ function computeMetrics(
   let positiveDays = 0;
   let negativeDays = 0;
   let tradedDays = 0;
+  const weeklyPnls = new Map<string, number>();
 
-  for (const pnl of pnls) {
+  for (const [index, pnl] of pnls.entries()) {
     if (pnl > 0) positiveDays += 1;
     if (pnl < 0) negativeDays += 1;
     if (pnl !== 0) tradedDays += 1;
+
+    const weekKey = weekKeys[index];
+    if (weekKey) {
+      weeklyPnls.set(weekKey, round((weeklyPnls.get(weekKey) ?? 0) + pnl, 2));
+    }
 
     cumulativePnl += pnl;
     const equity = initialCapital + cumulativePnl;
@@ -500,6 +509,13 @@ function computeMetrics(
     }
   }
 
+  let positiveWeeks = 0;
+  let negativeWeeks = 0;
+  for (const pnl of weeklyPnls.values()) {
+    if (pnl > 0) positiveWeeks += 1;
+    if (pnl < 0) negativeWeeks += 1;
+  }
+
   return {
     name,
     label,
@@ -510,6 +526,8 @@ function computeMetrics(
     positiveDays,
     negativeDays,
     tradedDays,
+    positiveWeeks,
+    negativeWeeks,
     finalEquity: round(initialCapital + cumulativePnl, 2)
   };
 }
@@ -664,6 +682,7 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
   const rank1Pnls: number[] = [];
   const equalWeightPnls: number[] = [];
   const oraclePnls: number[] = [];
+  const weekKeys: string[] = [];
   const dailyRoutes: DailyRouteRow[] = [];
   let previousDayFeature: PeriodFeature | null = null;
   let previousDayRoutedPnl = 0;
@@ -723,6 +742,7 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
     const equalWeightPnl = round(allStrategyPnls.reduce((sum, pnl) => sum + pnl, 0) / strategyCount, 2);
     const oracleBestPnl = round(Math.max(...allStrategyPnls, 0), 2);
 
+    weekKeys.push(week);
     routerPnls.push(routedPnl);
     defaultPnls.push(defaultPnl);
     rank1Pnls.push(rank1Pnl);
@@ -772,11 +792,11 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
       endTimeMs
     },
     comparison: {
-      router: computeMetrics('router', 'Router', routerPnls, initialCapital),
-      defaultStrategy: computeMetrics('default_strategy', defaultStrategyRef.shortLabel, defaultPnls, initialCapital),
-      rank1Strategy: computeMetrics('rank1_strategy', toShortLabel(rank1Strategy), rank1Pnls, initialCapital),
-      top10EqualWeight: computeMetrics('top10_equal_weight', 'Top10 Equal Weight', equalWeightPnls, initialCapital),
-      oracleBestOfDay: computeMetrics('oracle_best_of_day', 'Oracle Best Of Day', oraclePnls, initialCapital)
+      router: computeMetrics('router', 'Router', routerPnls, initialCapital, weekKeys),
+      defaultStrategy: computeMetrics('default_strategy', defaultStrategyRef.shortLabel, defaultPnls, initialCapital, weekKeys),
+      rank1Strategy: computeMetrics('rank1_strategy', toShortLabel(rank1Strategy), rank1Pnls, initialCapital, weekKeys),
+      top10EqualWeight: computeMetrics('top10_equal_weight', 'Top10 Equal Weight', equalWeightPnls, initialCapital, weekKeys),
+      oracleBestOfDay: computeMetrics('oracle_best_of_day', 'Oracle Best Of Day', oraclePnls, initialCapital, weekKeys)
     },
     dailyRoutes
   };
