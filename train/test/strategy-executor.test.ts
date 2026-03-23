@@ -166,3 +166,23 @@ test('executor uses bid/ask prices without slippage when available', () => {
   assert.equal(executor['getReferencePrice'](dualPriceKline, 'short', true), 99.99);
   assert.equal(executor['getReferencePrice'](dualPriceKline, 'short', false), 100.01);
 });
+
+test('executor accepts custom slippage config overrides', () => {
+  const executor = new StrategyExecutor(
+    createStrategy(),
+    createKlines('2026-03-02T00:00:00.000Z', [100]),
+    {
+      enableSlippage: true,
+      slippageConfig: {
+        normalSlippage: 1.5,
+        tokyoSlippage: 20,
+        highVolatilitySlippage: 8,
+        volatilityThreshold: 1,
+        exitMultiplier: 1.8
+      }
+    }
+  );
+
+  const kline = createKlines('2026-03-02T00:00:00.000Z', [100])[0];
+  assert.equal(executor['slippageModel']?.calculateTotalCost(kline, 'long', true), 1.5);
+});

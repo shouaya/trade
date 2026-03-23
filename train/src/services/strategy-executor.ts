@@ -23,7 +23,7 @@ import type {
 import { calculateRSI } from './indicators/rsi';
 import { calculateATR, calculateDynamicSLTP } from './indicators/atr';
 import { precalculateMACD, generateMACDSignal } from './indicators/macd';
-import { SlippageModel } from './slippage-model';
+import { SlippageModel, type SlippageConfig } from './slippage-model';
 import { TradingSchedule } from './trading-schedule';
 
 type SignalDirection = 'long' | 'short' | 'hold';
@@ -66,7 +66,13 @@ export class StrategyExecutor {
     readonly histogram: readonly (number | null)[];
   };
 
-  constructor(strategy: Strategy, klines: readonly KlineData[], options: ExecutorOptions = {}) {
+  constructor(
+    strategy: Strategy,
+    klines: readonly KlineData[],
+    options: ExecutorOptions & {
+      readonly slippageConfig?: SlippageConfig;
+    } = {}
+  ) {
     this.strategy = strategy;
     this.klines = klines;
     this.positions = [];
@@ -80,7 +86,8 @@ export class StrategyExecutor {
         tokyoSlippage: 10.0,
         highVolatilitySlippage: 10.0,
         volatilityThreshold: 0.5,
-        exitMultiplier: 1.2
+        exitMultiplier: 1.2,
+        ...options.slippageConfig
       })
       : null;
 

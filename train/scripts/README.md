@@ -7,5 +7,7 @@
 - 组合训练脚本：`analyze-weekly-feature-combos.js`
 - 自成长滚动脚本：`analyze-weekly-adaptive-walkforward.js`
 - 训练配套脚本：`generate-top3-validation-configs.js`
+- 成本敏感度报告：`npm run report:cost-sensitivity -- --config <config>`
+- 因果特征审计：`npm run audit:causal-features -- --symbol <SYMBOL> --start <ISO> --end <ISO>`
 
 旧的 rolling 批处理、validation-only、历史回归脚本已移除。
