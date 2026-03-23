@@ -92,6 +92,7 @@ function renderMarkdown(report: RouterValidationReport): string {
   const stopDays = report.dailyRoutes.filter((row) => row.effectiveRiskMultiplier === 0).length;
   const halfOrLessDays = report.dailyRoutes.filter((row) => row.effectiveRiskMultiplier > 0 && row.effectiveRiskMultiplier <= 0.5).length;
   const fullSizeDays = report.dailyRoutes.filter((row) => row.effectiveRiskMultiplier >= 1).length;
+  const lossRecheckDays = report.dailyRoutes.filter((row) => row.lossRuleId !== null).length;
   const topPositive = [...report.dailyRoutes]
     .sort((left, right) => right.routedPnl - left.routedPnl)
     .slice(0, 10);
@@ -133,6 +134,7 @@ ${topDeltaLine(comparison.top10EqualWeight.label, comparison.router.totalPnl, co
 - Stop days: \`${stopDays}\`
 - Half-or-less risk days: \`${halfOrLessDays}\`
 - Full-size days: \`${fullSizeDays}\`
+- Loss-recheck override days: \`${lossRecheckDays}\`
 
 ${policyCatalogSection}## Best Routed Days
 

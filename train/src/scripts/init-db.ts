@@ -73,6 +73,8 @@ async function createBacktestResultsTable(): Promise<void> {
   await ensureColumn('backtest_results', 'interval_type', `VARCHAR(20) NULL COMMENT 'K线周期' AFTER symbol`);
   await ensureColumn('backtest_results', 'period_start_ms', `BIGINT NULL COMMENT '训练/验证起始时间' AFTER interval_type`);
   await ensureColumn('backtest_results', 'period_end_ms', `BIGINT NULL COMMENT '训练/验证结束时间' AFTER period_start_ms`);
+  await ensureColumn('backtest_results', 'gross_profit', `DECIMAL(15, 2) DEFAULT 0 AFTER max_drawdown_pct`);
+  await ensureColumn('backtest_results', 'gross_loss', `DECIMAL(15, 2) DEFAULT 0 AFTER gross_profit`);
   await ensureColumn('backtest_results', 'executor_version', `VARCHAR(20) NULL AFTER score`);
   await ensureColumn('backtest_results', 'executor_options', `JSON NULL AFTER executor_version`);
   await ensureColumn('backtest_results', 'updated_at', `TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at`);

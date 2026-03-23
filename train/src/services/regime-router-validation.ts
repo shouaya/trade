@@ -8,7 +8,7 @@ const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const JPY_INITIAL_CAPITAL = 1_000_000;
 const DEFAULT_INITIAL_CAPITAL = 10_000;
 
-type RouterLayer = 'monthly_guard' | 'weekly_guard' | 'daily_router';
+type RouterLayer = 'monthly_guard' | 'weekly_guard' | 'daily_router' | 'loss_recheck';
 type RouterActionType = 'trade' | 'reduce' | 'stop';
 
 interface ValidationConfig {
@@ -83,6 +83,9 @@ interface RouterCondition {
   readonly absReturnPct?: NumericCondition;
   readonly avgRangePct?: NumericCondition;
   readonly upMinuteRatio?: NumericCondition;
+  readonly previousDayFeatureBucket?: readonly string[];
+  readonly previousDayRoutedPnl?: NumericCondition;
+  readonly consecutiveLossDays?: NumericCondition;
   readonly anyOf?: readonly RouterCondition[];
 }
 
@@ -148,6 +151,12 @@ interface PeriodFeature {
   readonly featureBucket: string;
 }
 
+interface RouterState {
+  readonly previousDayFeature: PeriodFeature | null;
+  readonly previousDayRoutedPnl: number;
+  readonly consecutiveLossDays: number;
+}
+
 interface LayerDecision {
   readonly ruleId: string | null;
   readonly actionType: RouterActionType;
@@ -181,10 +190,13 @@ interface DailyRouteRow {
   readonly monthRuleId: string | null;
   readonly weekRuleId: string | null;
   readonly dayRuleId: string | null;
+  readonly lossRuleId: string | null;
   readonly selectedStrategyKey: string | null;
   readonly selectedStrategyName: string | null;
   readonly selectedStrategyLabel: string | null;
   readonly effectiveRiskMultiplier: number;
+  readonly previousDayRoutedPnl: number;
+  readonly consecutiveLossDaysBefore: number;
   readonly rawStrategyPnl: number;
   readonly routedPnl: number;
   readonly baselineDefaultPnl: number;
@@ -385,7 +397,7 @@ function isNumericConditionMatched(condition: NumericCondition | undefined, valu
   return true;
 }
 
-function isConditionMatched(condition: RouterCondition, feature: PeriodFeature): boolean {
+function isConditionMatched(condition: RouterCondition, feature: PeriodFeature, state: RouterState | null = null): boolean {
   if (condition.featureBucket && !condition.featureBucket.includes(feature.featureBucket)) {
     return false;
   }
@@ -401,8 +413,20 @@ function isConditionMatched(condition: RouterCondition, feature: PeriodFeature):
   if (!isNumericConditionMatched(condition.upMinuteRatio, feature.upMinuteRatio)) {
     return false;
   }
+  if (condition.previousDayFeatureBucket) {
+    const previousBucket = state?.previousDayFeature?.featureBucket;
+    if (!previousBucket || !condition.previousDayFeatureBucket.includes(previousBucket)) {
+      return false;
+    }
+  }
+  if (condition.previousDayRoutedPnl && !isNumericConditionMatched(condition.previousDayRoutedPnl, state?.previousDayRoutedPnl ?? 0)) {
+    return false;
+  }
+  if (condition.consecutiveLossDays && !isNumericConditionMatched(condition.consecutiveLossDays, state?.consecutiveLossDays ?? 0)) {
+    return false;
+  }
   if (condition.anyOf && condition.anyOf.length > 0) {
-    return condition.anyOf.some((child) => isConditionMatched(child, feature));
+    return condition.anyOf.some((child) => isConditionMatched(child, feature, state));
   }
   return true;
 }
@@ -410,7 +434,8 @@ function isConditionMatched(condition: RouterCondition, feature: PeriodFeature):
 function decideLayer(
   router: RouterConfig,
   layer: RouterLayer,
-  feature: PeriodFeature | null
+  feature: PeriodFeature | null,
+  state: RouterState | null = null
 ): LayerDecision {
   if (!feature) {
     return {
@@ -425,7 +450,7 @@ function decideLayer(
   const matchedRule = [...router.rules]
     .filter((rule) => rule.layer === layer)
     .sort((left, right) => left.priority - right.priority)
-    .find((rule) => isConditionMatched(rule.when, feature));
+    .find((rule) => isConditionMatched(rule.when, feature, state));
 
   if (!matchedRule) {
     return {
@@ -640,6 +665,9 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
   const equalWeightPnls: number[] = [];
   const oraclePnls: number[] = [];
   const dailyRoutes: DailyRouteRow[] = [];
+  let previousDayFeature: PeriodFeature | null = null;
+  let previousDayRoutedPnl = 0;
+  let consecutiveLossDays = 0;
 
   for (const dayFeature of dailyFeatures) {
     const month = dayFeature.key.slice(0, 7);
@@ -650,14 +678,21 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
     const monthDecision = decideLayer(routerConfig, 'monthly_guard', monthFeature);
     const weekDecision = decideLayer(routerConfig, 'weekly_guard', weekFeature);
     const dayDecision = decideLayer(routerConfig, 'daily_router', dayFeature);
+    const lossDecision = decideLayer(routerConfig, 'loss_recheck', dayFeature, {
+      previousDayFeature,
+      previousDayRoutedPnl,
+      consecutiveLossDays
+    });
 
     const stopTriggered = monthDecision.actionType === 'stop'
       || weekDecision.actionType === 'stop'
-      || dayDecision.actionType === 'stop';
+      || dayDecision.actionType === 'stop'
+      || lossDecision.actionType === 'stop';
 
     const selectedStrategyKey = !stopTriggered
       ? (
-        dayDecision.strategyKey
+        lossDecision.strategyKey
+        ?? dayDecision.strategyKey
         ?? weekDecision.strategyKey
         ?? monthDecision.strategyKey
         ?? defaultStrategyKey
@@ -665,11 +700,13 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
       : null;
     const selectedStrategyRef = selectedStrategyKey ? routerConfig.strategyCatalog[selectedStrategyKey] : null;
 
-    const hasLayerStrategyOverride = Boolean(dayDecision.strategyKey || weekDecision.strategyKey || monthDecision.strategyKey);
+    const hasLayerStrategyOverride = Boolean(lossDecision.strategyKey || dayDecision.strategyKey || weekDecision.strategyKey || monthDecision.strategyKey);
     const dayRiskMultiplier = stopTriggered
       ? 0
       : (
-        dayDecision.ruleId
+        lossDecision.ruleId
+          ? lossDecision.riskMultiplier
+          : dayDecision.ruleId
           ? dayDecision.riskMultiplier
           : (hasLayerStrategyOverride ? 1 : routerConfig.executionModel.defaultFallback.riskMultiplier)
       );
@@ -704,10 +741,13 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
       monthRuleId: monthDecision.ruleId,
       weekRuleId: weekDecision.ruleId,
       dayRuleId: dayDecision.ruleId,
+      lossRuleId: lossDecision.ruleId,
       selectedStrategyKey,
       selectedStrategyName: selectedStrategyRef?.strategyName ?? null,
       selectedStrategyLabel: selectedStrategyRef?.shortLabel ?? null,
       effectiveRiskMultiplier,
+      previousDayRoutedPnl: round(previousDayRoutedPnl, 2),
+      consecutiveLossDaysBefore: consecutiveLossDays,
       rawStrategyPnl: round(rawStrategyPnl, 2),
       routedPnl,
       baselineDefaultPnl: defaultPnl,
@@ -715,6 +755,10 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
       baselineTop10EqualWeightPnl: equalWeightPnl,
       oracleBestOfDayPnl: oracleBestPnl
     });
+
+    previousDayFeature = dayFeature;
+    previousDayRoutedPnl = routedPnl;
+    consecutiveLossDays = routedPnl < 0 ? consecutiveLossDays + 1 : 0;
   }
 
   return {

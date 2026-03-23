@@ -10,6 +10,12 @@
 - BTCJPY 2025 Top10 对 2024 / 2026 验证配置
 - 事件段路由验证能力
 
+正式方法论文档：
+
+- [METHODOLOGY.md](/Users/ts-changchang.zhuang/git/money/train/METHODOLOGY.md)
+- [PLAYBOOK.md](/Users/ts-changchang.zhuang/git/money/train/PLAYBOOK.md)
+- [TASK_TEMPLATE.md](/Users/ts-changchang.zhuang/git/money/train/TASK_TEMPLATE.md)
+
 ## 常用命令
 
 ```bash
@@ -35,8 +41,8 @@ configs/
   top-strategies/
     2025_btcjpy_v7_hf_rsi_macd_top10_exact_from_2025_top10.generated.json
   generated/regime-routing/
-    BTCJPY_dual_year_router_v6.json
-    BTCJPY_dual_year_policy_catalog_v6.json
+    BTCJPY_dual_year_router_v10_weekly_refined.json
+    BTCJPY_dual_year_router_v10_weekly_refined.policy.json
 ```
 
 ## 关键入口

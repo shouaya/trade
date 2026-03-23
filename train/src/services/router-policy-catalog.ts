@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export type RouterPolicyLayer = 'monthly_guard' | 'weekly_guard' | 'daily_router';
+export type RouterPolicyLayer = 'monthly_guard' | 'weekly_guard' | 'daily_router' | 'loss_recheck';
 export type RouterPolicyActionType = 'trade' | 'reduce' | 'stop';
 
 interface RouterStrategyRefLike {
