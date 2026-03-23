@@ -110,6 +110,18 @@ export const trainConfigsAPI = {
     return api.get('/train-configs', { params });
   },
 
+  getTrainingGuideBootstrap: () => {
+    return api.get('/train-configs/training-guide/bootstrap');
+  },
+
+  buildTrainingGuideDraft: (payload) => {
+    return api.post('/train-configs/training-guide/draft', payload);
+  },
+
+  previewTrainingConfig: (payload) => {
+    return api.post('/train-configs/training-guide/preview', payload);
+  },
+
   getById: (id) => {
     return api.get(`/train-configs/${id}`);
   },

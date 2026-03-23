@@ -1,0 +1,1211 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+type Queryable = {
+  readonly query: (sql: string, params?: readonly unknown[]) => Promise<[any[], any]>;
+};
+
+type BuildTrainingPipelineSummaryOptions = {
+  readonly db: Queryable;
+  readonly repoRoot: string;
+  readonly trainRoot: string;
+};
+
+function toPosix(value: string): string {
+  return value.split(path.sep).join('/');
+}
+
+function toRepoRelative(repoRoot: string, filePath: string): string {
+  return toPosix(path.relative(repoRoot, filePath));
+}
+
+function safeStat(filePath: string): fs.Stats | null {
+  try {
+    return fs.statSync(filePath);
+  } catch {
+    return null;
+  }
+}
+
+function parseMaybeJson(value: unknown): any {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === 'object') {
+    return value;
+  }
+
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return null;
+  }
+}
+
+function listFiles(dirPath: string, predicate: (filePath: string) => boolean = () => true): string[] {
+  if (!fs.existsSync(dirPath)) {
+    return [];
+  }
+
+  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  const files: string[] = [];
+
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listFiles(fullPath, predicate));
+      continue;
+    }
+
+    if (predicate(fullPath)) {
+      files.push(fullPath);
+    }
+  }
+
+  return files;
+}
+
+function formatIso(value: unknown): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const date = value instanceof Date ? value : new Date(value as string | number);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toISOString();
+}
+
+function toRequestSummary(row: any): any {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: Number(row.id),
+    requestId: String(row.request_id),
+    configId: Number(row.config_id),
+    configKey: String(row.config_key),
+    configName: row.config_name ? String(row.config_name) : null,
+    configType: String(row.config_type),
+    action: String(row.action),
+    status: String(row.status),
+    errorMessage: row.error_message ? String(row.error_message) : null,
+    startedAt: formatIso(row.started_at),
+    completedAt: formatIso(row.completed_at),
+    createdAt: formatIso(row.created_at),
+    updatedAt: formatIso(row.updated_at)
+  };
+}
+
+function isActiveRequestStatus(status: unknown): boolean {
+  return status === 'queued'
+    || status === 'exporting'
+    || status === 'running'
+    || status === 'cancelling';
+}
+
+function normalizeText(value: unknown): string {
+  return String(value || '').toLowerCase();
+}
+
+function getYearFromConfig(config: any, fallbackName: string): string | null {
+  const baseYear = String(fallbackName || '').match(/^(\d{4})_/);
+  if (baseYear) {
+    return baseYear[1] || null;
+  }
+
+  const startIso = config?.timeRange?.startIso;
+  if (startIso) {
+    return String(new Date(startIso).getUTCFullYear());
+  }
+
+  const startMs = config?.timeRange?.startTimeMs;
+  if (startMs) {
+    return String(new Date(Number(startMs)).getUTCFullYear());
+  }
+
+  return null;
+}
+
+function getValidationTargetLabel(validationConfig: any, fallbackName: string): string {
+  const explicitLabel = validationConfig?.validationTarget?.label;
+  if (explicitLabel) {
+    return String(explicitLabel);
+  }
+
+  const yearMatch = String(fallbackName).match(/_(\d{4})_validation\.json$/i);
+  if (yearMatch) {
+    return yearMatch[1] || 'validation';
+  }
+
+  const endIso = validationConfig?.timeRange?.endIso;
+  const startIso = validationConfig?.timeRange?.startIso;
+  if (startIso && endIso) {
+    return `${String(startIso).slice(0, 10)} -> ${String(endIso).slice(0, 10)}`;
+  }
+
+  if (startIso) {
+    return String(startIso).slice(0, 10);
+  }
+
+  return 'validation';
+}
+
+function getValidationProfile(validationConfig: any, fallbackName: string): string {
+  const explicitProfile = validationConfig?.validationProfile;
+  if (explicitProfile) {
+    return String(explicitProfile);
+  }
+
+  const fileText = normalizeText([fallbackName, validationConfig?.name, validationConfig?.description].join(' '));
+  if (fileText.includes('rolling')) {
+    return 'rolling-window';
+  }
+  if (fileText.includes('future')) {
+    return 'future-window';
+  }
+  if (fileText.includes('custom')) {
+    return 'custom-range';
+  }
+  if (String(fallbackName || '').match(/_(\d{4})_validation\.json$/i)) {
+    return 'legacy-annual';
+  }
+
+  return 'unknown';
+}
+
+function getValidationPriority(profile: unknown): number {
+  switch (String(profile || '')) {
+    case 'future-window':
+      return 1;
+    case 'rolling-window':
+      return 2;
+    case 'custom-range':
+      return 3;
+    case 'legacy-annual':
+      return 4;
+    default:
+      return 9;
+  }
+}
+
+function matchValidationToTraining(training: any, validation: any): boolean {
+  if (normalizeText(validation.config?.market?.symbol) !== normalizeText(training.symbol)) {
+    return false;
+  }
+
+  const trainingYear = String(training.trainingYear || '');
+  const fileText = normalizeText([
+    validation.fileName,
+    validation.config?.name,
+    validation.config?.description,
+    validation.config?.database?.tableName,
+    validation.config?.trainConfig,
+    validation.config?.validationProfile,
+    validation.config?.validationTarget?.label
+  ].join(' '));
+
+  if (trainingYear && (fileText.includes(`from_${trainingYear}`) || fileText.includes(`from ${trainingYear}`))) {
+    return true;
+  }
+
+  const exactTrainConfig = normalizeText(`configs/training/${training.fileName}`);
+  return fileText.includes(exactTrainConfig);
+}
+
+function findLatestMatch(files: readonly string[], matcher: (filePath: string) => boolean): any {
+  const matched = files
+    .filter(matcher)
+    .map((filePath) => {
+      const stat = safeStat(filePath);
+      return {
+        path: filePath,
+        modifiedAt: formatIso(stat?.mtime),
+        mtimeMs: stat?.mtimeMs || 0
+      };
+    })
+    .sort((left, right) => right.mtimeMs - left.mtimeMs);
+
+  return matched[0] || null;
+}
+
+function buildStatus(stepDone: boolean, partial = false): string {
+  if (stepDone) {
+    return 'done';
+  }
+  if (partial) {
+    return 'partial';
+  }
+  return 'todo';
+}
+
+function formatRange(timeRange: any): string {
+  if (!timeRange?.startIso || !timeRange?.endIso) {
+    return '时间范围未知';
+  }
+
+  return `${String(timeRange.startIso).slice(0, 10)} -> ${String(timeRange.endIso).slice(0, 10)}`;
+}
+
+function getRequestStatusText(status: unknown): string {
+  switch (status) {
+    case 'queued':
+      return '排队中';
+    case 'exporting':
+      return '导出中';
+    case 'running':
+      return '执行中';
+    case 'cancelling':
+      return '停止中';
+    case 'completed':
+      return '已完成';
+    case 'failed':
+      return '失败';
+    case 'cancelled':
+      return '已取消';
+    default:
+      return String(status || '');
+  }
+}
+
+export function buildFinalConfigState(pipeline: any): any {
+  const latestArtifactRequest = pipeline?.latestGenerateValidationRequest || null;
+  const isGenerating = latestArtifactRequest?.action === 'generate-validation'
+    && isActiveRequestStatus(latestArtifactRequest?.status);
+
+  if (pipeline?.topStrategySnapshot) {
+    return {
+      title: pipeline.topStrategySnapshot.path,
+      detail: `final config ${formatIso(pipeline.topStrategySnapshot.generatedAt) || pipeline.topStrategySnapshot.generatedAt || 'n/a'}`,
+      status: 'done',
+      canExport: true,
+      requestId: latestArtifactRequest?.id || null
+    };
+  }
+
+  if (isGenerating) {
+    return {
+      title: '最终策略 config 生成中',
+      detail: `请求 ${latestArtifactRequest.requestId || latestArtifactRequest.id} · ${getRequestStatusText(latestArtifactRequest.status)}`,
+      status: 'running',
+      canExport: false,
+      requestId: latestArtifactRequest?.id || null
+    };
+  }
+
+  if (latestArtifactRequest?.action === 'generate-validation' && latestArtifactRequest?.status === 'failed') {
+    return {
+      title: '最终策略 config 生成失败',
+      detail: latestArtifactRequest.errorMessage || '请查看生成请求日志并重试',
+      status: 'todo',
+      canExport: false,
+      requestId: latestArtifactRequest.id
+    };
+  }
+
+  if (pipeline?.trainingRun) {
+    return {
+      title: '等待生成最终策略 config',
+      detail: '训练完成后 worker 会自动排队生成，无需手动补一步。',
+      status: 'todo',
+      canExport: false,
+      requestId: null
+    };
+  }
+
+  return {
+    title: '尚未生成',
+    detail: '先完成训练候选池，再生成最终策略 config。',
+    status: 'todo',
+    canExport: false,
+    requestId: null
+  };
+}
+
+export function buildMethodologyStages(pipeline: any, trainingConfig: any): any[] {
+  const validations = Array.isArray(pipeline?.validationConfigs) ? pipeline.validationConfigs : [];
+  const strategyTypes = Array.isArray(trainingConfig?.strategy?.types) ? trainingConfig.strategy.types : [];
+  const holdMinutes = Array.isArray(trainingConfig?.strategy?.parameters?.risk?.maxHoldMinutes)
+    ? trainingConfig.strategy.parameters.risk.maxHoldMinutes
+    : [];
+  const lotSize = trainingConfig?.strategy?.parameters?.risk?.lotSize?.[0];
+  const hasTrainingConfig = Boolean(pipeline?.trainingConfigPath);
+  const hasValidationConfig = validations.length > 0;
+  const hasTrainingRun = Boolean(pipeline?.trainingRun);
+  const hasSnapshot = Boolean(pipeline?.topStrategySnapshot);
+  const hasAnyValidationRun = validations.some((item: any) => Boolean(item.latestRun));
+  const hasAllValidationRuns = validations.length > 0 && validations.every((item: any) => Boolean(item.latestRun));
+  const hasActiveValidationRequest = validations.some((item: any) => isActiveRequestStatus(item.latestRequest?.status));
+  const hasRouter = Boolean(pipeline?.router?.routerPath);
+  const hasPolicy = Boolean(pipeline?.router?.policyPath);
+  const routerReady = hasRouter && hasPolicy;
+  const hasFeatureCausality = Boolean(pipeline?.reports?.featureCausality?.path);
+  const hasCostSensitivity = Boolean(pipeline?.reports?.costSensitivity?.path);
+  const hasRouterValidation = Boolean(pipeline?.reports?.routerValidation?.path);
+  const trainingRequestRunning = isActiveRequestStatus(pipeline?.latestRequest?.status);
+  const trainingRange = formatRange(pipeline?.timeRange);
+  const strategyLabel = strategyTypes.length > 0 ? strategyTypes.join(', ') : '未定义';
+  const holdLabel = holdMinutes.length > 0 ? holdMinutes.join(' - ') : '未定义';
+  const validationLabels = validations.length > 0
+    ? validations.map((item: any) => `${item.targetLabel}:${item.latestRun ? 'done' : (item.latestRequest?.status || 'todo')}`)
+    : ['尚未生成 validation config'];
+
+  return [
+    {
+      key: 'stage-0-boundary',
+      label: '阶段 0',
+      title: '确认任务边界',
+      status: hasTrainingConfig && hasValidationConfig ? 'done' : hasTrainingConfig ? 'partial' : 'todo',
+      summary: hasValidationConfig
+        ? '训练区间与未来验证区间都已进入配置库，边界清晰。'
+        : '已有 training config，但未来 validation 配置还不完整。',
+      inputs: ['交易对', '训练区间', '验证区间', '既有 router / report'],
+      outputs: [
+        pipeline?.trainingConfigPath || '等待 training config',
+        hasValidationConfig ? `${validations.length} 份 validation config` : '等待 validation config'
+      ],
+      gates: ['symbol 明确', '训练期与验证期分离', '命名不混淆旧结果'],
+      evidence: [
+        pipeline?.symbol || 'UNKNOWN',
+        trainingRange,
+        hasValidationConfig ? `validation ${validations.length} 份` : '未匹配到 validation'
+      ],
+      notes: '方法论要求先锁定 symbol、训练期、验证期，再开始推导。',
+      actionKeys: ['generate-validation', 'prepare-validation']
+    },
+    {
+      key: 'stage-1-diagnosis',
+      label: '阶段 1',
+      title: '波动与结构诊断',
+      status: hasFeatureCausality ? 'done' : hasTrainingRun || hasSnapshot ? 'partial' : 'todo',
+      summary: hasFeatureCausality
+        ? '已有结构诊断类报告，可作为阶段 1 的证据入口。'
+        : '当前缺少显式结构诊断报告，建议先补一份波动/因果分析。',
+      inputs: ['历史数据切片', '好周 / 坏周样本', '高波 / 低波段'],
+      outputs: ['波动报告', '周 / 月 / 日结构概览'],
+      gates: ['能区分高低波', '能指出典型坏区间', '能解释至少几类结构差异'],
+      evidence: hasFeatureCausality
+        ? [pipeline.reports.featureCausality.path]
+        : hasTrainingRun
+          ? ['已有候选池结果，可回填结构诊断报告']
+          : ['等待候选池训练后补证据'],
+      notes: '当前系统没有单独的“波动诊断”文件类型，先用 feature causality / 分析报告近似承载。',
+      actionKeys: ['feature-causality']
+    },
+    {
+      key: 'stage-2-family',
+      label: '阶段 2',
+      title: '定义候选策略家族',
+      status: hasTrainingConfig ? 'done' : 'todo',
+      summary: hasTrainingConfig
+        ? `当前 training config 已固定主家族：${strategyLabel}。`
+        : '需要先创建训练配置并明确主策略家族。',
+      inputs: ['主策略家族', '参数空间', '交易时段', '风控边界'],
+      outputs: ['训练配置 JSON', '受约束参数空间'],
+      gates: ['单轮尽量只用一个主家族', '参数空间有覆盖但不过宽', '先能跑通再扩网格'],
+      evidence: [
+        `策略族: ${strategyLabel}`,
+        `TopN: ${pipeline?.topN || 'n/a'}`,
+        `lotSize: ${lotSize ?? '未定义'} · hold: ${holdLabel}`
+      ],
+      notes: '这一步以配置编辑器为主，先把关键参数定下来，再进入候选池训练。',
+      actionKeys: []
+    },
+    {
+      key: 'stage-3-candidate-pool',
+      label: '阶段 3',
+      title: '训练候选池',
+      status: trainingRequestRunning ? 'running' : hasTrainingRun ? 'done' : 'todo',
+      summary: hasTrainingRun
+        ? `候选池已落库，当前记录 ${pipeline.trainingRun.strategyCount} 个策略结果。`
+        : trainingRequestRunning
+          ? '训练任务正在执行，等待候选池结果落库。'
+          : '还没有训练结果，先跑候选池。',
+      inputs: ['training config', '参数网格', '目标结果表'],
+      outputs: ['backtest_results', '训练期 TopN', 'trades'],
+      gates: ['候选池不能过少', '策略之间要有结构差异', '不能所有阶段一起亏'],
+      evidence: [
+        pipeline?.resultGroup || '未配置结果表',
+        hasTrainingRun ? `${pipeline.trainingRun.runId} · ${pipeline.trainingRun.strategyCount} strategies` : '尚未落库',
+        pipeline?.latestRequest?.requestId ? `queue ${pipeline.latestRequest.requestId}` : '暂无训练请求'
+      ],
+      notes: '这一步对应 `METHODOLOGY` 的主入口，训练 UI 的自动执行也从这里开始。',
+      actionKeys: ['run-training']
+    },
+    {
+      key: 'stage-4-weekly-base',
+      label: '阶段 4',
+      title: '构建周级策略映射',
+      status: routerReady ? 'done' : hasTrainingRun ? 'partial' : 'todo',
+      summary: routerReady
+        ? '已存在可执行 router / policy，可视为周级 base policy 已固化。'
+        : hasTrainingRun
+          ? '候选池已具备，下一步应归纳 weekly base policy。'
+          : '先完成候选池训练，再做周级映射。',
+      inputs: ['周级特征', 'bucket 划分', '坏周 / 好周表现'],
+      outputs: ['weekly_guard 规则'],
+      gates: ['解决大方向错误', '不要把日级细节塞进周级', '规则不能过碎'],
+      evidence: [
+        hasSnapshot ? pipeline.topStrategySnapshot.path : '尚未生成最终策略 config',
+        hasRouter ? pipeline.router.routerPath : '尚未找到 router',
+        hasPolicy ? pipeline.router.policyPath : '尚未找到 policy'
+      ],
+      notes: '当前系统没有单独的 weekly_guard 文件，UI 先用 router / policy 产物作为阶段完成度代理。',
+      actionKeys: []
+    },
+    {
+      key: 'stage-5-daily-overlay',
+      label: '阶段 5',
+      title: '构建日级策略映射',
+      status: hasRouterValidation ? 'done' : hasRouter || hasAnyValidationRun ? 'partial' : 'todo',
+      summary: hasRouterValidation
+        ? '已有 router 相关验证报告，说明日级 overlay 已进入可回放状态。'
+        : hasRouter || hasAnyValidationRun
+          ? '已经具备部分样本或路由产物，可以继续收敛 daily overlay。'
+          : '先准备未来期样本，再提炼日级映射。',
+      inputs: ['坏日 / 好日样本', '日级特征', '候选策略差异'],
+      outputs: ['daily_router'],
+      gates: ['每条规则都能解释具体坏日', '不能只修单个记忆样本', '不能一上来大量 stop'],
+      evidence: [
+        ...validationLabels.slice(0, 2),
+        hasRouterValidation ? pipeline.reports.routerValidation.path : '尚无 daily router 验证报告'
+      ],
+      notes: '方法论强调每条日级规则都要能回答“修的是哪几天、为什么错、是否误伤”。',
+      actionKeys: []
+    },
+    {
+      key: 'stage-6-loss-recheck',
+      label: '阶段 6',
+      title: '加入亏损反馈保护',
+      status: routerReady && hasRouterValidation ? 'done' : routerReady ? 'partial' : 'todo',
+      summary: routerReady
+        ? '保护层已经随 router/policy 进入稳定产物，但还缺少独立 loss recheck 证据。'
+        : 'loss recheck 还没有进入稳定执行产物。',
+      inputs: ['连续亏损日', '前一日失败 + 次日继续硬做样本'],
+      outputs: ['loss_recheck'],
+      gates: ['它只能做保护层', '不能反过来成为主要决策层'],
+      evidence: [
+        hasRouter ? pipeline.router.routerPath : '尚未找到 router',
+        hasPolicy ? pipeline.router.policyPath : '尚未找到 policy',
+        hasRouterValidation ? '已有 router validation 证据' : '等待验证保护层效果'
+      ],
+      notes: '当前数据层没有单独拆出 loss_recheck 产物，UI 先把它视为 router 内部保护层能力。',
+      actionKeys: []
+    },
+    {
+      key: 'stage-7-router',
+      label: '阶段 7',
+      title: '生成 router / policy catalog',
+      status: routerReady ? 'done' : hasRouter || hasPolicy ? 'partial' : 'todo',
+      summary: routerReady
+        ? 'router 与 policy catalog 已齐，可进入共用验证和复盘。'
+        : hasRouter || hasPolicy
+          ? 'router / policy 只完成了一部分，还不能算稳定产物。'
+          : '还没有发现 router / policy 产物。',
+      inputs: ['weekly_guard', 'daily_router', 'loss_recheck'],
+      outputs: ['router config', 'policy catalog', 'daily policy summary'],
+      gates: ['不能只有 router 没说明书', '不能只有说明书 没可执行配置'],
+      evidence: [
+        hasRouter ? pipeline.router.routerPath : '未找到 router config',
+        hasPolicy ? pipeline.router.policyPath : '未找到 policy catalog',
+        hasRouterValidation ? pipeline.reports.routerValidation.path : '尚无 routing report'
+      ],
+      notes: '这一步是方法论里的“固化产物”阶段，前后端都应围绕这套产物展开。',
+      actionKeys: ['build-router']
+    },
+    {
+      key: 'stage-8-future-validation',
+      label: '阶段 8',
+      title: '未来期验证',
+      status: hasActiveValidationRequest
+        ? 'running'
+        : hasAllValidationRuns && (hasCostSensitivity || hasRouterValidation)
+          ? 'done'
+          : hasValidationConfig || hasSnapshot
+            ? 'partial'
+            : 'todo',
+      summary: hasAllValidationRuns
+        ? `未来期 validation 已完成 ${validations.length} 个目标区间。`
+        : hasValidationConfig
+          ? 'validation 配置已经就绪，可以直接执行未来期验证。'
+          : '先生成最终策略 config 与 validation config，再进入未来期验证。',
+      inputs: ['validation config', 'final strategy config', '同版 router'],
+      outputs: ['future validation result', 'scorecard', 'cost sensitivity'],
+      gates: ['至少和 default/rank1/topN/oracle 对比', '检查摩擦成本', '关注负收益周和坏周解释'],
+      evidence: [
+        ...validationLabels.slice(0, 3),
+        hasCostSensitivity ? pipeline.reports.costSensitivity.path : '尚无成本敏感度报告'
+      ],
+      notes: '这里才是方法论里的“未来期检验泛化能力”，不是单纯按年度做一个 shortcut。',
+      actionKeys: ['generate-validation', 'prepare-validation', 'waiting-generate-validation', 'run-validation', 'waiting-validation', 'cost-sensitivity', 'router-validate']
+    },
+    {
+      key: 'stage-9-iteration',
+      label: '阶段 9',
+      title: '失败后迭代',
+      status: hasRouterValidation || hasCostSensitivity ? 'done' : hasAllValidationRuns ? 'partial' : 'todo',
+      summary: hasRouterValidation || hasCostSensitivity
+        ? '复盘材料已经具备，可以按坏周 -> 坏日 -> 规则误伤顺序迭代。'
+        : hasAllValidationRuns
+          ? '验证结果已出来，下一步应该进入复盘和迭代，而不是继续盲目扩参数。'
+          : '等待未来期验证结果，再决定是否进入迭代。',
+      inputs: ['坏周清单', '坏日样本', '误伤样本', '回撤对比'],
+      outputs: ['新一轮训练/规则修订计划'],
+      gates: ['先查候选池', '再查周级', '再查日级', '不要盲目扩大参数空间'],
+      evidence: [
+        hasRouterValidation ? pipeline.reports.routerValidation.path : '尚无 router validation 报告',
+        hasCostSensitivity ? pipeline.reports.costSensitivity.path : '尚无 cost sensitivity 报告'
+      ],
+      notes: '方法论明确要求失败时按固定顺序回查，不要直接写窄规则或无限扩网格。',
+      actionKeys: ['review']
+    }
+  ];
+}
+
+export function getSuggestedStageKey(stages: readonly any[]): string {
+  const runningStage = stages.find((stage: any) => stage.status === 'running');
+  if (runningStage) {
+    return runningStage.key;
+  }
+
+  const pendingStage = stages.find((stage: any) => stage.status !== 'done');
+  if (pendingStage) {
+    return pendingStage.key;
+  }
+
+  return stages[stages.length - 1]?.key || '';
+}
+
+function buildNextAction(training: any, validationRecords: readonly any[], reports: any, routerFiles: any): any {
+  const costSensitivityPath = reports?.costSensitivity?.path || null;
+  const featureCausalityPath = reports?.featureCausality?.path || null;
+  const routerValidationPath = reports?.routerValidation?.path || null;
+  const latestGenerateValidationRequest = training.latestGenerateValidationRequest || null;
+  const hasActiveGenerateValidationRequest = isActiveRequestStatus(latestGenerateValidationRequest?.status);
+  if (!training.trainingRun) {
+    return {
+      key: 'run-training',
+      title: '先跑训练候选池',
+      reason: '数据库里还没有这个 training config 的训练结果。',
+      commands: [
+        '优先直接在 UI 中点击“运行训练”。如需 CLI 离线执行，请先从配置库导出对应 training config。'
+      ]
+    };
+  }
+
+  if (!training.topStrategySnapshot && hasActiveGenerateValidationRequest) {
+    return {
+      key: 'waiting-generate-validation',
+      title: '等待最终策略 config 生成',
+      reason: 'worker 正在根据训练结果生成最终策略 config 和 validation 配置。',
+      commands: []
+    };
+  }
+
+  if (!training.topStrategySnapshot) {
+    return {
+      key: 'generate-validation',
+      title: '生成最终策略 config 和未来期 validation 配置',
+      reason: '训练结果已经存在，但数据库里还没有看到对应的最终策略 config。',
+      commands: [
+        '优先直接在 UI 中点击“下一步”，系统会把最终策略 config 与 validation config 直接写入数据库；只有需要离线保存时再手动导出。'
+      ]
+    };
+  }
+
+  if (validationRecords.length === 0) {
+    return {
+      key: 'prepare-validation',
+      title: '补生成 validation 配置',
+      reason: '已经有训练结果，但数据库里还没有找到匹配的 validation 配置记录。',
+      commands: [
+        '重新触发一次“生成 Validation”，系统会把 validation config 和最终策略 config 一起写入数据库。'
+      ]
+    };
+  }
+
+  const activeValidation = validationRecords
+    .filter((item) => !item.latestRun && isActiveRequestStatus(item.latestRequest?.status))
+    .sort((left, right) => getValidationPriority(left.validationProfile) - getValidationPriority(right.validationProfile))[0];
+  if (activeValidation) {
+    return {
+      key: 'waiting-validation',
+      title: `等待 Validation ${activeValidation.targetLabel}`,
+      reason: 'validation 请求已经在 worker 中执行，无需重复排队。',
+      commands: []
+    };
+  }
+
+  const pendingValidation = validationRecords
+    .filter((item) => !item.latestRun && !isActiveRequestStatus(item.latestRequest?.status))
+    .sort((left, right) => getValidationPriority(left.validationProfile) - getValidationPriority(right.validationProfile))[0];
+  if (pendingValidation) {
+    return {
+      key: 'run-validation',
+      title: `跑验证 ${pendingValidation.targetLabel}`,
+      reason: 'validation config 已存在，但该验证期还没有落库结果。',
+      commands: [
+        '优先直接在 UI 中点击“运行验证”。如需 CLI 离线执行，请先导出对应 validation config。'
+      ]
+    };
+  }
+
+  const latestValidation = validationRecords
+    .filter((item) => item.latestRun)
+    .sort((left, right) => new Date(right.latestRun.latestAt || 0).getTime() - new Date(left.latestRun.latestAt || 0).getTime())[0];
+
+  if (!costSensitivityPath && latestValidation) {
+    return {
+      key: 'cost-sensitivity',
+      title: '补跑成本敏感度报告',
+      reason: '验证已经有结果，但还没有看到成本敏感度报告。',
+      commands: [
+        `docker compose run --rm train sh -lc "npm install && npm run build && npm run report:cost-sensitivity -- --config ${latestValidation.path}"`
+      ]
+    };
+  }
+
+  if (!featureCausalityPath) {
+    const startDate = String(latestValidation?.timeRange?.startIso || training.timeRange?.startIso || '').slice(0, 10);
+    const endDate = String(latestValidation?.timeRange?.endIso || training.timeRange?.endIso || '').slice(0, 10);
+    return {
+      key: 'feature-causality',
+      title: '补跑因果特征审计',
+      reason: '还没有看到这个交易对对应的 feature causality 报告。',
+      commands: [
+        `docker compose run --rm train sh -lc "npm install && npm run build && npm run audit:causal-features -- --symbol ${training.symbol} --start ${startDate} --end ${endDate} --openingMinutes 60"`
+      ]
+    };
+  }
+
+  if (!routerFiles.routerPath) {
+    return {
+      key: 'build-router',
+      title: '补 router / policy catalog',
+      reason: '训练和验证已经跑通，但还没有找到可用的 router 配置文件。',
+      commands: [
+        '参考 train/PLAYBOOK.md 阶段 8 生成 router 和 policy catalog'
+      ]
+    };
+  }
+
+  if (!routerValidationPath && latestValidation) {
+    return {
+      key: 'router-validate',
+      title: '跑 router 验证',
+      reason: 'router 已存在，但还没有看到 regime routing 验证报告。',
+      commands: [
+        `docker compose run --rm train sh -lc "npm install && npm run build && node dist/scripts/router-validate.js --validation ${latestValidation.path} --router ${routerFiles.routerPath}"`
+      ]
+    };
+  }
+
+  return {
+    key: 'review',
+    title: '进入结果复盘',
+    reason: '主流程产物已经齐全，可以开始看报告和策略差异。',
+    commands: [
+      '先看 train/reports/regime-routing-results/ 与 train/reports/cost-sensitivity/ 的最新报告'
+    ]
+  };
+}
+
+async function getExistingTables(db: Queryable): Promise<Set<string>> {
+  const [rows] = await db.query('SHOW TABLES');
+  const tables = new Set<string>();
+
+  for (const row of rows) {
+    for (const value of Object.values(row)) {
+      tables.add(String(value));
+    }
+  }
+
+  return tables;
+}
+
+async function loadDbSummary(db: Queryable): Promise<any> {
+  const result: any = {
+    connected: false,
+    warning: null,
+    runMap: new Map(),
+    taskMap: new Map(),
+    latestRequestMap: new Map(),
+    latestActionRequestMap: new Map(),
+    configRegistry: {
+      training: [],
+      validation: [],
+      topStrategies: [],
+      router: []
+    }
+  };
+
+  try {
+    await db.query("SET NAMES 'utf8mb4'");
+    const tables = await getExistingTables(db);
+    result.connected = true;
+
+    if (tables.has('backtest_results')) {
+      const [rows] = await db.query(`
+        SELECT
+          result_group,
+          mode,
+          run_id,
+          config_name,
+          symbol,
+          COUNT(*) AS strategy_count,
+          MAX(score) AS best_score,
+          MAX(total_pnl) AS best_total_pnl,
+          MAX(updated_at) AS latest_at,
+          MAX(created_at) AS created_at
+        FROM backtest_results
+        GROUP BY result_group, mode, run_id, config_name, symbol
+        ORDER BY latest_at DESC
+      `);
+
+      for (const row of rows) {
+        const resultGroup = String(row.result_group || '');
+        const mode = String(row.mode || 'unknown');
+        const existing = result.runMap.get(resultGroup) || {};
+        if (!existing[mode]) {
+          existing[mode] = {
+            runId: String(row.run_id || ''),
+            configName: row.config_name ? String(row.config_name) : null,
+            symbol: row.symbol ? String(row.symbol) : null,
+            strategyCount: Number(row.strategy_count || 0),
+            bestScore: row.best_score == null ? null : Number(row.best_score),
+            bestTotalPnl: row.best_total_pnl == null ? null : Number(row.best_total_pnl),
+            latestAt: formatIso(row.latest_at),
+            createdAt: formatIso(row.created_at)
+          };
+          result.runMap.set(resultGroup, existing);
+        }
+      }
+    }
+
+    if (tables.has('tasks')) {
+      const [rows] = await db.query(`
+        SELECT
+          task_id,
+          config_name,
+          description,
+          status,
+          started_at,
+          completed_at,
+          created_at
+        FROM tasks
+        ORDER BY created_at DESC
+      `);
+
+      for (const row of rows) {
+        const configName = String(row.config_name || '');
+        if (!configName || result.taskMap.has(configName)) {
+          continue;
+        }
+
+        result.taskMap.set(configName, {
+          taskId: String(row.task_id || ''),
+          configName,
+          description: row.description ? String(row.description) : null,
+          status: String(row.status || 'unknown'),
+          startedAt: formatIso(row.started_at),
+          completedAt: formatIso(row.completed_at),
+          createdAt: formatIso(row.created_at)
+        });
+      }
+    }
+
+    if (tables.has('train_run_requests')) {
+      const [rows] = await db.query(`
+        SELECT *
+        FROM train_run_requests
+        ORDER BY created_at DESC, id DESC
+      `);
+
+      for (const row of rows) {
+        const configKey = String(row.config_key || '');
+        const action = String(row.action || '');
+        if (!configKey) {
+          continue;
+        }
+
+        if (!result.latestRequestMap.has(configKey)) {
+          result.latestRequestMap.set(configKey, toRequestSummary(row));
+        }
+
+        const actionKey = `${configKey}::${action}`;
+        if (!result.latestActionRequestMap.has(actionKey)) {
+          result.latestActionRequestMap.set(actionKey, toRequestSummary(row));
+        }
+      }
+    }
+
+    if (tables.has('train_configs')) {
+      const [rows] = await db.query(`
+        SELECT
+          config_key,
+          config_type,
+          config_name,
+          symbol,
+          interval_type,
+          result_group,
+          source_table,
+          train_config_ref,
+          training_year,
+          updated_at,
+          content
+        FROM train_configs
+        ORDER BY config_key ASC
+      `);
+
+      for (const row of rows) {
+        const entry = {
+          configKey: String(row.config_key || ''),
+          fileName: path.basename(String(row.config_key || '')),
+          configType: String(row.config_type || ''),
+          configName: row.config_name ? String(row.config_name) : null,
+          symbol: row.symbol ? String(row.symbol) : null,
+          intervalType: row.interval_type ? String(row.interval_type) : null,
+          resultGroup: row.result_group ? String(row.result_group) : null,
+          sourceTable: row.source_table ? String(row.source_table) : null,
+          trainConfigRef: row.train_config_ref ? String(row.train_config_ref) : null,
+          trainingYear: row.training_year ? String(row.training_year) : null,
+          updatedAt: formatIso(row.updated_at),
+          content: parseMaybeJson(row.content)
+        };
+
+        if (entry.configType === 'training') {
+          result.configRegistry.training.push(entry);
+        } else if (entry.configType === 'validation') {
+          result.configRegistry.validation.push(entry);
+        } else if (entry.configType === 'top-strategies') {
+          result.configRegistry.topStrategies.push(entry);
+        } else if (entry.configType === 'router') {
+          result.configRegistry.router.push(entry);
+        }
+      }
+    }
+  } catch (error) {
+    result.warning = error instanceof Error ? error.message : String(error);
+  }
+
+  return result;
+}
+
+export async function buildTrainingPipelineSummary(options: BuildTrainingPipelineSummaryOptions): Promise<any> {
+  const { db, repoRoot, trainRoot } = options;
+  const routerConfigDir = path.join(trainRoot, 'configs', 'generated', 'regime-routing');
+  const reportsRoot = path.join(trainRoot, 'reports');
+
+  const dbSummary = await loadDbSummary(db);
+  const trainingEntries = dbSummary.configRegistry.training
+    .map((entry: any) => ({
+      path: entry.configKey,
+      fileName: entry.fileName,
+      config: entry.content,
+      updatedAt: entry.updatedAt
+    }));
+
+  const validationEntries = dbSummary.configRegistry.validation
+    .map((entry: any) => ({
+      path: entry.configKey,
+      fileName: entry.fileName,
+      fullPath: null,
+      config: entry.content
+    }));
+
+  const topStrategyEntries = dbSummary.configRegistry.topStrategies
+    .map((entry: any) => ({
+      fullPath: entry.configKey,
+      fileName: entry.fileName,
+      data: entry.content,
+      stat: {
+        mtime: entry.updatedAt,
+        mtimeMs: new Date(entry.updatedAt || 0).getTime()
+      }
+    }));
+
+  const routerRegistryKeys = dbSummary.configRegistry.router.map((entry: any) => entry.configKey);
+  const routerFiles = routerRegistryKeys.length > 0
+    ? routerRegistryKeys
+    : listFiles(routerConfigDir, (filePath) => filePath.endsWith('.json'));
+  const reportFiles = listFiles(reportsRoot, (filePath) => filePath.endsWith('.md') || filePath.endsWith('.json'));
+
+  const pipelines = trainingEntries.map((trainingEntry: any) => {
+    const config = trainingEntry.config;
+    const fileName = trainingEntry.fileName;
+
+    if (!config) {
+      return {
+        id: fileName,
+        fileName,
+        configError: true
+      };
+    }
+
+    const resultGroup = String(config.database?.tableName || '').trim();
+    const symbol = String(config.market?.symbol || 'UNKNOWN').toUpperCase();
+    const trainingYear = getYearFromConfig(config, fileName);
+    const topN = Number(config.output?.topN || 10);
+    const runBucket = dbSummary.runMap.get(resultGroup) || {};
+    const trainingRun = runBucket.training || null;
+    const latestTask = dbSummary.taskMap.get(String(config.name || '')) || null;
+    const trainingLatestRequest = dbSummary.latestRequestMap.get(trainingEntry.path) || null;
+    const latestGenerateValidationRequest = dbSummary.latestActionRequestMap.get(`${trainingEntry.path}::generate-validation`) || null;
+    const generateValidationRunning = isActiveRequestStatus(latestGenerateValidationRequest?.status);
+
+    const snapshotMatch = topStrategyEntries
+      .filter((entry: any) => {
+        const trainConfigRef = normalizeText(entry.data?.trainConfig || entry.data?.train_config_ref);
+        return trainConfigRef.endsWith(normalizeText(trainingEntry.path))
+          || trainConfigRef.endsWith(normalizeText(`configs/training/${fileName}`))
+          || normalizeText(entry.data?.sourceTable) === normalizeText(resultGroup);
+      })
+      .sort((left: any, right: any) => (right.stat?.mtimeMs || 0) - (left.stat?.mtimeMs || 0))[0] || null;
+
+    const matchedValidations = validationEntries
+      .filter((entry: any) => !entry.config?.draftFromTraining)
+      .filter((entry: any) => matchValidationToTraining({
+        symbol,
+        trainingYear,
+        fileName
+      }, entry))
+      .map((entry: any) => {
+        const validationResultGroup = String(entry.config.database?.tableName || '').trim();
+        const validationRunBucket = dbSummary.runMap.get(validationResultGroup) || {};
+        const validationProfile = getValidationProfile(entry.config, entry.fileName);
+        return {
+          name: entry.config.name,
+          path: entry.path,
+          validationProfile,
+          resultGroup: validationResultGroup,
+          targetLabel: getValidationTargetLabel(entry.config, entry.fileName),
+          timeRange: {
+            startIso: entry.config.timeRange?.startIso || formatIso(entry.config.timeRange?.startTimeMs),
+            endIso: entry.config.timeRange?.endIso || formatIso(entry.config.timeRange?.endTimeMs)
+          },
+          latestRun: validationRunBucket.validation || null,
+          latestRequest: dbSummary.latestRequestMap.get(entry.path) || null,
+          latestTask: dbSummary.taskMap.get(String(entry.config.name || '')) || null
+        };
+      })
+      .sort((left: any, right: any) => {
+        const priorityDiff = getValidationPriority(left.validationProfile) - getValidationPriority(right.validationProfile);
+        if (priorityDiff !== 0) {
+          return priorityDiff;
+        }
+        return String(left.targetLabel).localeCompare(String(right.targetLabel));
+      });
+
+    const hasActiveValidationRequest = matchedValidations.some((item: any) => isActiveRequestStatus(item.latestRequest?.status));
+
+    const routerConfigRef = config.regimeRouting?.routerConfigPath || null;
+    const normalizedRouterConfigRef = routerConfigRef
+      ? normalizeText(path.posix.normalize(path.posix.join(path.posix.dirname(trainingEntry.path), routerConfigRef)))
+      : null;
+    const routerPath = normalizedRouterConfigRef
+      ? routerFiles.find((item: string) => normalizeText(String(item)).endsWith(normalizedRouterConfigRef))
+        || routerFiles.find((item: string) => normalizeText(String(item)).endsWith(normalizeText(String(routerConfigRef))))
+        || null
+      : null;
+    const policyPath = routerPath
+      ? String(routerPath).replace(/\.json$/i, '.policy.json')
+      : null;
+    const policyExists = policyPath
+      ? routerFiles.some((item: string) => normalizeText(String(item)) === normalizeText(policyPath))
+        || fs.existsSync(path.join(repoRoot, policyPath))
+      : false;
+
+    const symbolReportMatcher = (segment: string) => (filePathCandidate: string) => {
+      const normalized = normalizeText(toRepoRelative(repoRoot, filePathCandidate));
+      return normalized.includes(`reports/${segment}`) && normalized.includes(normalizeText(symbol));
+    };
+
+    const reportSummary = {
+      costSensitivity: findLatestMatch(reportFiles, symbolReportMatcher('cost-sensitivity')),
+      featureCausality: findLatestMatch(reportFiles, symbolReportMatcher('feature-causality')),
+      routerValidation: findLatestMatch(reportFiles, symbolReportMatcher('regime-routing-results'))
+    };
+
+    const steps = [
+      {
+        key: 'training-config',
+        title: 'Training Config',
+        status: 'done',
+        detail: trainingEntry.path
+      },
+      {
+        key: 'training-run',
+        title: 'Training Run',
+        status: isActiveRequestStatus(trainingLatestRequest?.status)
+          ? 'running'
+          : latestTask?.status === 'running'
+            ? 'running'
+            : buildStatus(Boolean(trainingRun)),
+        detail: trainingRun
+          ? `${trainingRun.strategyCount} strategies · latest ${trainingRun.latestAt || 'n/a'}`
+          : trainingLatestRequest
+            ? `queue ${trainingLatestRequest.status}`
+            : '尚未落库'
+      },
+      {
+        key: 'top-strategies',
+        title: 'Final Strategy Config',
+        status: generateValidationRunning ? 'running' : buildStatus(Boolean(snapshotMatch)),
+        detail: snapshotMatch
+          ? (String(snapshotMatch.fullPath).startsWith('/')
+            ? toRepoRelative(repoRoot, snapshotMatch.fullPath)
+            : String(snapshotMatch.fullPath))
+          : generateValidationRunning
+            ? `queue ${latestGenerateValidationRequest.status}`
+            : '尚未生成'
+      },
+      {
+        key: 'validation-config',
+        title: 'Validation Configs',
+        status: generateValidationRunning
+          ? 'running'
+          : buildStatus(matchedValidations.length > 0),
+        detail: matchedValidations.length > 0
+          ? `${matchedValidations.length} records`
+          : generateValidationRunning
+            ? '派生生成中'
+            : '未找到'
+      },
+      {
+        key: 'validation-run',
+        title: 'Validation Runs',
+        status: hasActiveValidationRequest
+          ? 'running'
+          : buildStatus(
+            matchedValidations.length > 0 && matchedValidations.every((item: any) => Boolean(item.latestRun)),
+            matchedValidations.some((item: any) => Boolean(item.latestRun))
+          ),
+        detail: matchedValidations.length > 0
+          ? matchedValidations
+            .map((item: any) => `${item.targetLabel}:${item.latestRequest?.status || (item.latestRun ? 'done' : 'todo')}`)
+            .join(' | ')
+          : '等待 validation config'
+      },
+      {
+        key: 'cost-sensitivity',
+        title: 'Cost Report',
+        status: buildStatus(Boolean(reportSummary.costSensitivity)),
+        detail: reportSummary.costSensitivity?.path ? toRepoRelative(repoRoot, reportSummary.costSensitivity.path) : '未找到'
+      },
+      {
+        key: 'feature-causality',
+        title: 'Causal Audit',
+        status: buildStatus(Boolean(reportSummary.featureCausality)),
+        detail: reportSummary.featureCausality?.path ? toRepoRelative(repoRoot, reportSummary.featureCausality.path) : '未找到'
+      },
+      {
+        key: 'router',
+        title: 'Router / Policy',
+        status: buildStatus(Boolean(routerPath && policyExists), Boolean(routerPath || policyExists)),
+        detail: routerPath ? `${routerPath}${policyExists ? ' + policy' : ''}` : '未配置'
+      },
+      {
+        key: 'router-validation',
+        title: 'Router Validation',
+        status: buildStatus(Boolean(reportSummary.routerValidation)),
+        detail: reportSummary.routerValidation?.path ? toRepoRelative(repoRoot, reportSummary.routerValidation.path) : '未找到'
+      }
+    ];
+
+    const topStrategySnapshot = snapshotMatch ? {
+      path: String(snapshotMatch.fullPath).startsWith('/')
+        ? toRepoRelative(repoRoot, snapshotMatch.fullPath)
+        : String(snapshotMatch.fullPath),
+      configName: snapshotMatch.data.name || null,
+      generatedAt: snapshotMatch.data.generatedAt || formatIso(snapshotMatch.stat?.mtime),
+      sourceRunId: snapshotMatch.data.sourceRunId || null,
+      limit: snapshotMatch.data.limit || null,
+      exact: Boolean(snapshotMatch.data.exact)
+    } : null;
+
+    const reports = {
+      costSensitivity: reportSummary.costSensitivity ? {
+        path: toRepoRelative(repoRoot, reportSummary.costSensitivity.path),
+        modifiedAt: reportSummary.costSensitivity.modifiedAt
+      } : null,
+      featureCausality: reportSummary.featureCausality ? {
+        path: toRepoRelative(repoRoot, reportSummary.featureCausality.path),
+        modifiedAt: reportSummary.featureCausality.modifiedAt
+      } : null,
+      routerValidation: reportSummary.routerValidation ? {
+        path: toRepoRelative(repoRoot, reportSummary.routerValidation.path),
+        modifiedAt: reportSummary.routerValidation.modifiedAt
+      } : null
+    };
+
+    const router = {
+      routerPath,
+      policyPath: policyExists ? policyPath : null
+    };
+
+    const nextAction = buildNextAction({
+      fileName,
+      name: config.name,
+      symbol,
+      resultGroup,
+      timeRange: config.timeRange,
+      validationPlan: config.validationPlan || null,
+      trainingRun,
+      topStrategySnapshot,
+      latestGenerateValidationRequest,
+      topN,
+      trainingYear
+    }, matchedValidations, reportSummary, router);
+
+    const pipeline = {
+      id: fileName.replace(/\.json$/i, ''),
+      name: config.name,
+      description: config.description || '',
+      symbol,
+      intervalType: config.market?.intervalType || null,
+      trainingYear,
+      topN,
+      resultGroup,
+      trainingConfigPath: trainingEntry.path,
+      configUpdatedAt: trainingEntry.updatedAt || null,
+      timeRange: {
+        startIso: config.timeRange?.startIso || formatIso(config.timeRange?.startTimeMs),
+        endIso: config.timeRange?.endIso || formatIso(config.timeRange?.endTimeMs)
+      },
+      latestTask,
+      latestRequest: trainingLatestRequest,
+      latestGenerateValidationRequest,
+      trainingRun,
+      topStrategySnapshot,
+      validationConfigs: matchedValidations,
+      router,
+      reports,
+      steps,
+      nextAction
+    };
+
+    const methodologyStages = buildMethodologyStages(pipeline, config);
+    const finalConfigState = buildFinalConfigState(pipeline);
+
+    return {
+      ...pipeline,
+      finalConfigState,
+      methodologyStages,
+      suggestedStageKey: getSuggestedStageKey(methodologyStages)
+    };
+  }).sort((left: any, right: any) => String(right.trainingYear || '').localeCompare(String(left.trainingYear || '')));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    meta: {
+      dbConnected: dbSummary.connected,
+      dbWarning: dbSummary.warning,
+      trainingConfigCount: pipelines.length
+    },
+    data: pipelines
+  };
+}

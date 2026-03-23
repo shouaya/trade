@@ -1,11 +1,27 @@
 const express = require('express');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const db = require('../config/database');
 
 const router = express.Router();
 
 const REQUEST_TABLE = 'train_run_requests';
 const CONFIG_TABLE = 'train_configs';
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const TRAIN_ROOT = process.env.TRAIN_ROOT
+  ? path.resolve(process.env.TRAIN_ROOT)
+  : path.join(REPO_ROOT, 'train');
+const TRAIN_ORCHESTRATION_SERVICE_PATH = path.join(TRAIN_ROOT, 'dist', 'services', 'train-orchestration.js');
+
+function loadTrainOrchestrationService() {
+  if (!fs.existsSync(TRAIN_ORCHESTRATION_SERVICE_PATH)) {
+    throw new Error(`train orchestration service not built: ${TRAIN_ORCHESTRATION_SERVICE_PATH}`);
+  }
+
+  // eslint-disable-next-line global-require, import/no-dynamic-require
+  return require(TRAIN_ORCHESTRATION_SERVICE_PATH);
+}
 
 function formatIso(value) {
   if (!value) {
@@ -203,25 +219,15 @@ router.post('/', async (req, res) => {
     }
 
     const configType = String(config.config_type);
-    if (!(configType === 'training' || configType === 'validation')) {
-      return res.status(400).json({
-        success: false,
-        error: 'Unsupported config type',
-        message: `Only training or validation config can be queued, got ${configType}`
-      });
-    }
-
-    const requestedAction = req.body?.action ? String(req.body.action) : null;
-    const allowedActions = configType === 'training'
-      ? new Set(['train', 'generate-validation'])
-      : new Set(['validate']);
-    const action = requestedAction || (configType === 'training' ? 'train' : 'validate');
-
-    if (!allowedActions.has(action)) {
+    const trainOrchestration = loadTrainOrchestrationService();
+    let action;
+    try {
+      action = trainOrchestration.resolveRunRequestAction(configType, req.body?.action ? String(req.body.action) : null);
+    } catch (error) {
       return res.status(400).json({
         success: false,
         error: 'Unsupported action',
-        message: `Action ${action} is not allowed for config type ${configType}`
+        message: error.message
       });
     }
 

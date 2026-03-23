@@ -13,65 +13,52 @@ const configTypeOptions = [
   { value: 'training', label: 'Training' },
 ];
 
-const DEFAULT_TRAINING_SYMBOL = 'BTCJPY';
 const DEFAULT_TRAINING_RUN_TAG = 'V7_HF_RSI_MACD_TP_ATR';
-const DEFAULT_TRADING_SCHEDULE = '* 12-18 * * 1-5';
-const TRAINING_YEAR_OPTIONS = ['2024', '2025', '2026'];
-const TRAINING_SYMBOL_OPTIONS = [DEFAULT_TRAINING_SYMBOL];
-const INTERVAL_OPTIONS = ['1min', '5min', '15min', '1h'];
-const STRATEGY_TYPE_OPTIONS = ['rsi_macd'];
-const TOP_N_OPTIONS = ['5', '10', '20', '30'];
-const LOT_SIZE_OPTIONS = ['0.004', '0.008', '0.01', '0.02'];
-const HOLD_MIN_OPTIONS = ['4', '6', '8', '10', '12'];
-const HOLD_MAX_OPTIONS = ['6', '8', '10', '12', '15'];
-const TRADING_SCHEDULE_OPTIONS = [
-  DEFAULT_TRADING_SCHEDULE,
-  '* 0-23 * * 1-5',
-  '* 8-16 * * 1-5',
-  '* 12-20 * * 1-5'
-];
 const DEFAULT_VALIDATION_PROFILE = 'future-window';
-const GMO_LEVERAGE_2X_FEE_MODEL = {
-  venueCode: 'GMOCOIN',
-  market: 'exchange-leverage',
-  productCode: 'BTC_JPY',
-  commissionRate: 0,
-  apiFeeRate: 0,
-  makerRate: 0,
-  takerRate: 0,
-  basis: 'notional',
-  chargeOnEntry: true,
-  chargeOnExit: true,
-  leverageMultiplier: 2,
-  dailyLeverageRate: 0.0004,
-  liquidationFeeRate: 0.005,
-  forcedCloseFeeRate: 0.005,
-  settlementHourJst: 6,
-  referenceUrl: 'https://coin.z.com/jp/corp/guide/fees/',
-  notes: 'GMO 取引所レバレッジ 2倍 API。BTC/JPY 交易手续费免费，API 手续费免费，建玉管理费 0.04%/日，ロスカット手数料 0.5%。'
+
+const EMPTY_TRAINING_GUIDE_META = {
+  recommendations: [],
+  options: {
+    trainingYears: [],
+    symbols: [],
+    intervalTypes: [],
+    strategyTypes: [],
+    topNValues: [],
+    lotSizes: [],
+    holdMinValues: [],
+    holdMaxValues: [],
+    tradingSchedules: []
+  },
+  validationProfiles: []
 };
-const VALIDATION_PROFILE_OPTIONS = [
-  { value: 'future-window', label: '未来期主验证', hint: 'Recommended' },
-  { value: 'rolling-window', label: 'Rolling 强化验证', hint: 'Advanced' },
-  { value: 'custom-range', label: '自定义区间', hint: 'Manual' }
-];
-const TRAINING_GUIDE_RECOMMENDATIONS = [
-  '首次训练建议从 BTCJPY + 1min 开始，先验证主链路是否跑通。',
-  'Top N 建议先固定为 10，先看候选池质量，再考虑扩容。',
-  'lotSize 建议先固定 0.008，避免一次改太多维度。',
-  'maxHoldMinutes 建议先用 6 到 8 分钟，控制高频策略持仓时长。',
-  '默认手续费档案已经切到 GMO 取引所レバレッジ 2倍；交易手续费记为 0，但保留 0.04%/日持仓费和 0.5% 强平费元数据。',
-  '如果只是第一次创建配置，router 路径可以先留空，等训练和 validation 跑通后再补。',
-  '默认先走未来期主验证，先确认训练后的泛化能力，再考虑扩展。',
-  'rolling / walk-forward 更适合作为强化验证轨道，而不是替代主链路的第一步。',
-  '年度模板已经退出主链路，不再作为默认生成方案。'
-];
+
+const EMPTY_TRAINING_GUIDE_DRAFT = {
+  year: '',
+  symbol: '',
+  runTag: '',
+  startDate: '',
+  endDate: '',
+  intervalType: '',
+  topN: 10,
+  strategyTypes: '',
+  lotSize: '',
+  maxHoldMin: '',
+  maxHoldMax: '',
+  tradingSchedule: '',
+  tableName: '',
+  routerConfigPath: '',
+  validationProfile: DEFAULT_VALIDATION_PROFILE,
+  validationStartDate: '',
+  validationEndDate: '',
+  configKey: ''
+};
 
 function normalizeValidationProfile(value) {
   const normalized = String(value || '').trim().toLowerCase();
-  return VALIDATION_PROFILE_OPTIONS.some((option) => option.value === normalized)
-    ? normalized
-    : DEFAULT_VALIDATION_PROFILE;
+  if (normalized === 'future-window' || normalized === 'rolling-window' || normalized === 'custom-range') {
+    return normalized;
+  }
+  return DEFAULT_VALIDATION_PROFILE;
 }
 
 function getValidationProfileLabel(value) {
@@ -100,524 +87,12 @@ function getValidationProfileTone(value) {
   }
 }
 
-function buildDefaultTrainingTemplate() {
-  const currentYear = new Date().getFullYear();
-  const normalizedRunTag = DEFAULT_TRAINING_RUN_TAG.toLowerCase();
-  return {
-    name: `${currentYear}_${DEFAULT_TRAINING_SYMBOL}_${DEFAULT_TRAINING_RUN_TAG}`,
-    description: `${currentYear} ${DEFAULT_TRAINING_SYMBOL} ${DEFAULT_TRAINING_RUN_TAG.replace(/_/g, ' ')}`,
-    timeRange: {
-      startTimeMs: Date.UTC(currentYear, 0, 1, 0, 0, 0),
-      endTimeMs: Date.UTC(currentYear, 11, 31, 23, 59, 0),
-      startIso: `${currentYear}-01-01T00:00:00.000Z`,
-      endIso: `${currentYear}-12-31T23:59:00.000Z`
-    },
-    market: {
-      symbol: DEFAULT_TRAINING_SYMBOL,
-      intervalType: '1min'
-    },
-    database: {
-      tableName: `${DEFAULT_TRAINING_SYMBOL.toLowerCase()}_${normalizedRunTag}_train_${currentYear}`,
-      resetTableBeforeRun: true
-    },
-    strategy: {
-      types: ['rsi_macd'],
-      parameters: {
-        rsi: {
-          period: [5, 7],
-          oversold: [32, 35],
-          overbought: [65, 68]
-        },
-        macd: {
-          fastPeriod: [4, 6],
-          slowPeriod: [9, 12],
-          signalPeriod: [3, 4],
-          histogramThreshold: [0]
-        },
-        risk: {
-          maxPositions: [1],
-          lotSize: [0.008],
-          maxHoldMinutes: [6, 8]
-        },
-        atr: {
-          slMultiplier: [1.5, 2],
-          tpMultiplier: [1, 1.5]
-        },
-        tradingSchedule: DEFAULT_TRADING_SCHEDULE,
-        tradingTimeRestriction: null
-      }
-    },
-    executor: {
-      version: 'v3',
-      options: {
-        enableATRSizing: true,
-        feeModel: { ...GMO_LEVERAGE_2X_FEE_MODEL }
-      }
-    },
-    output: {
-      topN: 10,
-      strategyNamePrefix: `${currentYear}-${DEFAULT_TRAINING_SYMBOL}-${DEFAULT_TRAINING_RUN_TAG.replace(/_/g, '-')}-`,
-      descriptionPrefix: `${currentYear} ${DEFAULT_TRAINING_SYMBOL} ${DEFAULT_TRAINING_RUN_TAG.replace(/_/g, ' ')}`
-    }
-  };
-}
-
-function buildBootstrapTrainingPayload() {
-  const bootstrapYear = TRAINING_YEAR_OPTIONS[0] || String(new Date().getFullYear());
-  const bootstrapTemplate = buildDefaultTrainingTemplate();
-  const bootstrapDraft = buildTrainingGuideDraft(bootstrapTemplate, '');
-  bootstrapDraft.year = bootstrapYear;
-  bootstrapDraft.startDate = `${bootstrapYear}-01-01`;
-  bootstrapDraft.endDate = `${bootstrapYear}-12-31`;
-  bootstrapDraft.validationProfile = DEFAULT_VALIDATION_PROFILE;
-  bootstrapDraft.validationStartDate = `${Number(bootstrapYear) + 1}-01-01`;
-  bootstrapDraft.validationEndDate = `${Number(bootstrapYear) + 1}-12-31`;
-
-  const computed = buildTrainingConfigFromGuide(bootstrapDraft, bootstrapTemplate);
-  return {
-    configKey: computed.configKey,
-    configType: 'training',
-    content: computed.content
-  };
-}
-
 function safeParseJsonText(value) {
   try {
     return JSON.parse(value);
   } catch {
     return null;
   }
-}
-
-function sanitizeToken(value, fallback = 'run') {
-  const normalized = String(value || '')
-    .trim()
-    .replace(/[^a-zA-Z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-
-  return normalized || fallback;
-}
-
-function formatDisplayTag(value) {
-  return sanitizeToken(value, DEFAULT_TRAINING_RUN_TAG).toUpperCase();
-}
-
-function formatSlugTag(value) {
-  return sanitizeToken(value, DEFAULT_TRAINING_RUN_TAG).toLowerCase();
-}
-
-function formatDateInput(value, fallback) {
-  if (!value) {
-    return fallback;
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return fallback;
-  }
-
-  return date.toISOString().slice(0, 10);
-}
-
-function parseDateInputToUtcMs(dateInput, endOfDay = false) {
-  const match = String(dateInput || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) {
-    return null;
-  }
-
-  return Date.UTC(
-    Number(match[1]),
-    Number(match[2]) - 1,
-    Number(match[3]),
-    endOfDay ? 23 : 0,
-    endOfDay ? 59 : 0,
-    0
-  );
-}
-
-function parseDateInputToIso(dateInput, endOfDay = false) {
-  const utcMs = parseDateInputToUtcMs(dateInput, endOfDay);
-  return utcMs == null ? null : new Date(utcMs).toISOString();
-}
-
-function addUtcDays(dateInput, days) {
-  const utcMs = parseDateInputToUtcMs(dateInput, false);
-  if (utcMs == null) {
-    return null;
-  }
-
-  return new Date(utcMs + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
-
-function enumerateMonthlyValidationWindows(startDateInput, endDateInput) {
-  const startMs = parseDateInputToUtcMs(startDateInput, false);
-  const endMs = parseDateInputToUtcMs(endDateInput, true);
-  if (startMs == null || endMs == null || startMs > endMs) {
-    return [];
-  }
-
-  const windows = [];
-  let cursor = new Date(startMs);
-  cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), 1, 0, 0, 0));
-
-  while (cursor.getTime() <= endMs) {
-    const monthStartMs = Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), 1, 0, 0, 0);
-    const monthEndMs = Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 0, 23, 59, 0);
-    const segmentStartMs = Math.max(startMs, monthStartMs);
-    const segmentEndMs = Math.min(endMs, monthEndMs);
-
-    if (segmentStartMs <= segmentEndMs) {
-      const monthToken = `${cursor.getUTCFullYear()}_${String(cursor.getUTCMonth() + 1).padStart(2, '0')}`;
-      windows.push({
-        monthToken,
-        startDate: new Date(segmentStartMs).toISOString().slice(0, 10),
-        endDate: new Date(segmentEndMs).toISOString().slice(0, 10),
-        startIso: new Date(segmentStartMs).toISOString(),
-        endIso: new Date(segmentEndMs).toISOString(),
-        startTimeMs: segmentStartMs,
-        endTimeMs: segmentEndMs
-      });
-    }
-
-    cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1, 0, 0, 0));
-  }
-
-  return windows;
-}
-
-function splitStrategyTypes(value) {
-  const items = String(value || '')
-    .split(/[,\s]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  return items.length > 0 ? Array.from(new Set(items)) : ['rsi_macd'];
-}
-
-function inferTrainingRunTag(config) {
-  const rawName = String(config?.name || '');
-  const tokens = rawName.split('_').filter(Boolean);
-  const symbol = String(config?.market?.symbol || DEFAULT_TRAINING_SYMBOL).toUpperCase();
-
-  if (tokens[0] && /^\d{4}$/.test(tokens[0])) {
-    tokens.shift();
-  }
-
-  if (tokens[0] && tokens[0].toUpperCase() === symbol) {
-    tokens.shift();
-  }
-
-  return tokens.join('_') || DEFAULT_TRAINING_RUN_TAG;
-}
-
-function getFileBaseName(value) {
-  const text = String(value || '').trim();
-  if (!text) {
-    return '';
-  }
-
-  const normalized = text.replace(/\\/g, '/');
-  const segments = normalized.split('/').filter(Boolean);
-  return segments[segments.length - 1] || normalized;
-}
-
-function getYearFromConfig(config, fallbackName) {
-  const baseYear = String(fallbackName || '').match(/^(\d{4})_/);
-  if (baseYear) {
-    return baseYear[1];
-  }
-
-  const startIso = config?.timeRange?.startIso;
-  if (startIso) {
-    const year = new Date(startIso).getUTCFullYear();
-    if (!Number.isNaN(year)) {
-      return String(year);
-    }
-  }
-
-  const startMs = config?.timeRange?.startTimeMs;
-  if (startMs != null) {
-    const year = new Date(Number(startMs)).getUTCFullYear();
-    if (!Number.isNaN(year)) {
-      return String(year);
-    }
-  }
-
-  return null;
-}
-
-function buildTrainingGuideDraft(content, configKey) {
-  const currentYear = new Date().getFullYear();
-  const parsed = content && typeof content === 'object' ? content : buildDefaultTrainingTemplate();
-  const startDate = formatDateInput(parsed?.timeRange?.startIso || parsed?.timeRange?.startTimeMs, `${currentYear}-01-01`);
-  const endDate = formatDateInput(parsed?.timeRange?.endIso || parsed?.timeRange?.endTimeMs, `${currentYear}-12-31`);
-  const year = String(startDate).slice(0, 4) || String(currentYear);
-  const holdMinutes = Array.isArray(parsed?.strategy?.parameters?.risk?.maxHoldMinutes)
-    ? parsed.strategy.parameters.risk.maxHoldMinutes
-    : [6, 8];
-  const validationPlan = parsed?.validationPlan && typeof parsed.validationPlan === 'object'
-    ? parsed.validationPlan
-    : {};
-  const validationProfile = normalizeValidationProfile(validationPlan.profile);
-  const customRange = validationPlan.customRange && typeof validationPlan.customRange === 'object'
-    ? validationPlan.customRange
-    : {};
-  const futureValidationStartDate = addUtcDays(endDate, 1) || `${currentYear + 1}-01-01`;
-  const fallbackValidationEndDate = new Date().toISOString().slice(0, 10);
-
-  return {
-    year,
-    symbol: String(parsed?.market?.symbol || DEFAULT_TRAINING_SYMBOL).toUpperCase(),
-    runTag: inferTrainingRunTag(parsed),
-    startDate,
-    endDate,
-    intervalType: String(parsed?.market?.intervalType || '1min'),
-    topN: Number(parsed?.output?.topN || 10),
-    strategyTypes: Array.isArray(parsed?.strategy?.types) && parsed.strategy.types.length > 0
-      ? parsed.strategy.types.join(', ')
-      : 'rsi_macd',
-    lotSize: String(parsed?.strategy?.parameters?.risk?.lotSize?.[0] ?? 0.008),
-    maxHoldMin: String(holdMinutes[0] ?? 6),
-    maxHoldMax: String(holdMinutes[holdMinutes.length - 1] ?? 8),
-    tradingSchedule: String(parsed?.strategy?.parameters?.tradingSchedule || DEFAULT_TRADING_SCHEDULE),
-    tableName: String(parsed?.database?.tableName || ''),
-    routerConfigPath: String(parsed?.regimeRouting?.routerConfigPath || ''),
-    validationProfile,
-    validationStartDate: formatDateInput(customRange.startIso || futureValidationStartDate, futureValidationStartDate),
-    validationEndDate: formatDateInput(customRange.endIso || fallbackValidationEndDate, fallbackValidationEndDate),
-    configKey: String(configKey || '')
-  };
-}
-
-function buildTrainingConfigFromGuide(draft, baseConfig) {
-  const year = String(draft?.year || new Date().getFullYear()).slice(0, 4);
-  const symbol = String(draft?.symbol || DEFAULT_TRAINING_SYMBOL).toUpperCase();
-  const runTagDisplay = formatDisplayTag(draft?.runTag);
-  const runTagSlug = formatSlugTag(draft?.runTag);
-  const startDate = draft?.startDate || `${year}-01-01`;
-  const endDate = draft?.endDate || `${year}-12-31`;
-  const startTimeMs = parseDateInputToUtcMs(startDate, false) ?? Date.UTC(Number(year), 0, 1, 0, 0, 0);
-  const endTimeMs = parseDateInputToUtcMs(endDate, true) ?? Date.UTC(Number(year), 11, 31, 23, 59, 0);
-  const startIso = parseDateInputToIso(startDate, false) ?? new Date(startTimeMs).toISOString();
-  const endIso = parseDateInputToIso(endDate, true) ?? new Date(endTimeMs).toISOString();
-  const intervalType = String(draft?.intervalType || '1min');
-  const topN = Math.max(1, Number(draft?.topN || 10));
-  const strategyTypes = splitStrategyTypes(draft?.strategyTypes);
-  const lotSize = Number(draft?.lotSize || 0.008);
-  const maxHoldMin = Number(draft?.maxHoldMin || 6);
-  const maxHoldMax = Number(draft?.maxHoldMax || maxHoldMin || 8);
-  const tableName = String(draft?.tableName || `${symbol.toLowerCase()}_${runTagSlug}_train_${year}`);
-  const routerConfigPath = String(draft?.routerConfigPath || '').trim();
-  const validationProfile = normalizeValidationProfile(draft?.validationProfile);
-  const validationStartDate = String(draft?.validationStartDate || addUtcDays(endDate, 1) || `${Number(year) + 1}-01-01`);
-  const validationEndDate = String(draft?.validationEndDate || new Date().toISOString().slice(0, 10));
-  const configKey = `configs/training/${year}_${symbol.toLowerCase()}_${runTagSlug}.json`;
-  const descriptionLabel = `${year} ${symbol} ${runTagDisplay.replace(/_/g, ' ')}`;
-  const next = {
-    ...(baseConfig && typeof baseConfig === 'object' ? baseConfig : buildDefaultTrainingTemplate()),
-    name: `${year}_${symbol}_${runTagDisplay}`,
-    description: descriptionLabel,
-    timeRange: {
-      ...(baseConfig?.timeRange || {}),
-      startTimeMs,
-      endTimeMs,
-      startIso,
-      endIso
-    },
-    market: {
-      ...(baseConfig?.market || {}),
-      symbol,
-      intervalType
-    },
-    database: {
-      ...(baseConfig?.database || {}),
-      tableName,
-      resetTableBeforeRun: baseConfig?.database?.resetTableBeforeRun ?? true
-    },
-    strategy: {
-      ...(baseConfig?.strategy || {}),
-      types: strategyTypes,
-      parameters: {
-        ...(baseConfig?.strategy?.parameters || {}),
-        risk: {
-          ...(baseConfig?.strategy?.parameters?.risk || {}),
-          lotSize: [lotSize],
-          maxHoldMinutes: [Math.min(maxHoldMin, maxHoldMax), Math.max(maxHoldMin, maxHoldMax)]
-        },
-        tradingSchedule: String(draft?.tradingSchedule || DEFAULT_TRADING_SCHEDULE)
-      }
-    },
-    output: {
-      ...(baseConfig?.output || {}),
-      topN,
-      strategyNamePrefix: `${year}-${symbol}-${runTagDisplay.replace(/_/g, '-')}-`,
-      descriptionPrefix: descriptionLabel
-    }
-  };
-
-  next.validationPlan = {
-    profile: validationProfile
-  };
-
-  if (validationProfile === 'custom-range') {
-    const customStartIso = parseDateInputToIso(validationStartDate, false);
-    const customEndIso = parseDateInputToIso(validationEndDate, true);
-
-    next.validationPlan.customRange = {
-      startIso: customStartIso,
-      endIso: customEndIso,
-      startTimeMs: parseDateInputToUtcMs(validationStartDate, false),
-      endTimeMs: parseDateInputToUtcMs(validationEndDate, true)
-    };
-  } else if (next.validationPlan.customRange) {
-    delete next.validationPlan.customRange;
-  }
-
-  if (routerConfigPath) {
-    next.regimeRouting = {
-      ...(baseConfig?.regimeRouting || {}),
-      routerConfigPath
-    };
-  } else if (next.regimeRouting) {
-    delete next.regimeRouting.routerConfigPath;
-    if (Object.keys(next.regimeRouting).length === 0) {
-      delete next.regimeRouting;
-    }
-  }
-
-  return {
-    content: next,
-    configKey,
-    recommendedTableName: tableName
-  };
-}
-
-function buildCompanionValidationDrafts(trainingConfig, trainingConfigKey) {
-  const trainingYear = getYearFromConfig(trainingConfig, getFileBaseName(trainingConfigKey || '')) || '';
-  const symbol = String(trainingConfig?.market?.symbol || DEFAULT_TRAINING_SYMBOL).toUpperCase();
-  const symbolLower = symbol.toLowerCase();
-  const runTagSlug = formatSlugTag(inferTrainingRunTag(trainingConfig));
-  const validationPlan = trainingConfig?.validationPlan && typeof trainingConfig.validationPlan === 'object'
-    ? trainingConfig.validationPlan
-    : {};
-  const profile = normalizeValidationProfile(validationPlan.profile);
-  const trainingEndDate = formatDateInput(trainingConfig?.timeRange?.endIso || trainingConfig?.timeRange?.endTimeMs, `${trainingYear}-12-31`);
-  const defaultFutureStartDate = addUtcDays(trainingEndDate, 1) || `${Number(trainingYear || new Date().getFullYear()) + 1}-01-01`;
-  const defaultFutureEndDate = new Date().toISOString().slice(0, 10);
-
-  const customRange = validationPlan.customRange && typeof validationPlan.customRange === 'object'
-    ? validationPlan.customRange
-    : {};
-  const validationStartDate = formatDateInput(customRange.startIso || defaultFutureStartDate, defaultFutureStartDate);
-  const validationEndDate = formatDateInput(customRange.endIso || defaultFutureEndDate, defaultFutureEndDate);
-
-  if (profile === 'rolling-window') {
-    return enumerateMonthlyValidationWindows(validationStartDate, validationEndDate).map((window) => {
-      const descriptionLabel = `${symbol} rolling validation ${window.startDate} -> ${window.endDate}`;
-      return {
-        configKey: `configs/validation/${trainingYear}_${symbolLower}_${runTagSlug}_rolling_${window.monthToken}_validation.json`,
-        configType: 'validation',
-        content: {
-          name: `${symbol}_ROLLING_WINDOW_FROM_${trainingYear}_${window.monthToken.toUpperCase()}_VALIDATION`,
-          description: `${descriptionLabel} - 基于 ${trainingYear} training 配置预生成`,
-          timeRange: {
-            startTimeMs: window.startTimeMs,
-            endTimeMs: window.endTimeMs,
-            startIso: window.startIso,
-            endIso: window.endIso
-          },
-          market: {
-            symbol,
-            intervalType: trainingConfig?.market?.intervalType || '1min'
-          },
-          database: {
-            tableName: `${symbolLower}_${runTagSlug}_rolling_validate_${window.monthToken}_from_${trainingYear}`,
-            resetTableBeforeRun: true
-          },
-          strategy: {
-            types: Array.isArray(trainingConfig?.strategy?.types) && trainingConfig.strategy.types.length > 0
-              ? trainingConfig.strategy.types
-              : ['rsi_macd'],
-            parameters: trainingConfig?.strategy?.parameters || {}
-          },
-          executor: trainingConfig?.executor || null,
-          output: {
-            topN: Number(trainingConfig?.output?.topN || 10),
-            strategyNamePrefix: `${trainingYear}-${symbol}-ROLLING-${window.monthToken}-`,
-            descriptionPrefix: descriptionLabel
-          },
-          sourceTable: trainingConfig?.database?.tableName || null,
-          trainConfig: trainingConfigKey,
-          draftFromTraining: true,
-          validationProfile: 'rolling-window',
-          validationTarget: {
-            label: `rolling ${window.startDate} -> ${window.endDate}`,
-            startIso: window.startIso,
-            endIso: window.endIso,
-            cutoffDate: window.endDate
-          }
-        }
-      };
-    });
-  }
-
-  const configKey = profile === 'custom-range'
-    ? `configs/validation/${trainingYear}_${symbolLower}_${runTagSlug}_custom_${validationStartDate.replace(/-/g, '_')}_to_${validationEndDate.replace(/-/g, '_')}_validation.json`
-    : `configs/validation/${trainingYear}_${symbolLower}_${runTagSlug}_future_from_${trainingYear}_to_${validationEndDate.replace(/-/g, '_')}_validation.json`;
-  const descriptionLabel = profile === 'custom-range'
-    ? `${symbol} custom validation ${validationStartDate} -> ${validationEndDate}`
-    : `${symbol} future validation ${validationStartDate} -> ${validationEndDate}`;
-
-  return [
-    {
-      configKey,
-      configType: 'validation',
-      content: {
-        name: profile === 'custom-range'
-          ? `${symbol}_CUSTOM_RANGE_FROM_${trainingYear}_VALIDATION`
-          : `${symbol}_FUTURE_WINDOW_FROM_${trainingYear}_VALIDATION`,
-        description: `${descriptionLabel} - 基于 ${trainingYear} training 配置预生成`,
-        timeRange: {
-          startTimeMs: parseDateInputToUtcMs(validationStartDate, false),
-          endTimeMs: parseDateInputToUtcMs(validationEndDate, true),
-          startIso: parseDateInputToIso(validationStartDate, false),
-          endIso: parseDateInputToIso(validationEndDate, true)
-        },
-        market: {
-          symbol,
-          intervalType: trainingConfig?.market?.intervalType || '1min'
-        },
-        database: {
-          tableName: `${symbolLower}_${runTagSlug}_${profile === 'custom-range' ? 'custom' : 'future'}_validate_${validationEndDate.replace(/-/g, '_')}_from_${trainingYear}`,
-          resetTableBeforeRun: true
-        },
-        strategy: {
-          types: Array.isArray(trainingConfig?.strategy?.types) && trainingConfig.strategy.types.length > 0
-            ? trainingConfig.strategy.types
-            : ['rsi_macd'],
-          parameters: trainingConfig?.strategy?.parameters || {}
-        },
-        executor: trainingConfig?.executor || null,
-        output: {
-          topN: Number(trainingConfig?.output?.topN || 10),
-          strategyNamePrefix: `${trainingYear}-${symbol}-${profile === 'custom-range' ? 'CUSTOM' : 'FUTURE'}-`,
-          descriptionPrefix: descriptionLabel
-        },
-        sourceTable: trainingConfig?.database?.tableName || null,
-        trainConfig: trainingConfigKey,
-        draftFromTraining: true,
-        validationProfile: profile,
-        validationTarget: {
-          label: profile === 'custom-range'
-            ? `custom ${validationStartDate} -> ${validationEndDate}`
-            : `future ${validationStartDate} -> ${validationEndDate}`,
-          startIso: parseDateInputToIso(validationStartDate, false),
-          endIso: parseDateInputToIso(validationEndDate, true),
-          cutoffDate: validationEndDate
-        }
-      }
-    }
-  ];
 }
 
 function formatDateTime(value) {
@@ -672,245 +147,8 @@ function buildSelectOptions(currentValue, presetOptions) {
   return options;
 }
 
-function buildMethodologyStages(pipeline, trainingConfigRecord) {
-  const trainingConfig = trainingConfigRecord?.content || {};
-  const validations = Array.isArray(pipeline?.validationConfigs) ? pipeline.validationConfigs : [];
-  const strategyTypes = Array.isArray(trainingConfig?.strategy?.types) ? trainingConfig.strategy.types : [];
-  const holdMinutes = Array.isArray(trainingConfig?.strategy?.parameters?.risk?.maxHoldMinutes)
-    ? trainingConfig.strategy.parameters.risk.maxHoldMinutes
-    : [];
-  const lotSize = trainingConfig?.strategy?.parameters?.risk?.lotSize?.[0];
-  const hasTrainingConfig = Boolean(pipeline?.trainingConfigPath);
-  const hasValidationConfig = validations.length > 0;
-  const hasTrainingRun = Boolean(pipeline?.trainingRun);
-  const hasSnapshot = Boolean(pipeline?.topStrategySnapshot);
-  const hasAnyValidationRun = validations.some((item) => Boolean(item.latestRun));
-  const hasAllValidationRuns = validations.length > 0 && validations.every((item) => Boolean(item.latestRun));
-  const hasActiveValidationRequest = validations.some((item) => isActiveRequestStatus(item.latestRequest?.status));
-  const hasRouter = Boolean(pipeline?.router?.routerPath);
-  const hasPolicy = Boolean(pipeline?.router?.policyPath);
-  const routerReady = hasRouter && hasPolicy;
-  const hasFeatureCausality = Boolean(pipeline?.reports?.featureCausality?.path);
-  const hasCostSensitivity = Boolean(pipeline?.reports?.costSensitivity?.path);
-  const hasRouterValidation = Boolean(pipeline?.reports?.routerValidation?.path);
-  const trainingRequestRunning = isActiveRequestStatus(pipeline?.latestRequest?.status);
-  const trainingRange = formatRange(pipeline?.timeRange);
-  const strategyLabel = strategyTypes.length > 0 ? strategyTypes.join(', ') : '未定义';
-  const holdLabel = holdMinutes.length > 0 ? holdMinutes.join(' - ') : '未定义';
-  const validationLabels = validations.length > 0
-    ? validations.map((item) => `${item.targetLabel}:${item.latestRun ? 'done' : (item.latestRequest?.status || 'todo')}`)
-    : ['尚未生成 validation config'];
-
-  return [
-    {
-      key: 'stage-0-boundary',
-      label: '阶段 0',
-      title: '确认任务边界',
-      status: hasTrainingConfig && hasValidationConfig ? 'done' : hasTrainingConfig ? 'partial' : 'todo',
-      summary: hasValidationConfig
-        ? '训练区间与未来验证区间都已进入配置库，边界清晰。'
-        : '已有 training config，但未来 validation 配置还不完整。',
-      inputs: ['交易对', '训练区间', '验证区间', '既有 router / report'],
-      outputs: [
-        pipeline?.trainingConfigPath || '等待 training config',
-        hasValidationConfig ? `${validations.length} 份 validation config` : '等待 validation config'
-      ],
-      gates: ['symbol 明确', '训练期与验证期分离', '命名不混淆旧结果'],
-      evidence: [
-        pipeline?.symbol || 'UNKNOWN',
-        trainingRange,
-        hasValidationConfig ? `validation ${validations.length} 份` : '未匹配到 validation'
-      ],
-      notes: '方法论要求先锁定 symbol、训练期、验证期，再开始推导。',
-      actionKeys: ['generate-validation', 'prepare-validation']
-    },
-    {
-      key: 'stage-1-diagnosis',
-      label: '阶段 1',
-      title: '波动与结构诊断',
-      status: hasFeatureCausality ? 'done' : hasTrainingRun || hasSnapshot ? 'partial' : 'todo',
-      summary: hasFeatureCausality
-        ? '已有结构诊断类报告，可作为阶段 1 的证据入口。'
-        : '当前缺少显式结构诊断报告，建议先补一份波动/因果分析。',
-      inputs: ['历史数据切片', '好周 / 坏周样本', '高波 / 低波段'],
-      outputs: ['波动报告', '周 / 月 / 日结构概览'],
-      gates: ['能区分高低波', '能指出典型坏区间', '能解释至少几类结构差异'],
-      evidence: hasFeatureCausality
-        ? [pipeline.reports.featureCausality.path]
-        : hasTrainingRun
-          ? ['已有候选池结果，可回填结构诊断报告']
-          : ['等待候选池训练后补证据'],
-      notes: '当前系统没有单独的“波动诊断”文件类型，先用 feature causality / 分析报告近似承载。',
-      actionKeys: ['feature-causality']
-    },
-    {
-      key: 'stage-2-family',
-      label: '阶段 2',
-      title: '定义候选策略家族',
-      status: hasTrainingConfig ? 'done' : 'todo',
-      summary: hasTrainingConfig
-        ? `当前 training config 已固定主家族：${strategyLabel}。`
-        : '需要先创建训练配置并明确主策略家族。',
-      inputs: ['主策略家族', '参数空间', '交易时段', '风控边界'],
-      outputs: ['训练配置 JSON', '受约束参数空间'],
-      gates: ['单轮尽量只用一个主家族', '参数空间有覆盖但不过宽', '先能跑通再扩网格'],
-      evidence: [
-        `策略族: ${strategyLabel}`,
-        `TopN: ${pipeline?.topN || 'n/a'}`,
-        `lotSize: ${lotSize ?? '未定义'} · hold: ${holdLabel}`
-      ],
-      notes: '这一步以配置编辑器为主，先把关键参数定下来，再进入候选池训练。',
-      actionKeys: []
-    },
-    {
-      key: 'stage-3-candidate-pool',
-      label: '阶段 3',
-      title: '训练候选池',
-      status: trainingRequestRunning ? 'running' : hasTrainingRun ? 'done' : 'todo',
-      summary: hasTrainingRun
-        ? `候选池已落库，当前记录 ${pipeline.trainingRun.strategyCount} 个策略结果。`
-        : trainingRequestRunning
-          ? '训练任务正在执行，等待候选池结果落库。'
-          : '还没有训练结果，先跑候选池。',
-      inputs: ['training config', '参数网格', '目标结果表'],
-      outputs: ['backtest_results', '训练期 TopN', 'trades'],
-      gates: ['候选池不能过少', '策略之间要有结构差异', '不能所有阶段一起亏'],
-      evidence: [
-        pipeline?.resultGroup || '未配置结果表',
-        hasTrainingRun ? `${pipeline.trainingRun.runId} · ${pipeline.trainingRun.strategyCount} strategies` : '尚未落库',
-        pipeline?.latestRequest?.requestId ? `queue ${pipeline.latestRequest.requestId}` : '暂无训练请求'
-      ],
-      notes: '这一步对应 `METHODOLOGY` 的主入口，训练 UI 的自动执行也从这里开始。',
-      actionKeys: ['run-training']
-    },
-    {
-      key: 'stage-4-weekly-base',
-      label: '阶段 4',
-      title: '构建周级策略映射',
-      status: routerReady ? 'done' : hasTrainingRun ? 'partial' : 'todo',
-      summary: routerReady
-        ? '已存在可执行 router / policy，可视为周级 base policy 已固化。'
-        : hasTrainingRun
-          ? '候选池已具备，下一步应归纳 weekly base policy。'
-          : '先完成候选池训练，再做周级映射。',
-      inputs: ['周级特征', 'bucket 划分', '坏周 / 好周表现'],
-      outputs: ['weekly_guard 规则'],
-      gates: ['解决大方向错误', '不要把日级细节塞进周级', '规则不能过碎'],
-      evidence: [
-        hasSnapshot ? pipeline.topStrategySnapshot.path : '尚未生成最终策略 config',
-        hasRouter ? pipeline.router.routerPath : '尚未找到 router',
-        hasPolicy ? pipeline.router.policyPath : '尚未找到 policy'
-      ],
-      notes: '当前系统没有单独的 weekly_guard 文件，UI 先用 router / policy 产物作为阶段完成度代理。',
-      actionKeys: []
-    },
-    {
-      key: 'stage-5-daily-overlay',
-      label: '阶段 5',
-      title: '构建日级策略映射',
-      status: hasRouterValidation ? 'done' : hasRouter || hasAnyValidationRun ? 'partial' : 'todo',
-      summary: hasRouterValidation
-        ? '已有 router 相关验证报告，说明日级 overlay 已进入可回放状态。'
-        : hasRouter || hasAnyValidationRun
-          ? '已经具备部分样本或路由产物，可以继续收敛 daily overlay。'
-          : '先准备未来期样本，再提炼日级映射。',
-      inputs: ['坏日 / 好日样本', '日级特征', '候选策略差异'],
-      outputs: ['daily_router'],
-      gates: ['每条规则都能解释具体坏日', '不能只修单个记忆样本', '不能一上来大量 stop'],
-      evidence: [
-        ...validationLabels.slice(0, 2),
-        hasRouterValidation ? pipeline.reports.routerValidation.path : '尚无 daily router 验证报告'
-      ],
-      notes: '方法论强调每条日级规则都要能回答“修的是哪几天、为什么错、是否误伤”。',
-      actionKeys: []
-    },
-    {
-      key: 'stage-6-loss-recheck',
-      label: '阶段 6',
-      title: '加入亏损反馈保护',
-      status: routerReady && hasRouterValidation ? 'done' : routerReady ? 'partial' : 'todo',
-      summary: routerReady
-        ? '保护层已经随 router/policy 进入稳定产物，但还缺少独立 loss recheck 证据。'
-        : 'loss recheck 还没有进入稳定执行产物。',
-      inputs: ['连续亏损日', '前一日失败 + 次日继续硬做样本'],
-      outputs: ['loss_recheck'],
-      gates: ['它只能做保护层', '不能反过来成为主要决策层'],
-      evidence: [
-        hasRouter ? pipeline.router.routerPath : '尚未找到 router',
-        hasPolicy ? pipeline.router.policyPath : '尚未找到 policy',
-        hasRouterValidation ? '已有 router validation 证据' : '等待验证保护层效果'
-      ],
-      notes: '当前数据层没有单独拆出 loss_recheck 产物，UI 先把它视为 router 内部保护层能力。',
-      actionKeys: []
-    },
-    {
-      key: 'stage-7-router',
-      label: '阶段 7',
-      title: '生成 router / policy catalog',
-      status: routerReady ? 'done' : hasRouter || hasPolicy ? 'partial' : 'todo',
-      summary: routerReady
-        ? 'router 与 policy catalog 已齐，可进入共用验证和复盘。'
-        : hasRouter || hasPolicy
-          ? 'router / policy 只完成了一部分，还不能算稳定产物。'
-          : '还没有发现 router / policy 产物。',
-      inputs: ['weekly_guard', 'daily_router', 'loss_recheck'],
-      outputs: ['router config', 'policy catalog', 'daily policy summary'],
-      gates: ['不能只有 router 没说明书', '不能只有说明书 没可执行配置'],
-      evidence: [
-        hasRouter ? pipeline.router.routerPath : '未找到 router config',
-        hasPolicy ? pipeline.router.policyPath : '未找到 policy catalog',
-        hasRouterValidation ? pipeline.reports.routerValidation.path : '尚无 routing report'
-      ],
-      notes: '这一步是方法论里的“固化产物”阶段，前后端都应围绕这套产物展开。',
-      actionKeys: ['build-router']
-    },
-    {
-      key: 'stage-8-future-validation',
-      label: '阶段 8',
-      title: '未来期验证',
-      status: hasActiveValidationRequest
-        ? 'running'
-        : hasAllValidationRuns && (hasCostSensitivity || hasRouterValidation)
-          ? 'done'
-          : hasValidationConfig || hasSnapshot
-            ? 'partial'
-            : 'todo',
-      summary: hasAllValidationRuns
-        ? `未来期 validation 已完成 ${validations.length} 个目标区间。`
-        : hasValidationConfig
-          ? 'validation 配置已经就绪，可以直接执行未来期验证。'
-          : '先生成最终策略 config 与 validation config，再进入未来期验证。',
-      inputs: ['validation config', 'final strategy config', '同版 router'],
-      outputs: ['future validation result', 'scorecard', 'cost sensitivity'],
-      gates: ['至少和 default/rank1/topN/oracle 对比', '检查摩擦成本', '关注负收益周和坏周解释'],
-      evidence: [
-        ...validationLabels.slice(0, 3),
-        hasCostSensitivity ? pipeline.reports.costSensitivity.path : '尚无成本敏感度报告'
-      ],
-      notes: '这里才是方法论里的“未来期检验泛化能力”，不是单纯按年度做一个 shortcut。',
-      actionKeys: ['generate-validation', 'prepare-validation', 'waiting-generate-validation', 'run-validation', 'waiting-validation', 'cost-sensitivity', 'router-validate']
-    },
-    {
-      key: 'stage-9-iteration',
-      label: '阶段 9',
-      title: '失败后迭代',
-      status: hasRouterValidation || hasCostSensitivity ? 'done' : hasAllValidationRuns ? 'partial' : 'todo',
-      summary: hasRouterValidation || hasCostSensitivity
-        ? '复盘材料已经具备，可以按坏周 -> 坏日 -> 规则误伤顺序迭代。'
-        : hasAllValidationRuns
-          ? '验证结果已出来，下一步应该进入复盘和迭代，而不是继续盲目扩参数。'
-          : '等待未来期验证结果，再决定是否进入迭代。',
-      inputs: ['坏周清单', '坏日样本', '误伤样本', '回撤对比'],
-      outputs: ['新一轮训练/规则修订计划'],
-      gates: ['先查候选池', '再查周级', '再查日级', '不要盲目扩大参数空间'],
-      evidence: [
-        hasRouterValidation ? pipeline.reports.routerValidation.path : '尚无 router validation 报告',
-        hasCostSensitivity ? pipeline.reports.costSensitivity.path : '尚无 cost sensitivity 报告'
-      ],
-      notes: '方法论明确要求失败时按固定顺序回查，不要直接写窄规则或无限扩网格。',
-      actionKeys: ['review']
-    }
-  ];
+function buildMethodologyStages(pipeline) {
+  return Array.isArray(pipeline?.methodologyStages) ? pipeline.methodologyStages : [];
 }
 
 function getSuggestedStageKey(stages) {
@@ -1124,51 +362,7 @@ function getNextActionButtonLabel(nextActionKey) {
 }
 
 function getFinalConfigState(pipeline) {
-  const latestArtifactRequest = pipeline?.latestGenerateValidationRequest || null;
-  const isGenerating = latestArtifactRequest?.action === 'generate-validation'
-    && isActiveRequestStatus(latestArtifactRequest?.status);
-
-  if (pipeline?.topStrategySnapshot) {
-    return {
-      title: pipeline.topStrategySnapshot.path,
-      detail: `final config ${formatDateTime(pipeline.topStrategySnapshot.generatedAt)}`,
-      status: 'done',
-      canExport: true,
-      requestId: latestArtifactRequest?.id || null
-    };
-  }
-
-  if (isGenerating) {
-    return {
-      title: '最终策略 config 生成中',
-      detail: `请求 ${latestArtifactRequest.requestId || latestArtifactRequest.id} · ${getRequestStatusText(latestArtifactRequest.status)}`,
-      status: 'running',
-      canExport: false,
-      requestId: latestArtifactRequest?.id || null
-    };
-  }
-
-  if (latestArtifactRequest?.action === 'generate-validation' && latestArtifactRequest?.status === 'failed') {
-    return {
-      title: '最终策略 config 生成失败',
-      detail: latestArtifactRequest.errorMessage || '请查看生成请求日志并重试',
-      status: 'todo',
-      canExport: false,
-      requestId: latestArtifactRequest.id
-    };
-  }
-
-  if (pipeline?.trainingRun) {
-    return {
-      title: '等待生成最终策略 config',
-      detail: '训练完成后 worker 会自动排队生成，无需手动补一步。',
-      status: 'todo',
-      canExport: false,
-      requestId: null
-    };
-  }
-
-  return {
+  return pipeline?.finalConfigState || {
     title: '尚未生成',
     detail: '先完成训练候选池，再生成最终策略 config。',
     status: 'todo',
@@ -1453,18 +647,27 @@ function TrainingGuidePanel({
   draft,
   currentConfigKey,
   isNew,
+  guideMeta,
+  computedPreview,
   onChange
 }) {
-  const computed = buildTrainingConfigFromGuide(draft, buildDefaultTrainingTemplate());
-  const yearOptions = buildSelectOptions(draft.year, TRAINING_YEAR_OPTIONS);
-  const symbolOptions = buildSelectOptions(draft.symbol, TRAINING_SYMBOL_OPTIONS);
-  const intervalOptions = buildSelectOptions(draft.intervalType, INTERVAL_OPTIONS);
-  const strategyTypeOptions = buildSelectOptions(draft.strategyTypes, STRATEGY_TYPE_OPTIONS);
-  const topNOptions = buildSelectOptions(draft.topN, TOP_N_OPTIONS);
-  const lotSizeOptions = buildSelectOptions(draft.lotSize, LOT_SIZE_OPTIONS);
-  const holdMinOptions = buildSelectOptions(draft.maxHoldMin, HOLD_MIN_OPTIONS);
-  const holdMaxOptions = buildSelectOptions(draft.maxHoldMax, HOLD_MAX_OPTIONS);
-  const tradingScheduleOptions = buildSelectOptions(draft.tradingSchedule, TRADING_SCHEDULE_OPTIONS);
+  const guideOptions = guideMeta?.options || EMPTY_TRAINING_GUIDE_META.options;
+  const validationProfiles = guideMeta?.validationProfiles?.length
+    ? guideMeta.validationProfiles
+    : EMPTY_TRAINING_GUIDE_META.validationProfiles;
+  const recommendations = guideMeta?.recommendations?.length
+    ? guideMeta.recommendations
+    : EMPTY_TRAINING_GUIDE_META.recommendations;
+  const computed = computedPreview || { configKey: currentConfigKey, content: { name: '', description: '' }, recommendedTableName: '' };
+  const yearOptions = buildSelectOptions(draft.year, guideOptions.trainingYears || []);
+  const symbolOptions = buildSelectOptions(draft.symbol, guideOptions.symbols || []);
+  const intervalOptions = buildSelectOptions(draft.intervalType, guideOptions.intervalTypes || []);
+  const strategyTypeOptions = buildSelectOptions(draft.strategyTypes, guideOptions.strategyTypes || []);
+  const topNOptions = buildSelectOptions(draft.topN, guideOptions.topNValues || []);
+  const lotSizeOptions = buildSelectOptions(draft.lotSize, guideOptions.lotSizes || []);
+  const holdMinOptions = buildSelectOptions(draft.maxHoldMin, guideOptions.holdMinValues || []);
+  const holdMaxOptions = buildSelectOptions(draft.maxHoldMax, guideOptions.holdMaxValues || []);
+  const tradingScheduleOptions = buildSelectOptions(draft.tradingSchedule, guideOptions.tradingSchedules || []);
   const usesCustomValidationRange = draft.validationProfile === 'custom-range';
 
   return (
@@ -1565,7 +768,7 @@ function TrainingGuidePanel({
         <label>
           <span>Validation 方案</span>
           <select value={draft.validationProfile} onChange={(event) => onChange('validationProfile', event.target.value)}>
-            {VALIDATION_PROFILE_OPTIONS.map((option) => (
+            {validationProfiles.map((option) => (
               <option key={option.value} value={option.value}>{option.label} · {option.hint}</option>
             ))}
           </select>
@@ -1625,7 +828,7 @@ function TrainingGuidePanel({
       </div>
 
       <div className="training-guide-tips">
-        {TRAINING_GUIDE_RECOMMENDATIONS.map((tip) => (
+        {recommendations.map((tip) => (
           <div key={tip} className="training-guide-tip">{tip}</div>
         ))}
       </div>
@@ -1669,6 +872,8 @@ function EditorPanel({
   configType,
   contentText,
   guideDraft,
+  guideMeta,
+  guidePreview,
   onClose,
   onSave,
   onModeChange,
@@ -1735,6 +940,8 @@ function EditorPanel({
             draft={guideDraft}
             currentConfigKey={configKey}
             isNew={isNew}
+            guideMeta={guideMeta}
+            computedPreview={guidePreview}
             onChange={onGuideChange}
           />
         )}
@@ -1858,10 +1065,12 @@ function TrainPipelinePage() {
   const [editorMode, setEditorMode] = useState('basic');
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState('');
-  const [editorConfigKey, setEditorConfigKey] = useState(`configs/training/${new Date().getFullYear()}_btcjpy_v7_hf_rsi_macd_tp_atr.json`);
+  const [editorConfigKey, setEditorConfigKey] = useState('');
   const [editorConfigType, setEditorConfigType] = useState('training');
-  const [editorContentText, setEditorContentText] = useState(JSON.stringify(buildDefaultTrainingTemplate(), null, 2));
-  const [editorGuideDraft, setEditorGuideDraft] = useState(buildTrainingGuideDraft(buildDefaultTrainingTemplate(), `configs/training/${new Date().getFullYear()}_btcjpy_v7_hf_rsi_macd_tp_atr.json`));
+  const [editorContentText, setEditorContentText] = useState('{}');
+  const [editorGuideDraft, setEditorGuideDraft] = useState(EMPTY_TRAINING_GUIDE_DRAFT);
+  const [editorGuideMeta, setEditorGuideMeta] = useState(EMPTY_TRAINING_GUIDE_META);
+  const [editorGuidePreview, setEditorGuidePreview] = useState(null);
   const [actionMessage, setActionMessage] = useState(null);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [nextActionFeedbackByPipelineId, setNextActionFeedbackByPipelineId] = useState({});
@@ -1934,9 +1143,55 @@ function TrainPipelinePage() {
     ]);
   };
 
-  const openCreateEditor = () => {
-    const nextConfig = buildDefaultTrainingTemplate();
-    const nextConfigKey = `configs/training/${new Date().getFullYear()}_btcjpy_v7_hf_rsi_macd_tp_atr.json`;
+  const loadTrainingGuideBootstrap = async () => {
+    const response = await trainConfigsAPI.getTrainingGuideBootstrap();
+    if (!response.success) {
+      throw new Error(response.message || '加载 training guide bootstrap 失败');
+    }
+
+    const guideMeta = {
+      recommendations: response.data?.recommendations || [],
+      options: response.data?.options || EMPTY_TRAINING_GUIDE_META.options,
+      validationProfiles: response.data?.validationProfiles || []
+    };
+    setEditorGuideMeta(guideMeta);
+    setEditorGuidePreview({
+      configKey: response.data?.configKey || '',
+      content: response.data?.content || {},
+      recommendedTableName: response.data?.content?.database?.tableName || ''
+    });
+    setEditorGuideDraft(response.data?.draft || EMPTY_TRAINING_GUIDE_DRAFT);
+    return response.data;
+  };
+
+  const buildGuideDraftFromApi = async (content, configKey) => {
+    const response = await trainConfigsAPI.buildTrainingGuideDraft({
+      content,
+      configKey
+    });
+    if (!response.success) {
+      throw new Error(response.message || '生成 training guide draft 失败');
+    }
+    return response.data;
+  };
+
+  const previewTrainingConfigFromApi = async (draft, baseConfig) => {
+    const response = await trainConfigsAPI.previewTrainingConfig({
+      draft,
+      baseConfig
+    });
+    if (!response.success) {
+      throw new Error(response.message || '生成 training config preview 失败');
+    }
+
+    setEditorGuidePreview(response.data);
+    return response.data;
+  };
+
+  const openCreateEditor = async () => {
+    const bootstrap = await loadTrainingGuideBootstrap();
+    const nextConfig = bootstrap?.content || {};
+    const nextConfigKey = bootstrap?.configKey || '';
     setEditorOpen(true);
     setEditorIsNew(true);
     setEditorMode('basic');
@@ -1945,13 +1200,18 @@ function TrainPipelinePage() {
     setEditorConfigType('training');
     setEditorConfigKey(nextConfigKey);
     setEditorContentText(JSON.stringify(nextConfig, null, 2));
-    setEditorGuideDraft(buildTrainingGuideDraft(nextConfig, nextConfigKey));
+    setEditorGuideDraft(bootstrap?.draft || EMPTY_TRAINING_GUIDE_DRAFT);
     updateHashQuery({ configId: 'new' });
   };
 
   const handleBootstrapDefaultConfig = async () => {
     try {
-      const payload = buildBootstrapTrainingPayload();
+      const bootstrap = await loadTrainingGuideBootstrap();
+      const payload = {
+        configKey: bootstrap.configKey,
+        configType: 'training',
+        content: bootstrap.content
+      };
       const response = await trainConfigsAPI.save(payload);
       if (response.success) {
         setActionMessage({
@@ -1967,9 +1227,11 @@ function TrainPipelinePage() {
 
   const openEditEditor = async (id) => {
     try {
+      await loadTrainingGuideBootstrap();
       const response = await trainConfigsAPI.getById(id);
       if (response.success) {
         const record = response.data;
+        const draft = await buildGuideDraftFromApi(record.content, record.configKey);
         setEditorOpen(true);
         setEditorIsNew(false);
         setEditorMode('basic');
@@ -1978,7 +1240,12 @@ function TrainPipelinePage() {
         setEditorConfigKey(record.configKey);
         setEditorConfigType('training');
         setEditorContentText(JSON.stringify(record.content, null, 2));
-        setEditorGuideDraft(buildTrainingGuideDraft(record.content, record.configKey));
+        setEditorGuideDraft(draft);
+        setEditorGuidePreview({
+          configKey: record.configKey,
+          content: record.content,
+          recommendedTableName: record.content?.database?.tableName || ''
+        });
         updateHashQuery({ configId: record.id });
       }
     } catch (apiError) {
@@ -2050,7 +1317,11 @@ function TrainPipelinePage() {
       return;
     }
 
-    setEditorGuideDraft(buildTrainingGuideDraft(parsed, editorConfigKey));
+    void buildGuideDraftFromApi(parsed, editorConfigKey)
+      .then((draft) => setEditorGuideDraft(draft))
+      .catch((apiError) => {
+        console.error('同步 training guide draft 失败:', apiError);
+      });
   }, [editorOpen, editorConfigType, editorConfigKey, editorContentText]);
 
   const handleSaveConfig = async () => {
@@ -2079,18 +1350,12 @@ function TrainPipelinePage() {
   };
 
   const handleEditorConfigTypeChange = (value) => {
-    const nextContent = safeParseJsonText(editorContentText);
-    const normalized = nextContent && typeof nextContent === 'object' ? nextContent : buildDefaultTrainingTemplate();
-    const nextConfigKey = editorIsNew ? `configs/training/${new Date().getFullYear()}_btcjpy_v7_hf_rsi_macd_tp_atr.json` : editorConfigKey;
     setEditorConfigType('training');
     setEditorMode('basic');
-    setEditorGuideDraft(buildTrainingGuideDraft(normalized, nextConfigKey));
-    if (!nextContent) {
-      setEditorContentText(JSON.stringify(normalized, null, 2));
-    }
+    void value;
   };
 
-  const handleGuideChange = (field, value) => {
+  const handleGuideChange = async (field, value) => {
     const nextDraft = {
       ...editorGuideDraft,
       [field]: value
@@ -2099,11 +1364,21 @@ function TrainPipelinePage() {
     setEditorGuideDraft(nextDraft);
 
     const parsed = safeParseJsonText(editorContentText);
-    const next = buildTrainingConfigFromGuide(nextDraft, parsed && typeof parsed === 'object' ? parsed : buildDefaultTrainingTemplate());
-    setEditorContentText(JSON.stringify(next.content, null, 2));
+    try {
+      const preview = await previewTrainingConfigFromApi(
+        nextDraft,
+        parsed && typeof parsed === 'object'
+          ? parsed
+          : (editorGuidePreview?.content && typeof editorGuidePreview.content === 'object' ? editorGuidePreview.content : {})
+      );
+      setEditorContentText(JSON.stringify(preview.content, null, 2));
 
-    if (editorIsNew) {
-      setEditorConfigKey(next.configKey);
+      if (editorIsNew) {
+        setEditorConfigKey(preview.configKey);
+      }
+    } catch (apiError) {
+      console.error('预览 training config 失败:', apiError);
+      setEditorError(apiError.response?.data?.message || apiError.message || '预览配置失败');
     }
   };
 
@@ -2367,6 +1642,8 @@ function TrainPipelinePage() {
         configType={editorConfigType}
         contentText={editorContentText}
         guideDraft={editorGuideDraft}
+        guideMeta={editorGuideMeta}
+        guidePreview={editorGuidePreview}
         onClose={() => {
           setEditorOpen(false);
           updateHashQuery({ configId: null });
@@ -2414,8 +1691,8 @@ function TrainPipelinePage() {
             const latestTrainingRequest = pipeline.latestRequest || latestRequestByConfigKey[pipeline.trainingConfigPath] || null;
             const trainingConfigRecord = configByKey[pipeline.trainingConfigPath] || null;
             const finalConfigState = getFinalConfigState(pipeline);
-            const methodologyStages = buildMethodologyStages(pipeline, trainingConfigRecord);
-            const suggestedStageKey = getSuggestedStageKey(methodologyStages);
+            const methodologyStages = buildMethodologyStages(pipeline);
+            const suggestedStageKey = pipeline.suggestedStageKey || getSuggestedStageKey(methodologyStages);
             const selectedStageKey = selectedStageByPipelineId[pipeline.id] || suggestedStageKey;
             const focusStage = methodologyStages.find((stage) => stage.key === selectedStageKey) || methodologyStages[0];
             const focusOwnsAction = Boolean(focusStage?.actionKeys?.includes(pipeline.nextAction?.key));

@@ -1,7 +1,6 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const db = require('../config/database');
 
 const router = express.Router();
@@ -12,6 +11,36 @@ const TRAIN_ROOT = process.env.TRAIN_ROOT
   : path.join(REPO_ROOT, 'train');
 const TRAIN_CONFIGS_TABLE = 'train_configs';
 const BACKTEST_RESULTS_TABLE = 'backtest_results';
+const TRAIN_MANAGEMENT_SERVICE_PATH = path.join(TRAIN_ROOT, 'dist', 'services', 'training-management.js');
+const TRAIN_CONFIG_REGISTRY_SERVICE_PATH = path.join(TRAIN_ROOT, 'dist', 'services', 'train-config-registry.js');
+const TRAIN_ORCHESTRATION_SERVICE_PATH = path.join(TRAIN_ROOT, 'dist', 'services', 'train-orchestration.js');
+
+function loadTrainManagementService() {
+  if (!fs.existsSync(TRAIN_MANAGEMENT_SERVICE_PATH)) {
+    throw new Error(`train management service not built: ${TRAIN_MANAGEMENT_SERVICE_PATH}`);
+  }
+
+  // eslint-disable-next-line global-require, import/no-dynamic-require
+  return require(TRAIN_MANAGEMENT_SERVICE_PATH);
+}
+
+function loadTrainConfigRegistryService() {
+  if (!fs.existsSync(TRAIN_CONFIG_REGISTRY_SERVICE_PATH)) {
+    throw new Error(`train config registry service not built: ${TRAIN_CONFIG_REGISTRY_SERVICE_PATH}`);
+  }
+
+  // eslint-disable-next-line global-require, import/no-dynamic-require
+  return require(TRAIN_CONFIG_REGISTRY_SERVICE_PATH);
+}
+
+function loadTrainOrchestrationService() {
+  if (!fs.existsSync(TRAIN_ORCHESTRATION_SERVICE_PATH)) {
+    throw new Error(`train orchestration service not built: ${TRAIN_ORCHESTRATION_SERVICE_PATH}`);
+  }
+
+  // eslint-disable-next-line global-require, import/no-dynamic-require
+  return require(TRAIN_ORCHESTRATION_SERVICE_PATH);
+}
 
 function formatIso(value) {
   if (!value) {
@@ -26,27 +55,6 @@ function formatIso(value) {
   return date.toISOString();
 }
 
-function normalizeConfigKey(value) {
-  const normalized = String(value || '')
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '')
-    .replace(/\/+/g, '/');
-
-  if (!normalized || !normalized.endsWith('.json')) {
-    throw new Error('configKey 必须是 .json 结尾的相对路径');
-  }
-
-  if (normalized.includes('..')) {
-    throw new Error('configKey 不能包含 ..');
-  }
-
-  if (!normalized.startsWith('configs/')) {
-    throw new Error('configKey 必须位于 configs/ 下');
-  }
-
-  return normalized;
-}
-
 function parseContent(content) {
   if (typeof content === 'string') {
     return JSON.parse(content);
@@ -58,132 +66,6 @@ function parseContent(content) {
 
   throw new Error('content 必须是 JSON 对象或 JSON 字符串');
 }
-
-function assertBoolean(value, fieldName) {
-  if (typeof value !== 'boolean') {
-    throw new Error(`${fieldName} 必须显式设置为 true 或 false`);
-  }
-}
-
-function assertFiniteNumber(value, fieldName, min = null) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) {
-    throw new Error(`${fieldName} 必须是有限数字`);
-  }
-  if (min !== null && numeric < min) {
-    throw new Error(`${fieldName} 必须 >= ${min}`);
-  }
-  return numeric;
-}
-
-function validateFeeModelForRunnableConfig(configType, payload) {
-  if (!(configType === 'training' || configType === 'validation')) {
-    return;
-  }
-
-  const feeModel = payload?.executor?.options?.feeModel;
-  if (!feeModel || typeof feeModel !== 'object') {
-    throw new Error('executor.options.feeModel 为必填，未设置时不允许保存可运行配置');
-  }
-
-  if (!String(feeModel.venueCode || '').trim()) {
-    throw new Error('executor.options.feeModel.venueCode 为必填');
-  }
-
-  if (feeModel.basis !== 'notional') {
-    throw new Error('executor.options.feeModel.basis 必须显式设置为 notional');
-  }
-
-  assertFiniteNumber(feeModel.commissionRate, 'executor.options.feeModel.commissionRate', 0);
-  assertBoolean(feeModel.chargeOnEntry, 'executor.options.feeModel.chargeOnEntry');
-  assertBoolean(feeModel.chargeOnExit, 'executor.options.feeModel.chargeOnExit');
-
-  if (feeModel.market === 'exchange-leverage') {
-    if (!String(feeModel.productCode || '').trim()) {
-      throw new Error('exchange-leverage 模式要求设置 executor.options.feeModel.productCode');
-    }
-
-    const leverageMultiplier = assertFiniteNumber(feeModel.leverageMultiplier, 'executor.options.feeModel.leverageMultiplier', 0);
-    if (leverageMultiplier <= 0) {
-      throw new Error('executor.options.feeModel.leverageMultiplier 必须 > 0');
-    }
-
-    assertFiniteNumber(feeModel.dailyLeverageRate, 'executor.options.feeModel.dailyLeverageRate', 0);
-    assertFiniteNumber(feeModel.liquidationFeeRate, 'executor.options.feeModel.liquidationFeeRate', 0);
-    if (feeModel.forcedCloseFeeRate !== undefined) {
-      assertFiniteNumber(feeModel.forcedCloseFeeRate, 'executor.options.feeModel.forcedCloseFeeRate', 0);
-    }
-
-    const settlementHourJst = Number(feeModel.settlementHourJst);
-    if (!Number.isInteger(settlementHourJst) || settlementHourJst < 0 || settlementHourJst > 23) {
-      throw new Error('executor.options.feeModel.settlementHourJst 必须是 0-23 的整数');
-    }
-  }
-}
-
-function detectConfigType(configKey, payload, explicitType) {
-  if (explicitType) {
-    return String(explicitType);
-  }
-
-  if (configKey.startsWith('configs/training/')) {
-    return 'training';
-  }
-  if (configKey.startsWith('configs/validation/')) {
-    return 'validation';
-  }
-  if (configKey.startsWith('configs/top-strategies/')) {
-    return 'top-strategies';
-  }
-  if (configKey.startsWith('configs/generated/regime-routing/')) {
-    return 'router';
-  }
-  if (configKey.startsWith('configs/generated/')) {
-    return 'generated';
-  }
-  return payload?.generatedAt ? 'generated' : 'config';
-}
-
-function resolveTrainingYear(payload, configKey) {
-  const fileYear = String(configKey).match(/(?:^|\/)(\d{4})_/);
-  if (fileYear) {
-    return fileYear[1];
-  }
-
-  const startIso = payload?.timeRange?.startIso;
-  if (startIso) {
-    return String(new Date(startIso).getUTCFullYear());
-  }
-
-  const startTimeMs = payload?.timeRange?.startTimeMs;
-  if (startTimeMs) {
-    return String(new Date(Number(startTimeMs)).getUTCFullYear());
-  }
-
-  return null;
-}
-
-function buildMetadata(configKey, payload, explicitType) {
-  const contentRaw = JSON.stringify(payload, null, 2);
-  const configType = detectConfigType(configKey, payload, explicitType);
-  validateFeeModelForRunnableConfig(configType, payload);
-
-  return {
-    configKey,
-    configType,
-    configName: payload?.name || null,
-    symbol: payload?.market?.symbol ? String(payload.market.symbol).toUpperCase() : null,
-    intervalType: payload?.market?.intervalType || null,
-    resultGroup: payload?.database?.tableName || null,
-    sourceTable: payload?.sourceTable || null,
-    trainConfigRef: payload?.trainConfig || null,
-    trainingYear: resolveTrainingYear(payload, configKey),
-    isGenerated: configKey.includes('/generated/') || configKey.includes('/top-strategies/') || Boolean(payload?.generatedAt),
-    contentRaw,
-    contentHash: crypto.createHash('sha256').update(contentRaw).digest('hex')
-  };
-}
-
 function toConfigRecord(row, includeContent = false) {
   const content = typeof row.content === 'string'
     ? JSON.parse(row.content)
@@ -271,18 +153,6 @@ async function loadDerivedConfigs(trainingRecord) {
   return rows.map((row) => toConfigRecord(row, true));
 }
 
-function buildRunCommand(configType, configKey) {
-  if (configType === 'training') {
-    return `docker compose run --rm train sh -lc "npm install && npm run build && npm run train -- ${configKey}"`;
-  }
-
-  if (configType === 'validation') {
-    return `docker compose run --rm train sh -lc "npm install && npm run build && npm run validate -- ${configKey}"`;
-  }
-
-  return null;
-}
-
 router.get('/', async (req, res) => {
   try {
     const hasRegistry = await ensureRegistryTableExists();
@@ -334,6 +204,73 @@ router.get('/', async (req, res) => {
   }
 });
 
+router.get('/training-guide/bootstrap', async (req, res) => {
+  try {
+    const trainManagement = loadTrainManagementService();
+    const data = trainManagement.buildTrainingGuideBootstrap(new Date());
+
+    res.json({
+      success: true,
+      data
+    });
+  } catch (error) {
+    console.error('加载 training guide bootstrap 失败:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to load training guide bootstrap',
+      message: error.message
+    });
+  }
+});
+
+router.post('/training-guide/draft', async (req, res) => {
+  try {
+    const trainManagement = loadTrainManagementService();
+    const body = req.body || {};
+    const data = trainManagement.buildTrainingGuideDraft(
+      parseContent(body.content),
+      String(body.configKey || body.config_key || ''),
+      new Date()
+    );
+
+    res.json({
+      success: true,
+      data
+    });
+  } catch (error) {
+    console.error('生成 training guide draft 失败:', error);
+    res.status(400).json({
+      success: false,
+      error: 'Failed to build training guide draft',
+      message: error.message
+    });
+  }
+});
+
+router.post('/training-guide/preview', async (req, res) => {
+  try {
+    const trainManagement = loadTrainManagementService();
+    const body = req.body || {};
+    const data = trainManagement.buildTrainingConfigFromGuide(
+      body.draft && typeof body.draft === 'object' ? body.draft : {},
+      body.baseConfig && typeof body.baseConfig === 'object' ? body.baseConfig : trainManagement.buildDefaultTrainingTemplate(new Date()),
+      new Date()
+    );
+
+    res.json({
+      success: true,
+      data
+    });
+  } catch (error) {
+    console.error('生成 training guide preview 失败:', error);
+    res.status(400).json({
+      success: false,
+      error: 'Failed to build training config preview',
+      message: error.message
+    });
+  }
+});
+
 router.get('/:id', async (req, res) => {
   try {
     const hasRegistry = await ensureRegistryTableExists();
@@ -372,8 +309,14 @@ router.post('/', async (req, res) => {
 
     const body = req.body || {};
     const payload = parseContent(body.content);
-    const configKey = normalizeConfigKey(body.configKey || body.config_key);
-    const metadata = buildMetadata(configKey, payload, body.configType || body.config_type);
+    const trainConfigRegistry = loadTrainConfigRegistryService();
+    const metadata = trainConfigRegistry.buildTrainConfigMetadata(
+      body.configKey || body.config_key,
+      payload,
+      {
+        explicitType: body.configType || body.config_type
+      }
+    );
 
     await db.query(
       `INSERT INTO ${TRAIN_CONFIGS_TABLE}
@@ -447,6 +390,7 @@ router.post('/:id/export', async (req, res) => {
     }
 
     const record = toConfigRecord(row, true);
+    const trainOrchestration = loadTrainOrchestrationService();
     const absolutePath = resolveAbsoluteConfigPath(record.configKey);
     fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
     fs.writeFileSync(absolutePath, `${JSON.stringify(record.content, null, 2)}\n`, 'utf8');
@@ -457,7 +401,7 @@ router.post('/:id/export', async (req, res) => {
         id: record.id,
         configKey: record.configKey,
         exportedPath: absolutePath,
-        runCommand: buildRunCommand(record.configType, record.configKey)
+        runCommand: trainOrchestration.buildRunCommand(record.configType, record.configKey)
       },
       message: 'Train config exported'
     });
@@ -492,18 +436,14 @@ router.post('/:id/clear-results', async (req, res) => {
     const relatedConfigs = record.configType === 'training'
       ? await loadDerivedConfigs(record)
       : [];
-
-    const resultGroups = new Set(
-      [record.resultGroup, ...relatedConfigs.map((item) => item.resultGroup)]
-        .filter(Boolean)
-        .map((item) => String(item))
-    );
+    const trainOrchestration = loadTrainOrchestrationService();
+    const clearPlan = trainOrchestration.buildClearResultsPlan(record, relatedConfigs);
 
     connection = await db.getConnection();
     await connection.beginTransaction();
 
     let deletedBacktestRows = 0;
-    for (const resultGroup of resultGroups) {
+    for (const resultGroup of clearPlan.resultGroups) {
       const [deleteResult] = await connection.query(
         `DELETE FROM ${BACKTEST_RESULTS_TABLE}
          WHERE result_group = ?`,
@@ -515,16 +455,15 @@ router.post('/:id/clear-results', async (req, res) => {
     const deletedFiles = [];
     let deletedRegistryRows = 0;
     if (record.configType === 'training') {
-      const removableConfigs = relatedConfigs.filter((item) => item.configType === 'validation' || item.configType === 'top-strategies');
-      for (const item of removableConfigs) {
+      for (const item of clearPlan.removableConfigs) {
         const absolutePath = resolveAbsoluteConfigPath(item.configKey);
         if (safeUnlink(absolutePath)) {
           deletedFiles.push(item.configKey);
         }
       }
 
-      if (removableConfigs.length > 0) {
-        const ids = removableConfigs.map((item) => item.id);
+      if (clearPlan.removableConfigs.length > 0) {
+        const ids = clearPlan.removableConfigs.map((item) => item.id);
         const [deleteRegistryResult] = await connection.query(
           `DELETE FROM ${TRAIN_CONFIGS_TABLE}
            WHERE id IN (${ids.map(() => '?').join(', ')})`,
@@ -544,7 +483,7 @@ router.post('/:id/clear-results', async (req, res) => {
         configId: record.id,
         configKey: record.configKey,
         configType: record.configType,
-        clearedResultGroups: Array.from(resultGroups),
+        clearedResultGroups: Array.from(clearPlan.resultGroups),
         deletedBacktestRows,
         deletedRegistryRows,
         deletedFiles
