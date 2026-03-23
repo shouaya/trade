@@ -47,6 +47,19 @@ function ensureFixtureDir() {
   fs.mkdirSync(FIXTURE_DIR, { recursive: true });
 }
 
+function clearExistingFixtures() {
+  if (!fs.existsSync(FIXTURE_DIR)) {
+    return;
+  }
+
+  for (const name of fs.readdirSync(FIXTURE_DIR)) {
+    if (!name.endsWith('.json')) {
+      continue;
+    }
+    fs.unlinkSync(path.join(FIXTURE_DIR, name));
+  }
+}
+
 function toSnapshotRow(row) {
   return {
     openTime: String(Number(row.open_time)),
@@ -141,6 +154,19 @@ async function tryLoadLatestOpenTime(connection, symbol) {
     }
     throw error;
   }
+}
+
+async function loadAvailableFxSymbols(connection) {
+  const [rows] = await connection.query(
+    `SELECT DISTINCT symbol
+       FROM klines
+      WHERE interval_type = '1min'
+      ORDER BY symbol ASC`
+  );
+
+  return rows
+    .map((row) => String(row.symbol || ''))
+    .filter((symbol) => simulator.isFxSymbol(symbol));
 }
 
 function buildFixtureBase(id, source, scenario, klines, derived, expected) {
@@ -296,45 +322,68 @@ async function collectRequiredCoinFixtures(connection) {
 }
 
 async function collectOptionalFxFixtures(connection) {
-  const latestUsdJpy = await tryLoadLatestOpenTime(connection, 'USDJPY');
-  if (!latestUsdJpy) {
-    console.log('skip FX golden fixtures: no USDJPY klines found');
+  const symbols = await loadAvailableFxSymbols(connection);
+  if (!symbols.length) {
+    console.log('skip FX golden fixtures: no FX klines found');
     return [];
   }
 
-  const usdRecentLong = await loadLatestRows(connection, 'USDJPY', 5, 0);
-  const usdRecentShort = await loadLatestRows(connection, 'USDJPY', 5, 3);
-  const usdSwing = await loadLatestRows(connection, 'USDJPY', 60, 90);
+  const fixtures = [];
+  for (const symbol of symbols) {
+    if ((await tryLoadLatestOpenTime(connection, symbol)) === null) {
+      continue;
+    }
 
-  return [
-    computeTradeFixture({
-      id: 'usdjpy_recent_long_fx',
-      symbol: 'USDJPY',
-      market: 'fx',
-      direction: 'long',
-      lotSize: 0.1,
-      klines: usdRecentLong,
-      holdMinutes: Math.max(1, usdRecentLong.length - 1),
-    }),
-    computeTradeFixture({
-      id: 'usdjpy_recent_short_fx',
-      symbol: 'USDJPY',
-      market: 'fx',
-      direction: 'short',
-      lotSize: 0.1,
-      klines: usdRecentShort,
-      holdMinutes: Math.max(1, usdRecentShort.length - 1),
-    }),
-    computeTradeFixture({
-      id: 'usdjpy_intraday_swing_fx',
-      symbol: 'USDJPY',
-      market: 'fx',
-      direction: 'long',
-      lotSize: 0.2,
-      klines: usdSwing,
-      holdMinutes: Math.max(1, usdSwing.length - 1),
-    }),
-  ];
+    const symbolId = symbol.toLowerCase();
+    const recentLong = await loadLatestRows(connection, symbol, 5, 0);
+    const recentShort = await loadLatestRows(connection, symbol, 5, 3);
+    const swing = await loadLatestRows(connection, symbol, 60, 90);
+
+    if (recentLong.length >= 2) {
+      fixtures.push(
+        computeTradeFixture({
+          id: `${symbolId}_recent_long_fx`,
+          symbol,
+          market: 'fx',
+          direction: 'long',
+          lotSize: 0.1,
+          klines: recentLong,
+          holdMinutes: Math.max(1, recentLong.length - 1),
+        })
+      );
+    }
+
+    if (recentShort.length >= 2) {
+      fixtures.push(
+        computeTradeFixture({
+          id: `${symbolId}_recent_short_fx`,
+          symbol,
+          market: 'fx',
+          direction: 'short',
+          lotSize: 0.1,
+          klines: recentShort,
+          holdMinutes: Math.max(1, recentShort.length - 1),
+        })
+      );
+    }
+
+    if (swing.length >= 2) {
+      fixtures.push(
+        computeTradeFixture({
+          id: `${symbolId}_intraday_swing_fx`,
+          symbol,
+          market: 'fx',
+          direction: 'long',
+          lotSize: 0.2,
+          klines: swing,
+          holdMinutes: Math.max(1, swing.length - 1),
+        })
+      );
+    }
+  }
+
+  console.log(`detected FX symbols: ${symbols.join(', ')}`);
+  return fixtures;
 }
 
 async function exportFixtures() {
@@ -349,6 +398,7 @@ async function exportFixtures() {
       ...(await collectOptionalFxFixtures(connection)),
     ];
 
+    clearExistingFixtures();
     const outputs = fixtures.map(writeFixture);
     console.log(`exported ${outputs.length} golden fixtures`);
     for (const output of outputs) {

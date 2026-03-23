@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "btc_recent_long_hold",
-  "generatedAt": "2026-03-23T15:48:43.456Z",
+  "generatedAt": "2026-03-23T16:07:53.726Z",
   "source": {
     "database": "trading",
     "table": "klines",

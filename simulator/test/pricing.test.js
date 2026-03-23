@@ -56,6 +56,27 @@ function testPriceHelpers() {
   assert.equal(simulator.getReferencePrice(snakeOnly, 'short', false), 300.5);
   assert.equal(simulator.getTriggerPrice(snakeOnly, 'long', 'stop_loss', 301), 295);
   assert.equal(simulator.getTriggerPrice(snakeOnly, 'short', 'stop_loss', 301), 305);
+
+  const fallbackOnly = {
+    close: '400',
+    high: '',
+    low: '',
+    bid_close: '',
+    ask_close: '',
+    bid_high: '',
+    bid_low: '',
+    ask_high: '',
+    ask_low: '',
+  };
+  assert.equal(simulator.getReferencePrice(fallbackOnly, 'long', true), 400);
+  assert.equal(simulator.getReferencePrice(fallbackOnly, 'short', false), 400);
+  assert.equal(simulator.getTriggerPrice(fallbackOnly, 'long', 'take_profit', 401), 401);
+  assert.equal(simulator.getTriggerPrice(fallbackOnly, 'short', 'stop_loss', 402), 402);
+
+  assert.equal(simulator.readNumericField({ bid_close: '10.5' }, 'bid_close', 'bidClose', 0), 10.5);
+  assert.equal(simulator.readNumericField({ bidClose: '11.5' }, 'bid_close', 'bidClose', 0), 11.5);
+  assert.equal(simulator.readNumericField({ bid_close: '' }, 'bid_close', 'bidClose', 12), 12);
+  assert.equal(simulator.readNumericField({ bid_close: 'oops' }, 'bid_close', 'bidClose', 13), 13);
 }
 
 function testSettlementMarkPriceLookup() {

@@ -4,6 +4,18 @@ export function readNumericField(
   snapshot: PriceSnapshot,
   snakeField: keyof PriceSnapshot,
   camelField: keyof PriceSnapshot,
+  fallback: number
+): number;
+export function readNumericField(
+  snapshot: PriceSnapshot,
+  snakeField: keyof PriceSnapshot,
+  camelField: keyof PriceSnapshot,
+  fallback: null
+): null;
+export function readNumericField(
+  snapshot: PriceSnapshot,
+  snakeField: keyof PriceSnapshot,
+  camelField: keyof PriceSnapshot,
   fallback: number | null
 ): number | null {
   const rawValue = snapshot[snakeField] ?? snapshot[camelField];
@@ -31,14 +43,12 @@ export function getReferencePrice(snapshot: PriceSnapshot, direction: ExecutionD
   const close = Number(snapshot.close);
   const bidClose = readNumericField(snapshot, 'bid_close', 'bidClose', close);
   const askClose = readNumericField(snapshot, 'ask_close', 'askClose', close);
-  const resolvedBidClose = bidClose === null ? close : bidClose;
-  const resolvedAskClose = askClose === null ? close : askClose;
 
   if (direction === 'long') {
-    return isEntry ? resolvedAskClose : resolvedBidClose;
+    return isEntry ? askClose : bidClose;
   }
 
-  return isEntry ? resolvedBidClose : resolvedAskClose;
+  return isEntry ? bidClose : askClose;
 }
 
 export function getTriggerPrice(
@@ -51,14 +61,10 @@ export function getTriggerPrice(
   const bidLow = readNumericField(snapshot, 'bid_low', 'bidLow', readNumericField(snapshot, 'low', 'low', fallbackPrice));
   const askHigh = readNumericField(snapshot, 'ask_high', 'askHigh', readNumericField(snapshot, 'high', 'high', fallbackPrice));
   const askLow = readNumericField(snapshot, 'ask_low', 'askLow', readNumericField(snapshot, 'low', 'low', fallbackPrice));
-  const resolvedBidHigh = bidHigh === null ? fallbackPrice : bidHigh;
-  const resolvedBidLow = bidLow === null ? fallbackPrice : bidLow;
-  const resolvedAskHigh = askHigh === null ? fallbackPrice : askHigh;
-  const resolvedAskLow = askLow === null ? fallbackPrice : askLow;
 
   if (direction === 'long') {
-    return reason === 'stop_loss' ? resolvedBidLow : resolvedBidHigh;
+    return reason === 'stop_loss' ? bidLow : bidHigh;
   }
 
-  return reason === 'stop_loss' ? resolvedAskHigh : resolvedAskLow;
+  return reason === 'stop_loss' ? askHigh : askLow;
 }

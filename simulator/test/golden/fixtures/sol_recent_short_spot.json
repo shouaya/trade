@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "sol_recent_short_spot",
-  "generatedAt": "2026-03-23T15:48:43.458Z",
+  "generatedAt": "2026-03-23T16:07:53.728Z",
   "source": {
     "database": "trading",
     "table": "klines",

@@ -65,6 +65,21 @@ function testCommissionFeeScenarios() {
   });
   approxEqual(noDailyFee, 0);
 
+  const missingDailyLeverageRate = simulator.calculateCommissionFee({
+    position: leveragePosition,
+    exitPrice: 1001000,
+    exitTime: Date.UTC(2026, 2, 22, 21, 10, 0),
+    exitIndex: 1,
+    feeModel: {
+      ...simulator.resolveGmoSimulatorFeeModel('BTCJPY'),
+      dailyLeverageRate: undefined,
+      settlementHourJst: undefined,
+    },
+    symbolSpec: createCoinSpec(),
+    klines: [],
+  });
+  approxEqual(missingDailyLeverageRate, 0);
+
   const fallbackMarkFee = simulator.calculateCommissionFee({
     position: leveragePosition,
     exitPrice: 1005000,

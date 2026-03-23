@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "usdjpy_recent_short_fx",
-  "generatedAt": "2026-03-23T15:48:43.463Z",
+  "generatedAt": "2026-03-23T16:07:53.740Z",
   "source": {
     "database": "trading",
     "table": "klines",
