@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/database');
+const { mapKlineRow } = require('../lib/api-mappers');
+const { sendServerError } = require('../lib/route-utils');
 
 /**
  * GET /api/klines
@@ -62,22 +64,7 @@ router.get('/', async (req, res) => {
     const [rows] = await db.query(query, params);
 
     // 转换为前端期望的格式
-    const formattedData = rows.map(row => ({
-      openTime: row.open_time.toString(),
-      open: row.open.toString(),
-      high: row.high.toString(),
-      low: row.low.toString(),
-      close: row.close.toString(),
-      bidOpen: row.bid_open?.toString() ?? null,
-      bidHigh: row.bid_high?.toString() ?? null,
-      bidLow: row.bid_low?.toString() ?? null,
-      bidClose: row.bid_close?.toString() ?? null,
-      askOpen: row.ask_open?.toString() ?? null,
-      askHigh: row.ask_high?.toString() ?? null,
-      askLow: row.ask_low?.toString() ?? null,
-      askClose: row.ask_close?.toString() ?? null,
-      volume: row.volume ? row.volume.toString() : '0'
-    }));
+    const formattedData = rows.map(mapKlineRow);
 
     res.json({
       success: true,
@@ -86,12 +73,7 @@ router.get('/', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('获取 K 线数据失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch klines',
-      message: error.message
-    });
+    return sendServerError(res, '获取 K 线数据失败:', 'Failed to fetch klines', error);
   }
 });
 
@@ -118,12 +100,7 @@ router.get('/stats', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('获取统计信息失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch stats',
-      message: error.message
-    });
+    return sendServerError(res, '获取统计信息失败:', 'Failed to fetch stats', error);
   }
 });
 
@@ -187,12 +164,7 @@ router.post('/bulk', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('批量插入 K 线失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to insert klines',
-      message: error.message
-    });
+    return sendServerError(res, '批量插入 K 线失败:', 'Failed to insert klines', error);
   }
 });
 

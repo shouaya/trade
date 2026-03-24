@@ -1,72 +1,23 @@
 const express = require('express');
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 const {
   TRAIN_CONFIGS_TABLE,
   TRAIN_RUN_REQUESTS_TABLE,
   allTablesExist
 } = require('@money/database');
 const db = require('../config/database');
+const { loadTrainOrchestrationService } = require('../lib/train-service-loader');
+const { mapTrainRunRequestRecord } = require('../lib/api-mappers');
+const {
+  getErrorMessage,
+  sendJsonError,
+  sendServerError
+} = require('../lib/route-utils');
 
 const router = express.Router();
 
 const REQUEST_TABLE = TRAIN_RUN_REQUESTS_TABLE;
 const CONFIG_TABLE = TRAIN_CONFIGS_TABLE;
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const TRAIN_ROOT = process.env.TRAIN_ROOT
-  ? path.resolve(process.env.TRAIN_ROOT)
-  : path.join(REPO_ROOT, 'train');
-const TRAIN_ORCHESTRATION_SERVICE_PATH = path.join(TRAIN_ROOT, 'dist', 'services', 'train-orchestration.js');
-
-function loadTrainOrchestrationService() {
-  if (!fs.existsSync(TRAIN_ORCHESTRATION_SERVICE_PATH)) {
-    throw new Error(`train orchestration service not built: ${TRAIN_ORCHESTRATION_SERVICE_PATH}`);
-  }
-
-  // eslint-disable-next-line global-require, import/no-dynamic-require
-  return require(TRAIN_ORCHESTRATION_SERVICE_PATH);
-}
-
-function formatIso(value) {
-  if (!value) {
-    return null;
-  }
-
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return date.toISOString();
-}
-
-function toRecord(row) {
-  return {
-    id: Number(row.id),
-    requestId: String(row.request_id),
-    configId: Number(row.config_id),
-    configKey: String(row.config_key),
-    configName: row.config_name ? String(row.config_name) : null,
-    configType: String(row.config_type),
-    action: String(row.action),
-    status: String(row.status),
-    requestedBy: row.requested_by ? String(row.requested_by) : null,
-    triggerSource: row.trigger_source ? String(row.trigger_source) : null,
-    commandText: row.command_text ? String(row.command_text) : null,
-    exportPath: row.export_path ? String(row.export_path) : null,
-    workerPid: row.worker_pid == null ? null : Number(row.worker_pid),
-    executionPid: row.execution_pid == null ? null : Number(row.execution_pid),
-    cancelRequested: Number(row.cancel_requested || 0) === 1,
-    attemptCount: Number(row.attempt_count || 0),
-    logExcerpt: row.log_excerpt ? String(row.log_excerpt) : null,
-    errorMessage: row.error_message ? String(row.error_message) : null,
-    startedAt: formatIso(row.started_at),
-    completedAt: formatIso(row.completed_at),
-    createdAt: formatIso(row.created_at),
-    updatedAt: formatIso(row.updated_at)
-  };
-}
 
 async function ensureTablesReady() {
   return allTablesExist(db, [REQUEST_TABLE, CONFIG_TABLE]);
@@ -154,19 +105,14 @@ router.get('/', async (req, res) => {
 
     res.json({
       success: true,
-      data: rows.map(toRecord),
+      data: rows.map(mapTrainRunRequestRecord),
       meta: {
         queueReady: true,
         count: rows.length
       }
     });
   } catch (error) {
-    console.error('加载运行请求失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch train run requests',
-      message: error.message
-    });
+    return sendServerError(res, '加载运行请求失败:', 'Failed to fetch train run requests', error);
   }
 });
 
@@ -182,15 +128,10 @@ router.get('/:id', async (req, res) => {
 
     res.json({
       success: true,
-      data: toRecord(row)
+      data: mapTrainRunRequestRecord(row)
     });
   } catch (error) {
-    console.error('读取运行请求失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch train run request',
-      message: error.message
-    });
+    return sendServerError(res, '读取运行请求失败:', 'Failed to fetch train run request', error);
   }
 });
 
@@ -227,11 +168,7 @@ router.post('/', async (req, res) => {
     try {
       action = trainOrchestration.resolveRunRequestAction(configType, req.body?.action ? String(req.body.action) : null);
     } catch (error) {
-      return res.status(400).json({
-        success: false,
-        error: 'Unsupported action',
-        message: error.message
-      });
+      return sendJsonError(res, 400, 'Unsupported action', getErrorMessage(error));
     }
 
     const createdRow = await insertQueuedRequest(
@@ -243,16 +180,11 @@ router.post('/', async (req, res) => {
 
     res.json({
       success: true,
-      data: toRecord(createdRow),
+      data: mapTrainRunRequestRecord(createdRow),
       message: 'Run request queued'
     });
   } catch (error) {
-    console.error('创建运行请求失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to create train run request',
-      message: error.message
-    });
+    return sendServerError(res, '创建运行请求失败:', 'Failed to create train run request', error);
   }
 });
 
@@ -292,16 +224,11 @@ router.post('/:id/retry', async (req, res) => {
 
     res.json({
       success: true,
-      data: toRecord(createdRow),
+      data: mapTrainRunRequestRecord(createdRow),
       message: 'Run request re-queued'
     });
   } catch (error) {
-    console.error('重试运行请求失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to retry train run request',
-      message: error.message
-    });
+    return sendServerError(res, '重试运行请求失败:', 'Failed to retry train run request', error);
   }
 });
 
@@ -335,7 +262,7 @@ router.post('/:id/cancel', async (req, res) => {
       const updatedRunning = await loadRequestById(req.params.id);
       return res.json({
         success: true,
-        data: toRecord(updatedRunning),
+        data: mapTrainRunRequestRecord(updatedRunning),
         message: 'Run request cancelling'
       });
     }
@@ -366,16 +293,11 @@ router.post('/:id/cancel', async (req, res) => {
     const updated = await loadRequestById(req.params.id);
     res.json({
       success: true,
-      data: toRecord(updated),
+      data: mapTrainRunRequestRecord(updated),
       message: 'Run request cancelled'
     });
   } catch (error) {
-    console.error('取消运行请求失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to cancel train run request',
-      message: error.message
-    });
+    return sendServerError(res, '取消运行请求失败:', 'Failed to cancel train run request', error);
   }
 });
 

@@ -7,102 +7,35 @@ const {
   tableExists
 } = require('@money/database');
 const db = require('../config/database');
+const {
+  TRAIN_ROOT,
+  loadTrainConfigRegistryService,
+  loadTrainOrchestrationService,
+  loadTrainingManagementService
+} = require('../lib/train-service-loader');
+const {
+  mapTrainConfigRecord,
+  parseJsonContent
+} = require('../lib/api-mappers');
+const {
+  getErrorMessage,
+  sendJsonError,
+  sendServerError
+} = require('../lib/route-utils');
 
 const router = express.Router();
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const TRAIN_ROOT = process.env.TRAIN_ROOT
-  ? path.resolve(process.env.TRAIN_ROOT)
-  : path.join(REPO_ROOT, 'train');
-const TRAIN_MANAGEMENT_SERVICE_PATH = path.join(TRAIN_ROOT, 'dist', 'services', 'training-management.js');
-const TRAIN_CONFIG_REGISTRY_SERVICE_PATH = path.join(TRAIN_ROOT, 'dist', 'services', 'train-config-registry.js');
-const TRAIN_ORCHESTRATION_SERVICE_PATH = path.join(TRAIN_ROOT, 'dist', 'services', 'train-orchestration.js');
-
-function loadTrainManagementService() {
-  if (!fs.existsSync(TRAIN_MANAGEMENT_SERVICE_PATH)) {
-    throw new Error(`train management service not built: ${TRAIN_MANAGEMENT_SERVICE_PATH}`);
-  }
-
-  // eslint-disable-next-line global-require, import/no-dynamic-require
-  return require(TRAIN_MANAGEMENT_SERVICE_PATH);
-}
-
-function loadTrainConfigRegistryService() {
-  if (!fs.existsSync(TRAIN_CONFIG_REGISTRY_SERVICE_PATH)) {
-    throw new Error(`train config registry service not built: ${TRAIN_CONFIG_REGISTRY_SERVICE_PATH}`);
-  }
-
-  // eslint-disable-next-line global-require, import/no-dynamic-require
-  return require(TRAIN_CONFIG_REGISTRY_SERVICE_PATH);
-}
-
-function loadTrainOrchestrationService() {
-  if (!fs.existsSync(TRAIN_ORCHESTRATION_SERVICE_PATH)) {
-    throw new Error(`train orchestration service not built: ${TRAIN_ORCHESTRATION_SERVICE_PATH}`);
-  }
-
-  // eslint-disable-next-line global-require, import/no-dynamic-require
-  return require(TRAIN_ORCHESTRATION_SERVICE_PATH);
-}
-
-function formatIso(value) {
-  if (!value) {
-    return null;
-  }
-
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return date.toISOString();
-}
-
-function parseContent(content) {
-  if (typeof content === 'string') {
-    return JSON.parse(content);
-  }
-
-  if (content && typeof content === 'object' && !Array.isArray(content)) {
-    return content;
-  }
-
-  throw new Error('content 必须是 JSON 对象或 JSON 字符串');
-}
-function toConfigRecord(row, includeContent = false) {
-  const content = typeof row.content === 'string'
-    ? JSON.parse(row.content)
-    : row.content;
-
-  return {
-    id: Number(row.id),
-    configKey: String(row.config_key),
-    configType: String(row.config_type),
-    fileName: path.basename(String(row.config_key)),
-    configName: row.config_name ? String(row.config_name) : null,
-    symbol: row.symbol ? String(row.symbol) : null,
-    intervalType: row.interval_type ? String(row.interval_type) : null,
-    resultGroup: row.result_group ? String(row.result_group) : null,
-    sourceTable: row.source_table ? String(row.source_table) : null,
-    trainConfigRef: row.train_config_ref ? String(row.train_config_ref) : null,
-    trainingYear: row.training_year ? String(row.training_year) : null,
-    isGenerated: Boolean(row.is_generated),
-    contentHash: String(row.content_hash),
-    updatedAt: formatIso(row.updated_at),
-    ...(includeContent ? { content } : {})
-  };
-}
 
 async function ensureRegistryTableExists() {
   return tableExists(db, TRAIN_CONFIGS_TABLE);
 }
 
 function sendRegistryNotReady(res) {
-  return res.status(503).json({
-    success: false,
-    error: 'Train config registry not ready',
-    message: 'train_configs 表不存在，请先执行 docker compose run --rm train sh -lc "npm install && npm run build && npm run init-db"；如果要导入初始样例配置，再执行 npm run seed:configs'
-  });
+  return sendJsonError(
+    res,
+    503,
+    'Train config registry not ready',
+    'train_configs 表不存在，请先执行 docker compose run --rm train sh -lc "npm install && npm run build && npm run init-db"；如果要导入初始样例配置，再执行 npm run seed:configs'
+  );
 }
 
 async function loadConfigById(id) {
@@ -152,7 +85,7 @@ async function loadDerivedConfigs(trainingRecord) {
     [trainingRecord.id, trainingRecord.configKey, trainingRecord.resultGroup || '']
   );
 
-  return rows.map((row) => toConfigRecord(row, true));
+  return rows.map((row) => mapTrainConfigRecord(row, { includeContent: true }));
 }
 
 router.get('/', async (req, res) => {
@@ -190,25 +123,20 @@ router.get('/', async (req, res) => {
 
     res.json({
       success: true,
-      data: rows.map((row) => toConfigRecord(row, includeContent)),
+      data: rows.map((row) => mapTrainConfigRecord(row, { includeContent })),
       meta: {
         registryReady: true,
         count: rows.length
       }
     });
   } catch (error) {
-    console.error('加载 train configs 失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch train configs',
-      message: error.message
-    });
+    return sendServerError(res, '加载 train configs 失败:', 'Failed to fetch train configs', error);
   }
 });
 
 router.get('/training-guide/bootstrap', async (req, res) => {
   try {
-    const trainManagement = loadTrainManagementService();
+    const trainManagement = loadTrainingManagementService();
     const data = trainManagement.buildTrainingGuideBootstrap(new Date());
 
     res.json({
@@ -216,21 +144,16 @@ router.get('/training-guide/bootstrap', async (req, res) => {
       data
     });
   } catch (error) {
-    console.error('加载 training guide bootstrap 失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to load training guide bootstrap',
-      message: error.message
-    });
+    return sendServerError(res, '加载 training guide bootstrap 失败:', 'Failed to load training guide bootstrap', error);
   }
 });
 
 router.post('/training-guide/draft', async (req, res) => {
   try {
-    const trainManagement = loadTrainManagementService();
+    const trainManagement = loadTrainingManagementService();
     const body = req.body || {};
     const data = trainManagement.buildTrainingGuideDraft(
-      parseContent(body.content),
+      parseJsonContent(body.content),
       String(body.configKey || body.config_key || ''),
       new Date()
     );
@@ -240,18 +163,13 @@ router.post('/training-guide/draft', async (req, res) => {
       data
     });
   } catch (error) {
-    console.error('生成 training guide draft 失败:', error);
-    res.status(400).json({
-      success: false,
-      error: 'Failed to build training guide draft',
-      message: error.message
-    });
+    return sendJsonError(res, 400, 'Failed to build training guide draft', getErrorMessage(error));
   }
 });
 
 router.post('/training-guide/preview', async (req, res) => {
   try {
-    const trainManagement = loadTrainManagementService();
+    const trainManagement = loadTrainingManagementService();
     const body = req.body || {};
     const data = trainManagement.buildTrainingConfigFromGuide(
       body.draft && typeof body.draft === 'object' ? body.draft : {},
@@ -264,12 +182,7 @@ router.post('/training-guide/preview', async (req, res) => {
       data
     });
   } catch (error) {
-    console.error('生成 training guide preview 失败:', error);
-    res.status(400).json({
-      success: false,
-      error: 'Failed to build training config preview',
-      message: error.message
-    });
+    return sendJsonError(res, 400, 'Failed to build training config preview', getErrorMessage(error));
   }
 });
 
@@ -290,15 +203,10 @@ router.get('/:id', async (req, res) => {
 
     res.json({
       success: true,
-      data: toConfigRecord(row, true)
+      data: mapTrainConfigRecord(row, { includeContent: true })
     });
   } catch (error) {
-    console.error('读取 train config 失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch train config',
-      message: error.message
-    });
+    return sendServerError(res, '读取 train config 失败:', 'Failed to fetch train config', error);
   }
 });
 
@@ -310,7 +218,7 @@ router.post('/', async (req, res) => {
     }
 
     const body = req.body || {};
-    const payload = parseContent(body.content);
+    const payload = parseJsonContent(body.content);
     const trainConfigRegistry = loadTrainConfigRegistryService();
     const metadata = trainConfigRegistry.buildTrainConfigMetadata(
       body.configKey || body.config_key,
@@ -363,16 +271,11 @@ router.post('/', async (req, res) => {
 
     res.json({
       success: true,
-      data: toConfigRecord(rows[0], true),
+      data: mapTrainConfigRecord(rows[0], { includeContent: true }),
       message: 'Train config saved'
     });
   } catch (error) {
-    console.error('保存 train config 失败:', error);
-    res.status(400).json({
-      success: false,
-      error: 'Failed to save train config',
-      message: error.message
-    });
+    return sendJsonError(res, 400, 'Failed to save train config', getErrorMessage(error));
   }
 });
 
@@ -391,7 +294,7 @@ router.post('/:id/export', async (req, res) => {
       });
     }
 
-    const record = toConfigRecord(row, true);
+    const record = mapTrainConfigRecord(row, { includeContent: true });
     const trainOrchestration = loadTrainOrchestrationService();
     const absolutePath = resolveAbsoluteConfigPath(record.configKey);
     fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
@@ -408,12 +311,7 @@ router.post('/:id/export', async (req, res) => {
       message: 'Train config exported'
     });
   } catch (error) {
-    console.error('导出 train config 失败:', error);
-    res.status(400).json({
-      success: false,
-      error: 'Failed to export train config',
-      message: error.message
-    });
+    return sendJsonError(res, 400, 'Failed to export train config', getErrorMessage(error));
   }
 });
 
@@ -434,7 +332,7 @@ router.post('/:id/clear-results', async (req, res) => {
       });
     }
 
-    const record = toConfigRecord(row, true);
+    const record = mapTrainConfigRecord(row, { includeContent: true });
     const relatedConfigs = record.configType === 'training'
       ? await loadDerivedConfigs(record)
       : [];
@@ -498,12 +396,7 @@ router.post('/:id/clear-results', async (req, res) => {
       connection.release();
     }
 
-    console.error('清除 train 结果失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to clear train results',
-      message: error.message
-    });
+    return sendServerError(res, '清除 train 结果失败:', 'Failed to clear train results', error);
   }
 });
 

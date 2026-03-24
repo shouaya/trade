@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/database');
+const { sendServerError } = require('../lib/route-utils');
 
 /**
  * GET /api/trades
@@ -62,12 +63,7 @@ router.get('/', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('获取交易记录失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch trades',
-      message: error.message
-    });
+    return sendServerError(res, '获取交易记录失败:', 'Failed to fetch trades', error);
   }
 });
 
@@ -94,12 +90,7 @@ router.get('/:id', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('获取交易详情失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch trade',
-      message: error.message
-    });
+    return sendServerError(res, '获取交易详情失败:', 'Failed to fetch trade', error);
   }
 });
 
@@ -199,12 +190,7 @@ router.post('/', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('创建交易记录失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to create trade',
-      message: error.message
-    });
+    return sendServerError(res, '创建交易记录失败:', 'Failed to create trade', error);
   }
 });
 
@@ -266,12 +252,7 @@ router.put('/:id', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('更新交易记录失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to update trade',
-      message: error.message
-    });
+    return sendServerError(res, '更新交易记录失败:', 'Failed to update trade', error);
   }
 });
 
@@ -305,12 +286,7 @@ router.get('/stats/summary', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('获取统计摘要失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch stats',
-      message: error.message
-    });
+    return sendServerError(res, '获取统计摘要失败:', 'Failed to fetch stats', error);
   }
 });
 

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/database');
+const { sendServerError } = require('../lib/route-utils');
 
 /**
  * GET /api/strategies
@@ -32,12 +33,7 @@ router.get('/', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('获取策略列表失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch strategies',
-      message: error.message
-    });
+    return sendServerError(res, '获取策略列表失败:', 'Failed to fetch strategies', error);
   }
 });
 
@@ -64,12 +60,7 @@ router.get('/:id', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('获取策略详情失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch strategy',
-      message: error.message
-    });
+    return sendServerError(res, '获取策略详情失败:', 'Failed to fetch strategy', error);
   }
 });
 
@@ -109,12 +100,7 @@ router.post('/', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('创建策略失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to create strategy',
-      message: error.message
-    });
+    return sendServerError(res, '创建策略失败:', 'Failed to create strategy', error);
   }
 });
 

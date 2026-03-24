@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { importKlineData } = require('../lib/kline-importer');
+const { sendServerError } = require('../lib/route-utils');
 
 router.post('/gmocoin', async (req, res) => {
   try {
@@ -13,12 +14,7 @@ router.post('/gmocoin', async (req, res) => {
       message: `Successfully imported ${result.imported} klines`
     });
   } catch (error) {
-    console.error('导入数据失败:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to import data',
-      message: error.message
-    });
+    return sendServerError(res, '导入数据失败:', 'Failed to import data', error);
   }
 });
 
