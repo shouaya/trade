@@ -11,7 +11,7 @@ define require_var
 $(if $($(1)),,$(error 缺少参数 $(1). 示例: $(2)))
 endef
 
-.PHONY: help up down restart logs logs-train ps shell mysql db-init db-backup db-tables import clear-klines reimport-klines train validate rolling-all rolling-train rolling-validate weekly-rolling weekly-rolling-history monthly-rolling monthly-rolling-history clean
+.PHONY: help up down restart logs logs-train ps shell mysql db-init db-backup db-tables import clear-klines reimport-klines train validate clean
 
 # ============================================================================
 # 默认命令：显示帮助
@@ -43,22 +43,17 @@ help:
 	@echo ""
 	@echo "🎯 核心流程:"
 	@echo "  1. 训练 - 通过 TYPE/CONFIG 格式指定配置文件"
-	@echo "     make train CONFIG=training/2024_atr                      # 年度训练"
-	@echo "     make train CONFIG=training/2025_atr                      # 年度训练"
-	@echo "     make train CONFIG=training/2025_01_rolling               # 滚动窗口"
+	@echo "     make train CONFIG=training/2025_btcjpy_hf_rsi_macd_tp_atr"
+	@echo "     make train CONFIG=training/2026_btcjpy_hf_rsi_macd_tp_atr"
 	@echo ""
-	@echo "  2. 验证 - 通过 TYPE/CONFIG 格式指定配置文件（自动保存 Top 10）"
-	@echo "     make validate CONFIG=validation/2024_atr_2025_validation     # 年度验证"
-	@echo "     make validate CONFIG=validation/2025_01_rolling_2025_01_validation  # 滚动验证"
+	@echo "  2. 验证 - 通过 TYPE/CONFIG 格式指定配置文件"
+	@echo "     make validate CONFIG=validation/2025_btcjpy_v7_hf_rsi_macd_top10_exact_from_2025_2024_validation"
+	@echo "     make validate CONFIG=validation/2025_btcjpy_v7_hf_rsi_macd_top10_exact_from_2025_2026_validation"
 	@echo ""
-	@echo "🔄 批量操作:"
-	@echo "  make rolling-all        # 训练+验证所有滚动窗口（2025-01到2026-02）"
-	@echo "  make rolling-train      # 只训练所有滚动窗口"
-	@echo "  make rolling-validate   # 只验证所有滚动窗口"
-	@echo "  make weekly-rolling CUTOFF=2026-01-30    # 运行周度rolling MVP"
-	@echo "  make weekly-rolling-history START=2024-04-05 END=2026-02-20   # 批量回放周度rolling"
-	@echo "  make monthly-rolling MONTH=2025-01       # ETHJPY 月度rolling（过去12个月训练，当月验证）"
-	@echo "  make monthly-rolling-history START=2025-01 END=2026-02  # 批量回放ETHJPY月度rolling"
+	@echo "📘 Train 说明:"
+	@echo "  现在正式运行入口在 train/src/scripts/*，对应 npm run train / validate / init-db / worker:run-queue"
+	@echo "  如需生成验证配置，请进入 train 容器后运行 scripts/generate-top3-validation-configs.js"
+	@echo "  详细流程见 TRAIN_OPERATOR_GUIDE.md 与 train/PLAYBOOK.md"
 	@echo ""
 	@echo "🧹 清理:"
 	@echo "  make clean           - 清理临时文件"
@@ -160,7 +155,7 @@ reimport-klines:
 
 # 通用训练命令（需要指定CONFIG参数，格式: TYPE/NAME）
 train:
-	@$(call require_var,CONFIG,make train CONFIG=training/2024_atr)
+	@$(call require_var,CONFIG,make train CONFIG=training/2025_btcjpy_hf_rsi_macd_tp_atr)
 	@echo "🎯 开始训练: $(CONFIG).json"
 	@docker-compose run --rm train sh -c "npm install && npm run build && npm run train configs/$(CONFIG).json"
 
@@ -170,51 +165,9 @@ train:
 
 # 通用验证命令（需要指定CONFIG参数，格式: TYPE/NAME）
 validate:
-	@$(call require_var,CONFIG,make validate CONFIG=validation/2024_atr_2025_validation)
+	@$(call require_var,CONFIG,make validate CONFIG=validation/2025_btcjpy_v7_hf_rsi_macd_top10_exact_from_2025_2024_validation)
 	@echo "✅ 开始验证: $(CONFIG).json"
 	@docker-compose run --rm train sh -c "npm install && npm run build && npm run validate configs/$(CONFIG).json"
-
-# ============================================================================
-# 3. 批量操作
-# ============================================================================
-
-# 批量滚动窗口训练+验证（默认：训练+验证全部）
-rolling-all:
-	@echo "🔄 开始批量滚动窗口处理..."
-	@bash train/scripts/run-all-rolling.sh
-
-# 只训练所有滚动窗口
-rolling-train:
-	@echo "🎯 只训练所有滚动窗口..."
-	@bash train/scripts/run-all-rolling.sh --train-only
-
-# 只验证所有滚动窗口
-rolling-validate:
-	@echo "✅ 只验证所有滚动窗口..."
-	@bash train/scripts/run-all-rolling.sh --validate-only
-
-# 周度 rolling MVP
-weekly-rolling:
-	@$(call require_var,CUTOFF,make weekly-rolling CUTOFF=2026-01-30)
-	@echo "📅 开始周度 rolling: cutoff=$(CUTOFF)"
-	@docker-compose run --rm train sh -c "npm install && npm run build && node scripts/weekly-rolling-run.js --cutoff=$(CUTOFF)"
-
-weekly-rolling-history:
-	@$(call require_var,START,make weekly-rolling-history START=2024-04-05 END=2026-02-20)
-	@$(call require_var,END,make weekly-rolling-history START=2024-04-05 END=2026-02-20)
-	@echo "📚 开始批量周度 rolling: start=$(START) end=$(END)"
-	@docker-compose run --rm train sh -c "npm install && npm run build && node scripts/weekly-rolling-history.js --start=$(START) --end=$(END)"
-
-monthly-rolling:
-	@$(call require_var,MONTH,make monthly-rolling MONTH=2025-01)
-	@echo "📅 开始月度 rolling: month=$(MONTH)"
-	@docker-compose run --rm train sh -c "npm install && npm run build && node scripts/monthly-rolling-run.js --month=$(MONTH)"
-
-monthly-rolling-history:
-	@$(call require_var,START,make monthly-rolling-history START=2025-01 END=2026-02)
-	@$(call require_var,END,make monthly-rolling-history START=2025-01 END=2026-02)
-	@echo "📚 开始批量月度 rolling: start=$(START) end=$(END)"
-	@docker-compose run --rm train sh -c "npm install && npm run build && node scripts/monthly-rolling-history.js --start=$(START) --end=$(END)"
 
 # ============================================================================
 # 清理

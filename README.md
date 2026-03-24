@@ -1,13 +1,18 @@
-# 💹 USD/JPY 交易模拟器
+# 💹 Trading System
 
-一个功能完整的外汇交易模拟和回测系统，支持 K 线可视化、技术指标分析、交易记录和回放功能。
+这是一个按领域拆分的交易系统仓库：
+
+- `backend/`：API 服务与运行时后端逻辑
+- `frontend/`：Vite 前端
+- `train/`：训练、回测、验证、router 验证与相关报告链路
+- `database/`：共享数据库 schema、初始化 SQL 与 DB helper
 
 ## 🎯 功能特点
 
 - **实时 K 线回放**: 按分钟回放历史 K 线数据
 - **技术指标**: RSI(14) 和 MACD(12,26,9) 实时计算和显示
 - **交易模拟**: 支持做多/做空、自定义入场价格、止损止盈
-- **数据持久化**: MySQL 数据库存储 K 线数据和交易记录
+- **数据持久化**: MySQL 数据库存储 K 线数据、交易记录与训练结果
 - **API 后端**: Express REST API 提供数据服务
 - **数据管理**: Adminer 可视化数据库管理界面
 
@@ -16,17 +21,13 @@
 训练系统快速上手入口：
 
 - [TRAIN_OPERATOR_GUIDE.md](/Users/ts-changchang.zhuang/git/money/TRAIN_OPERATOR_GUIDE.md)
+- [train/METHODOLOGY.md](/Users/ts-changchang.zhuang/git/money/train/METHODOLOGY.md)
+- [train/PLAYBOOK.md](/Users/ts-changchang.zhuang/git/money/train/PLAYBOOK.md)
 
-### 1. 获取样本数据
-
-```bash
-npm run fetch:sample
-```
-
-### 2. 启动后端服务
+### 1. 启动基础服务
 
 ```bash
-docker-compose up -d
+docker compose up -d mysql api frontend adminer
 ```
 
 服务端口:
@@ -34,10 +35,16 @@ docker-compose up -d
 - Adminer: http://localhost:8080
 - MySQL: localhost:3306
 
+### 2. 初始化 train 数据库对象
+
+```bash
+docker compose run --rm train sh -lc "npm install && npm run build && npm run init-db"
+```
+
 ### 3. 导入数据到数据库
 
 ```bash
-docker-compose exec api npm run import
+docker compose exec api npm run import
 ```
 
 ### 4. 启动前端
@@ -88,16 +95,22 @@ GET /api/trades/stats/summary
 
 ## 📁 项目结构
 
-```
+```text
 money/
+├── database/                 # 共享数据库 schema / SQL / DB helper
 ├── backend/                  # 后端 API
 │   ├── routes/              # API 路由
 │   ├── scripts/             # 数据导入脚本
-│   └── sql/                 # 数据库初始化
+│   └── lib/                 # 后端运行时辅助逻辑
 ├── frontend/                # 前端应用
 │   ├── src/components/      # React 组件
 │   ├── src/api/            # API 客户端
 │   └── src/utils/          # 技术指标计算
+├── train/                   # 训练 / 验证 / router 验证
+│   ├── src/scripts/         # 正式运行入口
+│   ├── src/services/        # 训练主链路服务
+│   ├── configs/             # 训练 / 验证 / router 配置
+│   └── scripts/             # 仅保留少量配套辅助脚本
 ├── data/                    # 原始数据文件
 └── docker-compose.yml       # Docker 配置
 ```
@@ -113,14 +126,14 @@ money/
 ## 🛠️ 开发命令
 
 ```bash
-# 获取样本数据
-npm run fetch:sample
+# 启动基础服务
+docker compose up -d mysql api frontend adminer
 
-# 启动后端
-docker-compose up -d
+# 初始化 train
+docker compose run --rm train sh -lc "npm install && npm run build && npm run init-db"
 
 # 导入数据
-docker-compose exec api npm run import
+docker compose exec api npm run import
 
 # 启动前端
 cd frontend && npm run dev

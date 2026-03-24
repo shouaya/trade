@@ -198,7 +198,7 @@
 
 - 这是 review 里第二个高度一致的建议。
 - 当前方法文档已经把 “rolling window” 与 “更严格的 OOS walk-forward” 放入扩展方向。
-- 仓库里也已经存在探索脚本 [train/scripts/analyze-weekly-adaptive-walkforward.js](/Users/ts-changchang.zhuang/git/money/train/scripts/analyze-weekly-adaptive-walkforward.js)，说明这件事不是空白。
+- 仓库里这类探索能力曾经以独立脚本存在；后续如果恢复，建议放到单独 research 目录而不是继续混在训练主链路脚本里。
 
 建议采纳方式：
 

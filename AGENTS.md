@@ -15,19 +15,21 @@ This file defines how Codex (and other agents) should work in this repository.
 ## Project Context
 - `backend/`: API server, DB schema/init scripts, runtime backend services only.
 - `frontend/`: Vite app.
-- `train/`: strategy training/backtest/validation/query/save scripts and services.
+- `train/`: strategy training/backtest/validation/query/save logic and runtime services.
 
 Key train entry points:
-- `train/scripts/run-training.js` (config-driven training runner)
-- `train/scripts/run-validation.js` (config-driven validation runner)
-- `train/backtest-training-service.js`
-- `train/strategy-validation-service.js`
+- `train/src/scripts/train.ts` (shared train / validate entry)
+- `train/src/scripts/init-db.ts`
+- `train/src/scripts/train-run-worker.ts`
+- `train/src/scripts/router-validate.ts`
+- `train/scripts/generate-top3-validation-configs.js` (still used by the train worker / operator flow)
 - `train/configs/training/*.json`
 - `train/configs/validation/*.json`
 
 ## Data & Integrations
 - MySQL is the primary data store.
-- Train DB config: `train/configs/database.js`.
+- Shared DB helpers/schema: `database/`
+- Train DB config entry: `train/src/configs/database.ts`
 - Env files:
   - `train/.env` (preferred for train local/container runs)
   - `backend/.env` (legacy fallback)
@@ -37,10 +39,10 @@ Key train entry points:
 - Start base services:
   - `docker compose up -d mysql api frontend adminer`
 - Run train commands with one-off container:
-  - `docker compose run --rm train npm run backtest:2025`
-  - `docker compose run --rm train npm run backtest:2024 -- -- --limit 500 --types rsi_only`
-  - `docker compose run --rm train npm run validate:2025`
-  - `docker compose run --rm train npm run group:run -- -- --group 1 --groups 10`
+  - `docker compose run --rm train sh -lc "npm install && npm run build && npm run train -- configs/training/<config>.json"`
+  - `docker compose run --rm train sh -lc "npm install && npm run build && npm run validate -- configs/validation/<config>.json"`
+  - `docker compose run --rm train sh -lc "npm install && npm run build && npm run init-db"`
+  - `docker compose run --rm train sh -lc "npm install && node scripts/generate-top3-validation-configs.js ..."`
 
 ## Release / Deploy
 - Local dev stack is orchestrated by `docker-compose.yml`.
@@ -48,8 +50,10 @@ Key train entry points:
 
 ## Do / Don’t
 - Do keep training parameter changes in JSON config files, not hardcoded in many scripts.
-- Do extract duplicated script logic into reusable services/utilities.
-- Don’t add new duplicated year-specific scripts if config-driven runner can handle it.
+- Do extract duplicated runtime logic into `train/src/services` or shared helpers.
+- Do treat `train/src/scripts/*` as the formal train runtime entry layer.
+- Don’t add new duplicated year-specific scripts if the config-driven runner can handle it.
+- Don’t re-introduce research / exploratory script sprawl under `train/scripts/`.
 - Don’t couple `train` to `backend/config/database`.
 
 ## Contact / Ownership

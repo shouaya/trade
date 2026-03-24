@@ -122,29 +122,30 @@ money/
 │   ├── src/                   # TypeScript 源码
 │   │   ├── scripts/           # 执行脚本
 │   │   │   ├── train.ts       # 通用训练/验证入口 ⭐
-│   │   │   ├── save-top3-strategies.ts
 │   │   │   ├── init-db.ts     # 数据库初始化
+│   │   │   ├── train-run-worker.ts
+│   │   │   ├── router-validate.ts
 │   │   │   ├── _common.ts     # 共享工具函数
 │   │   │   └── _config.ts     # 配置加载器
 │   │   ├── services/          # 核心业务逻辑
 │   │   │   ├── strategy-executor.ts  # 策略执行引擎 ⭐
 │   │   │   ├── strategy-parameter-generator.ts  # 参数生成器 ⭐
-│   │   │   ├── signal-generator.ts
+│   │   │   ├── regime-router-validation.ts
 │   │   │   └── indicators/    # 指标计算
 │   │   ├── types/             # TypeScript 类型定义
 │   │   ├── configs/           # 配置管理
-│   │   └── database/          # 数据库 DDL
 │   ├── configs/               # JSON 配置文件 ⭐
-│   │   ├── training/          # 训练配置（年度 + 滚动窗口）
-│   │   │   ├── 2024_atr.json
-│   │   │   ├── 2025_atr.json
-│   │   │   └── 2025_01_rolling.json  # 14个滚动窗口配置
-│   │   └── validation/        # 验证配置（年度 + 滚动窗口）
-│   │       ├── 2024_atr_2025_validation.json
-│   │       └── 2025_01_rolling_2025_01_validation.json
+│   │   ├── training/          # 训练配置
+│   │   │   ├── 2024_btcjpy_hf_rsi_macd_tp_atr.json
+│   │   │   ├── 2025_btcjpy_hf_rsi_macd_tp_atr.json
+│   │   │   └── 2026_btcjpy_hf_rsi_macd_tp_atr.json
+│   │   ├── validation/        # 验证配置
+│   │   ├── top-strategies/    # Top 策略快照
+│   │   └── generated/regime-routing/ # router / policy catalog
+│   ├── scripts/               # 保留的配套辅助脚本
+│   │   └── generate-top3-validation-configs.js
 │   ├── dist/                  # 编译输出
 │   ├── README.md              # 完整文档
-│   ├── QUICK_START.md         # 快速开始指南
 │   ├── tsconfig.json          # TypeScript 配置
 │   └── package.json
 │
@@ -605,7 +606,7 @@ if (elapsedMinutes >= holdMinutes) {
 
 ## 🤖 训练引擎开发指南
 
-### 核心服务：[train/backtest-training-service.js](train/backtest-training-service.js)
+### 核心入口：`train/src/scripts/train.ts`
 
 #### 回测流程
 
@@ -750,23 +751,27 @@ return {
 
 ### 配置文件驱动
 
-所有配置文件位于 `train/configs/` 目录，只有两个标准目录：
+所有配置文件位于 `train/configs/` 目录，当前主要分为：
 
 **training/** - 训练配置
-- `2024_atr.json` - 2024年度训练
-- `2025_atr.json` - 2025年度训练
-- `2025_01_rolling.json` - 滚动窗口训练（14个月）
+- `2024_btcjpy_hf_rsi_macd_tp_atr.json`
+- `2025_btcjpy_hf_rsi_macd_tp_atr.json`
+- `2026_btcjpy_hf_rsi_macd_tp_atr.json`
 
-**validation/** - 验证配置
-- `2024_atr_2025_validation.json` - 年度验证
-- `2025_01_rolling_2025_01_validation.json` - 滚动窗口验证（14个月）
+**validation/** - 未来期验证配置
+- 例如 `2025_btcjpy_v7_hf_rsi_macd_top10_exact_from_2025_2024_validation.json`
+- 例如 `2025_btcjpy_v7_hf_rsi_macd_top10_exact_from_2025_2026_validation.json`
 
-**示例配置** ([train/configs/training/2025_atr.json](train/configs/training/2025_atr.json)):
+**top-strategies/** - Top 策略快照
+
+**generated/regime-routing/** - router 与 policy catalog
+
+**示例配置** ([train/configs/training/2025_btcjpy_hf_rsi_macd_tp_atr.json](train/configs/training/2025_btcjpy_hf_rsi_macd_tp_atr.json)):
 
 ```json
 {
-  "name": "2025_ATR_TRAIN",
-  "description": "2025年全年数据训练",
+  "name": "2025_BTCJPY_HF_RSI_MACD_TP_ATR",
+  "description": "2025 BTCJPY hf rsi macd tp atr",
   "timeRange": {
     "startTimeMs": 1735801200000,
     "endTimeMs": 1767225540000,
@@ -774,15 +779,15 @@ return {
     "endIso": "2025-12-31T23:59:00Z"
   },
   "market": {
-    "symbol": "USDJPY",
+    "symbol": "BTCJPY",
     "intervalType": "1min"
   },
   "database": {
-    "tableName": "backtest_results_2025_atr"
+    "tableName": "btcjpy_hf_rsi_macd_tp_atr_2025"
   },
   "strategy": {
-    "types": ["rsi_only"],
-    "parameters": { /* 150+ 组合 */ }
+    "types": ["rsi_macd"],
+    "parameters": { /* 参数网格 */ }
   }
 }
 ```
@@ -791,12 +796,12 @@ return {
 
 ```bash
 # 训练命令（TYPE/NAME 格式，不含 .json）
-make train CONFIG=training/2024_atr           # 年度训练
-make train CONFIG=training/2025_01_rolling    # 滚动窗口训练
+make train CONFIG=training/2025_btcjpy_hf_rsi_macd_tp_atr
+make train CONFIG=training/2026_btcjpy_hf_rsi_macd_tp_atr
 
-# 验证命令（验证时自动选出并保存 Top 10 策略）
-make validate CONFIG=validation/2024_atr_2025_validation
-make validate CONFIG=validation/2025_01_rolling_2025_01_validation
+# 验证命令
+make validate CONFIG=validation/2025_btcjpy_v7_hf_rsi_macd_top10_exact_from_2025_2024_validation
+make validate CONFIG=validation/2025_btcjpy_v7_hf_rsi_macd_top10_exact_from_2025_2026_validation
 
 # 数据库初始化
 make db-init
@@ -854,19 +859,15 @@ docker-compose exec api npm run import
 make db-init
 
 # 2. 年度训练
-make train CONFIG=training/2024_atr
-make train CONFIG=training/2025_atr
+make train CONFIG=training/2025_btcjpy_hf_rsi_macd_tp_atr
+make train CONFIG=training/2026_btcjpy_hf_rsi_macd_tp_atr
 
-# 3. 验证策略（验证时自动选出并保存 Top 10）
-make validate CONFIG=validation/2024_atr_2025_validation
-make validate CONFIG=validation/2024_atr_2026_validation
+# 3. 验证策略
+make validate CONFIG=validation/2025_btcjpy_v7_hf_rsi_macd_top10_exact_from_2025_2024_validation
+make validate CONFIG=validation/2025_btcjpy_v7_hf_rsi_macd_top10_exact_from_2025_2026_validation
 
-# 4. 批量滚动窗口训练+验证（可选）
-make rolling-all
-
-# 或单独训练和验证
-make train CONFIG=training/2025_01_rolling
-make validate CONFIG=validation/2025_01_rolling_2025_01_validation
+# 4. 如需生成验证配置，使用保留的辅助脚本
+docker compose run --rm train sh -lc "npm install && node scripts/generate-top3-validation-configs.js ..."
 ```
 
 **优势**:
@@ -874,6 +875,7 @@ make validate CONFIG=validation/2025_01_rolling_2025_01_validation
 - 自动编译 TypeScript
 - 自动安装依赖
 - 清晰的命令语义
+- 和 `train/src/scripts/*` 当前正式运行链路一致
 
 ### 调试技巧
 
@@ -1057,10 +1059,9 @@ git commit -m "refactor: 重构策略参数生成器为配置驱动"
 
 **优化方案：**
 
-1. **分组并行执行** ([train/scripts/group-backtest.js](train/scripts/group-backtest.js))
+1. **配置驱动分批执行**
    ```bash
-   # 10 个进程并行（每个处理 100 个策略）
-   docker compose run --rm train npm run group:run -- -- --group 1 --groups 10
+   docker compose run --rm train sh -lc "npm install && npm run build && npm run train -- configs/training/<config>.json"
    ```
 
 2. **减少数据库写入频率**
@@ -1414,7 +1415,7 @@ docker-compose logs train
 3. **阅读核心代码**（30 分钟）
    - [database/sql/init.sql](database/sql/init.sql) - 数据库设计
    - [frontend/src/utils/indicators.js](frontend/src/utils/indicators.js) - 指标计算
-   - [train/backtest-training-service.js](train/backtest-training-service.js) - 回测逻辑
+   - [train/src/scripts/train.ts](train/src/scripts/train.ts) - 训练 / 验证主入口
 
 4. **实践修改**（30 分钟）
    - 修改一个参数（如 RSI 超卖线从 30 改为 25）

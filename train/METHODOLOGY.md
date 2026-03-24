@@ -14,6 +14,13 @@
 
 **通用的是训练方法，不通用的是每个交易对最终得到的 policy system。**
 
+需要特别区分两件事：
+
+- 方法论本身：描述应该怎样训练一个交易对专属 policy system。
+- 当前仓库里的正式运行链路：只保留正式训练、验证、router 验证和必要的配套脚本。
+
+也就是说，本文件描述的是“方法”；它不等于“仓库里应该长期保留多少研究脚本”。
+
 ## 核心原则
 
 ### 1. 单品种单独训练
@@ -845,7 +852,7 @@ npm run train -- configs/training/<your_config>.json
 ```bash
 cd train
 npm run validate -- configs/validation/<future_validation_config>.json
-npm run router:validate
+node dist/scripts/router-validate.js --validation configs/validation/<future_validation_config>.json --router configs/generated/regime-routing/<router>.json
 ```
 
 或直接：
@@ -853,7 +860,7 @@ npm run router:validate
 ```bash
 cd train
 DB_HOST=127.0.0.1 node dist/scripts/router-validate.js \
-  --validation configs/generated/daily-overlays/<validation_pool>.json \
+  --validation configs/validation/<future_validation_config>.json \
   --router configs/generated/regime-routing/<router>.json
 ```
 

@@ -10,6 +10,9 @@
 - BTCJPY 2025 Top10 对 2024 / 2026 验证配置
 - 事件段路由验证能力
 
+正式运行入口统一放在 `src/scripts/`。
+`scripts/` 目录现在只保留仍被 train worker / operator flow 直接调用的辅助脚本 `generate-top3-validation-configs.js`，不再承载研究型脚本集合。
+
 正式方法论文档：
 
 - [METHODOLOGY.md](/Users/ts-changchang.zhuang/git/money/train/METHODOLOGY.md)

@@ -1,13 +1,8 @@
 # Scripts
 
-当前保留的脚本分成两类：
+当前 `train/scripts/` 只保留训练主链路仍会直接调用的配套脚本：
 
-- 分析脚本：波动率、月度/周度/日度 regime 分析
-- 组合训练脚本：`analyze-monthly-feature-combos.js`
-- 组合训练脚本：`analyze-weekly-feature-combos.js`
-- 自成长滚动脚本：`analyze-weekly-adaptive-walkforward.js`
-- 训练配套脚本：`generate-top3-validation-configs.js`
-- 成本敏感度报告：`npm run report:cost-sensitivity -- --config <config>`
-- 因果特征审计：`npm run audit:causal-features -- --symbol <SYMBOL> --start <ISO> --end <ISO>`
+- `generate-top3-validation-configs.js`
 
-旧的 rolling 批处理、validation-only、历史回归脚本已移除。
+训练入口、数据库初始化、队列 worker、配置同步等正式运行脚本已经统一放在 `train/src/scripts/` 并通过 `npm run ...` 调用。
+分析/探索/报表类脚本已从这里移除，避免和训练主链路混在一起。
