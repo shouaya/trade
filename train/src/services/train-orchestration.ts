@@ -20,11 +20,11 @@ export function buildRunCommand(configType: unknown, configKey: unknown): string
 
 export function resolveAllowedActions(configType: unknown): readonly string[] {
   if (configType === 'training') {
-    return ['train', 'generate-validation'];
+    return ['train', 'generate-validation', 'feature-causality'];
   }
 
   if (configType === 'validation') {
-    return ['validate'];
+    return ['validate', 'cost-sensitivity', 'router-validate'];
   }
 
   return [];

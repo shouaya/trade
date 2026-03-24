@@ -134,6 +134,14 @@ export const trainConfigsAPI = {
     return api.post(`/train-configs/${id}/export`);
   },
 
+  getRouterArtifactsBootstrap: (id) => {
+    return api.get(`/train-configs/${id}/router-artifacts/bootstrap`);
+  },
+
+  saveRouterArtifacts: (id, payload) => {
+    return api.post(`/train-configs/${id}/router-artifacts`, payload);
+  },
+
   clearResults: (id) => {
     return api.post(`/train-configs/${id}/clear-results`);
   },

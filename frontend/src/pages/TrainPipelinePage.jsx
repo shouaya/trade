@@ -114,6 +114,15 @@ function formatDateTime(value) {
   });
 }
 
+function formatCompactNumber(value, digits = 2) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 'n/a';
+  }
+
+  return numeric.toFixed(digits);
+}
+
 function formatRange(timeRange) {
   if (!timeRange?.startIso || !timeRange?.endIso) {
     return '时间范围未知';
@@ -176,6 +185,19 @@ function getStatusClass(status) {
     default:
       return 'todo';
   }
+}
+
+function getSummaryMetricTone(completed, total) {
+  if (!total) {
+    return 'todo';
+  }
+  if (completed >= total) {
+    return 'done';
+  }
+  if (completed > 0) {
+    return 'partial';
+  }
+  return 'todo';
 }
 
 function getRequestStatusText(status) {
@@ -253,16 +275,6 @@ function updateHashQuery(updates) {
   window.history.replaceState(null, '', next ? `${base}?${next}` : base);
 }
 
-async function copyText(value) {
-  try {
-    await navigator.clipboard.writeText(value);
-    return true;
-  } catch (error) {
-    console.error('复制失败:', error);
-    return false;
-  }
-}
-
 function ValidationList({ items, onViewRequest }) {
   if (!items.length) {
     return <div className="pipeline-empty">还没有匹配到 validation config。</div>;
@@ -305,31 +317,32 @@ function ValidationList({ items, onViewRequest }) {
   );
 }
 
-function CommandBlock({ commands }) {
-  const [copied, setCopied] = useState('');
-
-  const copyCommand = async (command) => {
-    try {
-      await navigator.clipboard.writeText(command);
-      setCopied(command);
-      window.setTimeout(() => setCopied(''), 1500);
-    } catch (error) {
-      console.error('复制命令失败:', error);
-    }
-  };
+function GuidanceBlock({ commands }) {
+  if (!Array.isArray(commands) || commands.length === 0) {
+    return null;
+  }
 
   return (
     <div className="command-list">
       {commands.map((command) => (
         <div key={command} className="command-card">
           <pre>{command}</pre>
-          <button type="button" onClick={() => copyCommand(command)}>
-            {copied === command ? '已复制' : '复制命令'}
-          </button>
         </div>
       ))}
     </div>
   );
+}
+
+function isUiRunnableAction(actionKey) {
+  return actionKey === 'run-training'
+    || actionKey === 'generate-validation'
+    || actionKey === 'prepare-validation'
+    || actionKey === 'run-validation'
+    || actionKey === 'waiting-generate-validation'
+    || actionKey === 'waiting-validation'
+    || actionKey === 'cost-sensitivity'
+    || actionKey === 'feature-causality'
+    || actionKey === 'router-validate';
 }
 
 function getNextActionButtonLabel(nextActionKey) {
@@ -371,6 +384,267 @@ function getFinalConfigState(pipeline) {
   };
 }
 
+function ResultsOverview({ pipelines, meta }) {
+  const total = pipelines.length;
+  const running = pipelines.filter((pipeline) => {
+    const validationRunning = (pipeline.validationConfigs || []).some((item) => isActiveRequestStatus(item.latestRequest?.status));
+    return isActiveRequestStatus(pipeline.latestRequest?.status)
+      || isActiveRequestStatus(pipeline.latestGenerateValidationRequest?.status)
+      || validationRunning;
+  }).length;
+  const trained = pipelines.filter((pipeline) => Boolean(pipeline.trainingRun)).length;
+  const validationDone = pipelines.filter((pipeline) => (pipeline.validationConfigs || []).some((item) => Boolean(item.latestRun))).length;
+  const routerReady = pipelines.filter((pipeline) => Boolean(pipeline.router?.routerPath && pipeline.router?.policyPath)).length;
+  const reportReady = pipelines.filter((pipeline) => {
+    const reports = pipeline.reports || {};
+    return Boolean(reports.featureCausality || reports.costSensitivity || reports.routerValidation);
+  }).length;
+
+  const cards = [
+    {
+      label: 'Training Configs',
+      value: total,
+      detail: meta?.dbConnected ? '配置库在线' : '仅文件态汇总',
+      tone: total > 0 ? 'done' : 'todo'
+    },
+    {
+      label: 'Active Runs',
+      value: running,
+      detail: running > 0 ? '队列中仍有任务执行' : '当前没有活跃执行',
+      tone: running > 0 ? 'running' : 'todo'
+    },
+    {
+      label: 'Training Ready',
+      value: `${trained}/${total || 0}`,
+      detail: '候选池已落库的训练任务',
+      tone: getSummaryMetricTone(trained, total)
+    },
+    {
+      label: 'Validation Ready',
+      value: `${validationDone}/${total || 0}`,
+      detail: '至少完成一轮 validation 的任务',
+      tone: getSummaryMetricTone(validationDone, total)
+    },
+    {
+      label: 'Reports Ready',
+      value: `${reportReady}/${total || 0}`,
+      detail: '已有审计或验证报告',
+      tone: getSummaryMetricTone(reportReady, total)
+    },
+    {
+      label: 'Router Ready',
+      value: `${routerReady}/${total || 0}`,
+      detail: 'router 与 policy 已配齐',
+      tone: getSummaryMetricTone(routerReady, total)
+    }
+  ];
+
+  return (
+    <section className="results-overview">
+      <div className="config-studio-head">
+        <div>
+          <div className="hero-kicker">Result Overview</div>
+          <h2>训练总览</h2>
+          <p>把当前训练、验证、报告与 router 产物收成一屏，先看全局状态再下钻到单条 pipeline。</p>
+        </div>
+      </div>
+      <div className="results-overview-grid">
+        {cards.map((card) => (
+          <div key={card.label} className={`results-overview-card ${card.tone}`}>
+            <span>{card.label}</span>
+            <strong>{card.value}</strong>
+            <em>{card.detail}</em>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PipelineResultsPanel({ pipeline, onViewRequest, onOpenRouterStudio }) {
+  const validationItems = pipeline.validationConfigs || [];
+  const completedValidations = validationItems.filter((item) => item.latestRun);
+  const pendingValidations = validationItems.filter((item) => !item.latestRun);
+  const latestValidation = completedValidations
+    .sort((left, right) => new Date(right.latestRun?.latestAt || 0).getTime() - new Date(left.latestRun?.latestAt || 0).getTime())[0] || null;
+  const reportEntries = [
+    {
+      key: 'feature-causality',
+      label: '因果特征审计',
+      data: pipeline.reports?.featureCausality
+    },
+    {
+      key: 'cost-sensitivity',
+      label: '成本敏感度',
+      data: pipeline.reports?.costSensitivity
+    },
+    {
+      key: 'router-validation',
+      label: 'Router 验证',
+      data: pipeline.reports?.routerValidation
+    }
+  ];
+
+  return (
+    <div className="pipeline-results-grid">
+      <div className="results-panel-card">
+        <span>训练结果</span>
+        <strong>{pipeline.trainingRun ? `${pipeline.trainingRun.strategyCount} strategies` : '尚未落库'}</strong>
+        <em>
+          {pipeline.trainingRun
+            ? `best score ${formatCompactNumber(pipeline.trainingRun.bestScore, 4)} · best pnl ${formatCompactNumber(pipeline.trainingRun.bestTotalPnl)}`
+            : '先完成训练候选池'}
+        </em>
+        <div className="results-inline-list">
+          <div className="results-inline-item">
+            <span>Run ID</span>
+            <strong>{pipeline.trainingRun?.runId || 'n/a'}</strong>
+          </div>
+          <div className="results-inline-item">
+            <span>Updated</span>
+            <strong>{formatDateTime(pipeline.trainingRun?.latestAt)}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="results-panel-card">
+        <span>Validation</span>
+        <strong>{completedValidations.length}/{validationItems.length || 0} 已完成</strong>
+        <em>
+          {latestValidation
+            ? `latest ${latestValidation.targetLabel} · ${formatDateTime(latestValidation.latestRun?.latestAt)}`
+            : pendingValidations.length > 0
+              ? '已有 validation config，等待执行'
+              : '还没有派生 validation config'}
+        </em>
+        <div className="results-chip-list">
+          {validationItems.length === 0 ? (
+            <div className="results-chip todo">未生成</div>
+          ) : validationItems.map((item) => (
+            <button
+              key={item.path}
+              type="button"
+              className={`results-chip ${item.latestRun ? 'done' : isActiveRequestStatus(item.latestRequest?.status) ? 'running' : 'todo'}`}
+              onClick={() => item.latestRequest && onViewRequest(item.latestRequest.id)}
+            >
+              {item.targetLabel}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="results-panel-card">
+        <span>Reports</span>
+        <strong>{reportEntries.filter((item) => item.data).length}/3 已产出</strong>
+        <div className="results-report-list">
+          {reportEntries.map((item) => (
+            <div key={item.key} className={`results-report-row ${item.data ? 'done' : 'todo'}`}>
+              <span>{item.label}</span>
+              <strong>{item.data ? '已生成' : '未生成'}</strong>
+              <em>{item.data?.path || '等待执行'}</em>
+              {item.data?.preview && (
+                <pre className="results-report-preview">{item.data.preview}</pre>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="results-panel-card">
+        <span>Artifacts</span>
+        <strong>{pipeline.router?.routerPath ? 'Router 已接入' : '等待 Router'}</strong>
+        <div className="results-report-list">
+          <div className={`results-report-row ${pipeline.topStrategySnapshot ? 'done' : 'todo'}`}>
+            <span>Final Config</span>
+            <strong>{pipeline.topStrategySnapshot ? '已生成' : '未生成'}</strong>
+            <em>{pipeline.topStrategySnapshot?.path || '等待 generate-validation'}</em>
+          </div>
+          <div className={`results-report-row ${pipeline.router?.routerPath ? 'partial' : 'todo'}`}>
+            <span>Router</span>
+            <strong>{pipeline.router?.routerPath ? '已配置' : '未配置'}</strong>
+            <em>{pipeline.router?.routerPath || '等待人工整理'}</em>
+          </div>
+          <div className={`results-report-row ${pipeline.router?.policyPath ? 'done' : 'todo'}`}>
+            <span>Policy</span>
+            <strong>{pipeline.router?.policyPath ? '已生成' : '未生成'}</strong>
+            <em>{pipeline.router?.policyPath || '等待 policy catalog'}</em>
+          </div>
+        </div>
+        <button type="button" className="summary-box-action" onClick={() => onOpenRouterStudio(pipeline)}>
+          {pipeline.router?.routerPath ? '编辑 Router' : '配置 Router'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RouterStudioPanel({
+  open,
+  saving,
+  error,
+  data,
+  routerText,
+  policyText,
+  onClose,
+  onRouterTextChange,
+  onPolicyTextChange,
+  onSave
+}) {
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <section className="editor-panel">
+      <div className="editor-panel-head">
+        <div>
+          <div className="hero-kicker">Router Studio</div>
+          <h2>Router / Policy 配置</h2>
+          <p>这里先完成 Web 端的 router / policy 编辑、保存和挂载。自动推导规则后面再补。</p>
+        </div>
+        <button type="button" className="editor-close" onClick={onClose}>关闭</button>
+      </div>
+
+      <div className="router-studio-meta">
+        <div className="summary-box">
+          <span>Training Config</span>
+          <strong>{data?.trainingConfigKey || 'n/a'}</strong>
+          <em>{data?.snapshotReady ? `snapshot ${data.snapshotConfigKey}` : '还没有 top-strategies snapshot'}</em>
+        </div>
+        <div className="summary-box">
+          <span>Router Config</span>
+          <strong>{data?.routerConfigKey || 'n/a'}</strong>
+          <em>保存后会自动回写 training config 的 regimeRouting.routerConfigPath</em>
+        </div>
+        <div className="summary-box">
+          <span>Policy Catalog</span>
+          <strong>{data?.policyConfigKey || 'n/a'}</strong>
+          <em>保存后会自动回写 training config 的 regimeRouting.policyCatalogPath</em>
+        </div>
+      </div>
+
+      {error && <div className="pipeline-error">{error}</div>}
+
+      <div className="router-studio-grid">
+        <label className="editor-textarea-wrap">
+          <span>Router JSON</span>
+          <textarea value={routerText} onChange={(event) => onRouterTextChange(event.target.value)} spellCheck="false" />
+        </label>
+        <label className="editor-textarea-wrap">
+          <span>Policy JSON</span>
+          <textarea value={policyText} onChange={(event) => onPolicyTextChange(event.target.value)} spellCheck="false" />
+        </label>
+      </div>
+
+      <div className="editor-actions">
+        <button type="button" className="pipeline-refresh-button" onClick={onSave} disabled={saving}>
+          {saving ? '保存中...' : '保存 Router Artifacts'}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function MethodologyStageOverview({ stages, selectedStageKey, onSelect }) {
   return (
     <div className="methodology-overview">
@@ -398,7 +672,6 @@ function MethodologyStageFocus({
   pipeline,
   showAction,
   onRunAction,
-  onCopyCommand,
   feedback
 }) {
   if (!stage) {
@@ -459,30 +732,27 @@ function MethodologyStageFocus({
             <strong>{pipeline.nextAction.title}</strong>
             <span>{pipeline.nextAction.reason}</span>
           </div>
-          <div className="next-action-buttons">
-            <button
-              type="button"
-              className="pipeline-refresh-button next-action-primary"
-              onClick={() => void onRunAction(pipeline)}
-            >
-              {getNextActionButtonLabel(pipeline.nextAction.key)}
-            </button>
-            {!!pipeline.nextAction.commands?.length && (
+          {isUiRunnableAction(pipeline.nextAction.key) ? (
+            <div className="next-action-buttons">
               <button
                 type="button"
-                className="next-action-secondary"
-                onClick={() => void onCopyCommand(pipeline)}
+                className="pipeline-refresh-button next-action-primary"
+                onClick={() => void onRunAction(pipeline)}
               >
-                复制命令
+                {getNextActionButtonLabel(pipeline.nextAction.key)}
               </button>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="next-action-feedback">
+              这一步当前还没有接入自动执行，请按下方说明人工处理。
+            </div>
+          )}
           {feedback && (
             <div className="next-action-feedback">
               {feedback}
             </div>
           )}
-          <CommandBlock commands={pipeline.nextAction.commands || []} />
+          <GuidanceBlock commands={pipeline.nextAction.commands || []} />
         </div>
       )}
     </div>
@@ -528,11 +798,6 @@ function ConfigStudio({
       {actionMessage && (
         <div className="config-message">
           <div>{actionMessage.text}</div>
-          {actionMessage.command && (
-            <button type="button" onClick={() => copyText(actionMessage.command)}>
-              复制命令
-            </button>
-          )}
         </div>
       )}
 
@@ -1009,10 +1274,9 @@ function RequestDetailPanel({ request, onClose }) {
 
       {request.commandText && (
         <div className="pipeline-section">
-          <div className="section-title">Command</div>
+          <div className="section-title">System Command</div>
           <div className="command-card">
             <pre>{request.commandText}</pre>
-            <button type="button" onClick={() => copyText(request.commandText)}>复制命令</button>
           </div>
         </div>
       )}
@@ -1075,6 +1339,12 @@ function TrainPipelinePage() {
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [nextActionFeedbackByPipelineId, setNextActionFeedbackByPipelineId] = useState({});
   const [selectedStageByPipelineId, setSelectedStageByPipelineId] = useState({});
+  const [routerStudioOpen, setRouterStudioOpen] = useState(false);
+  const [routerStudioSaving, setRouterStudioSaving] = useState(false);
+  const [routerStudioError, setRouterStudioError] = useState('');
+  const [routerStudioData, setRouterStudioData] = useState(null);
+  const [routerStudioRouterText, setRouterStudioRouterText] = useState('{}');
+  const [routerStudioPolicyText, setRouterStudioPolicyText] = useState('{}');
 
   const loadPipeline = async ({ silent = false } = {}) => {
     try {
@@ -1271,6 +1541,60 @@ function TrainPipelinePage() {
     }
   };
 
+  const openRouterStudio = async (pipeline) => {
+    try {
+      const trainingConfig = configByKey[pipeline?.trainingConfigPath];
+      if (!trainingConfig?.id) {
+        setActionMessage({ text: '当前 pipeline 还没有找到可编辑的 training config。' });
+        return;
+      }
+
+      setRouterStudioError('');
+      const response = await trainConfigsAPI.getRouterArtifactsBootstrap(trainingConfig.id);
+      if (!response.success) {
+        throw new Error(response.message || '加载 router bootstrap 失败');
+      }
+
+      setRouterStudioData(response.data);
+      setRouterStudioRouterText(JSON.stringify(response.data.routerContent || {}, null, 2));
+      setRouterStudioPolicyText(JSON.stringify(response.data.policyContent || {}, null, 2));
+      setRouterStudioOpen(true);
+    } catch (apiError) {
+      console.error('加载 router studio 失败:', apiError);
+      setActionMessage({ text: `加载 Router Studio 失败: ${apiError.response?.data?.message || apiError.message}` });
+    }
+  };
+
+  const handleSaveRouterArtifacts = async () => {
+    try {
+      if (!routerStudioData?.trainingConfigId) {
+        return;
+      }
+
+      setRouterStudioSaving(true);
+      setRouterStudioError('');
+      const response = await trainConfigsAPI.saveRouterArtifacts(routerStudioData.trainingConfigId, {
+        routerConfigKey: routerStudioData.routerConfigKey,
+        policyConfigKey: routerStudioData.policyConfigKey,
+        routerContent: routerStudioRouterText,
+        policyContent: routerStudioPolicyText
+      });
+
+      if (response.success) {
+        setActionMessage({
+          text: `已保存 Router Artifacts: ${response.data.routerConfigKey} / ${response.data.policyConfigKey}`
+        });
+        setRouterStudioOpen(false);
+        await refreshAll();
+      }
+    } catch (apiError) {
+      console.error('保存 router artifacts 失败:', apiError);
+      setRouterStudioError(apiError.response?.data?.message || apiError.message || '保存失败');
+    } finally {
+      setRouterStudioSaving(false);
+    }
+  };
+
   useEffect(() => {
     void refreshAll();
 
@@ -1387,8 +1711,7 @@ function TrainPipelinePage() {
       const response = await trainConfigsAPI.exportConfig(id);
       if (response.success) {
         setActionMessage({
-          text: `已导出到 ${response.data.exportedPath}`,
-          command: response.data.runCommand || ''
+          text: `已导出到 ${response.data.exportedPath}`
         });
         await refreshAll();
       }
@@ -1437,11 +1760,17 @@ function TrainPipelinePage() {
 
       if (response.success) {
         const request = response.data;
-        const actionLabel = action === 'generate-validation'
-          ? '生成 Future Validation'
+        const actionLabel = request.action === 'generate-validation'
+          ? '生成 Validation'
           : request.action === 'validate'
             ? '验证'
-            : '训练';
+            : request.action === 'feature-causality'
+              ? '因果特征审计'
+              : request.action === 'cost-sensitivity'
+                ? '成本敏感度'
+                : request.action === 'router-validate'
+                  ? 'Router 验证'
+                  : '训练';
         setActionMessage({
           text: `${actionLabel} 已加入队列: ${request.requestId} (${getRequestStatusText(request.status)})`
         });
@@ -1507,32 +1836,6 @@ function TrainPipelinePage() {
     return accumulator;
   }, Object.create(null));
 
-  const handleCopyNextCommand = async (pipeline) => {
-    const firstCommand = pipeline?.nextAction?.commands?.[0];
-    if (!firstCommand) {
-      setActionMessage({ text: '当前步骤还没有可复制的命令。' });
-      setNextActionFeedbackByPipelineId((current) => ({
-        ...current,
-        [pipeline?.id || 'unknown']: '当前步骤还没有可复制的命令。'
-      }));
-      return;
-    }
-
-    const copied = await copyText(firstCommand);
-    const feedbackText = copied
-      ? `已复制下一步命令，请到终端执行: ${pipeline.nextAction.title}`
-      : '浏览器未完成复制，请直接使用下方命令卡片中的命令。';
-
-    setActionMessage({
-      text: feedbackText,
-      command: firstCommand
-    });
-    setNextActionFeedbackByPipelineId((current) => ({
-      ...current,
-      [pipeline.id]: feedbackText
-    }));
-  };
-
   const handlePipelineNextAction = async (pipeline) => {
     const actionKey = pipeline?.nextAction?.key;
     setNextActionFeedbackByPipelineId((current) => ({
@@ -1567,13 +1870,25 @@ function TrainPipelinePage() {
       }
     }
 
-    if (actionKey === 'generate-validation') {
+    if (actionKey === 'generate-validation' || actionKey === 'prepare-validation') {
       const trainingConfig = configByKey[pipeline.trainingConfigPath];
       if (trainingConfig?.id) {
         await handleRunConfig(trainingConfig.id, 'generate-validation');
         setNextActionFeedbackByPipelineId((current) => ({
           ...current,
           [pipeline.id]: 'Validation 生成任务已加入队列。'
+        }));
+        return;
+      }
+    }
+
+    if (actionKey === 'feature-causality') {
+      const trainingConfig = configByKey[pipeline.trainingConfigPath];
+      if (trainingConfig?.id) {
+        await handleRunConfig(trainingConfig.id, 'feature-causality');
+        setNextActionFeedbackByPipelineId((current) => ({
+          ...current,
+          [pipeline.id]: '因果特征审计任务已加入队列。'
         }));
         return;
       }
@@ -1588,7 +1903,35 @@ function TrainPipelinePage() {
       return;
     }
 
-    await handleCopyNextCommand(pipeline);
+    if (actionKey === 'cost-sensitivity' || actionKey === 'router-validate') {
+      const latestValidation = (pipeline.validationConfigs || [])
+        .filter((item) => item.latestRun)
+        .sort((left, right) => new Date(right.latestRun?.latestAt || 0).getTime() - new Date(left.latestRun?.latestAt || 0).getTime())[0];
+      const validationConfig = latestValidation ? configByKey[latestValidation.path] : null;
+
+      if (validationConfig?.id) {
+        await handleRunConfig(validationConfig.id, actionKey);
+        setNextActionFeedbackByPipelineId((current) => ({
+          ...current,
+          [pipeline.id]: actionKey === 'cost-sensitivity'
+            ? '成本敏感度任务已加入队列。'
+            : 'Router 验证任务已加入队列。'
+        }));
+        return;
+      }
+    }
+
+    const unsupportedMessage = actionKey === 'build-router'
+      ? 'Router / policy catalog 目前还需要人工整理，Web 端暂未接入自动生成。'
+      : actionKey === 'review'
+        ? '这一步是结果复盘阶段，当前以看板汇总和人工判断为主。'
+        : '当前步骤暂未接入自动执行，请根据页面说明继续。';
+
+    setActionMessage({ text: unsupportedMessage });
+    setNextActionFeedbackByPipelineId((current) => ({
+      ...current,
+      [pipeline.id]: unsupportedMessage
+    }));
   };
 
   return (
@@ -1625,6 +1968,8 @@ function TrainPipelinePage() {
         actionMessage={actionMessage}
       />
 
+      <ResultsOverview pipelines={pipelines} meta={meta} />
+
       <QueuePanel
         requests={runRequests}
         onSelect={handleSelectRequest}
@@ -1654,6 +1999,19 @@ function TrainPipelinePage() {
         onConfigTypeChange={handleEditorConfigTypeChange}
         onContentChange={setEditorContentText}
         onGuideChange={handleGuideChange}
+      />
+
+      <RouterStudioPanel
+        open={routerStudioOpen}
+        saving={routerStudioSaving}
+        error={routerStudioError}
+        data={routerStudioData}
+        routerText={routerStudioRouterText}
+        policyText={routerStudioPolicyText}
+        onClose={() => setRouterStudioOpen(false)}
+        onRouterTextChange={setRouterStudioRouterText}
+        onPolicyTextChange={setRouterStudioPolicyText}
+        onSave={handleSaveRouterArtifacts}
       />
 
       <RequestDetailPanel
@@ -1795,6 +2153,15 @@ function TrainPipelinePage() {
                 </div>
 
                 <div className="pipeline-section">
+                  <div className="section-title">Result Console</div>
+                  <PipelineResultsPanel
+                    pipeline={pipeline}
+                    onViewRequest={handleSelectRequest}
+                    onOpenRouterStudio={openRouterStudio}
+                  />
+                </div>
+
+                <div className="pipeline-section">
                   <div className="section-title">Methodology Flow</div>
                   <MethodologyStageOverview
                     stages={methodologyStages}
@@ -1813,7 +2180,6 @@ function TrainPipelinePage() {
                     pipeline={pipeline}
                     showAction={focusOwnsAction}
                     onRunAction={handlePipelineNextAction}
-                    onCopyCommand={handleCopyNextCommand}
                     feedback={nextActionFeedbackByPipelineId[pipeline.id]}
                   />
                   {!focusOwnsAction && (
@@ -1824,24 +2190,22 @@ function TrainPipelinePage() {
                           当前 worker 仍可直接执行「{pipeline.nextAction.title}」，但按 `METHODOLOGY` 建议先补齐所选阶段的证据与门槛。
                         </span>
                       </div>
-                      <div className="next-action-buttons">
-                        <button
-                          type="button"
-                          className="pipeline-refresh-button next-action-primary"
-                          onClick={() => void handlePipelineNextAction(pipeline)}
-                        >
-                          {getNextActionButtonLabel(pipeline.nextAction.key)}
-                        </button>
-                        {!!pipeline.nextAction.commands?.length && (
+                      {isUiRunnableAction(pipeline.nextAction.key) ? (
+                        <div className="next-action-buttons">
                           <button
                             type="button"
-                            className="next-action-secondary"
-                            onClick={() => void handleCopyNextCommand(pipeline)}
+                            className="pipeline-refresh-button next-action-primary"
+                            onClick={() => void handlePipelineNextAction(pipeline)}
                           >
-                            复制命令
+                            {getNextActionButtonLabel(pipeline.nextAction.key)}
                           </button>
-                        )}
-                      </div>
+                        </div>
+                      ) : (
+                        <div className="next-action-feedback">
+                          这一步当前还没有接入自动执行，请根据下方说明继续处理。
+                        </div>
+                      )}
+                      <GuidanceBlock commands={pipeline.nextAction.commands || []} />
                     </div>
                   )}
                 </div>

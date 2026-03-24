@@ -59,6 +59,130 @@ function resolveAbsoluteConfigPath(configKey) {
   return fullPath;
 }
 
+function toPosix(value) {
+  return String(value || '').replace(/\\/g, '/');
+}
+
+function ensureJsonObject(value, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} 必须是 JSON 对象`);
+  }
+
+  return value;
+}
+
+function assertTrainingRecord(record) {
+  if (String(record?.configType || '') !== 'training') {
+    throw new Error('router studio 仅支持 training config');
+  }
+}
+
+function buildDefaultRouterConfigKey(trainingRecord) {
+  const baseName = path.basename(String(trainingRecord.configKey || ''), '.json');
+  return `configs/generated/regime-routing/${baseName}_router.json`;
+}
+
+function buildDefaultPolicyConfigKey(routerConfigKey) {
+  return String(routerConfigKey).replace(/\.json$/i, '.policy.json');
+}
+
+function buildRelativeConfigRef(fromConfigKey, targetConfigKey) {
+  return toPosix(path.posix.relative(path.posix.dirname(String(fromConfigKey)), String(targetConfigKey)));
+}
+
+function buildStrategyCatalogFromSnapshot(snapshotRecord) {
+  const content = snapshotRecord?.content && typeof snapshotRecord.content === 'object'
+    ? snapshotRecord.content
+    : {};
+  const explicitStrategies = Array.isArray(content?.strategy?.explicitStrategies)
+    ? content.strategy.explicitStrategies
+    : [];
+  const fallbackStrategies = Array.isArray(content?.strategies)
+    ? content.strategies
+    : [];
+  const sourceStrategies = explicitStrategies.length > 0 ? explicitStrategies : fallbackStrategies;
+
+  return sourceStrategies.slice(0, 10).reduce((accumulator, strategy, index) => {
+    const key = `rank${index + 1}`;
+    const name = String(strategy?.name || strategy?.strategyName || `Strategy ${index + 1}`);
+    accumulator[key] = {
+      strategyName: name,
+      shortLabel: `TOP${index + 1}`,
+      role: index === 0 ? 'default-fallback' : 'candidate'
+    };
+    return accumulator;
+  }, {});
+}
+
+function buildDefaultRouterContent(trainingRecord, routerConfigKey, policyConfigKey, snapshotRecord) {
+  const strategyCatalog = buildStrategyCatalogFromSnapshot(snapshotRecord);
+  const strategyKeys = Object.keys(strategyCatalog);
+  const defaultStrategyKey = strategyKeys[0] || 'rank1';
+  const symbol = String(trainingRecord.symbol || trainingRecord.content?.market?.symbol || 'BTCJPY').toUpperCase();
+  const trainingYear = String(trainingRecord.trainingYear || '').trim() || 'run';
+
+  return {
+    symbol,
+    routerVersion: `${symbol.toLowerCase()}_${trainingYear}_router_v1`,
+    policyCatalogPath: path.posix.basename(policyConfigKey),
+    executionModel: {
+      precedence: ['monthly_guard', 'weekly_guard', 'daily_router', 'loss_recheck'],
+      defaultFallback: {
+        action: 'trade',
+        riskMultiplier: 1,
+        strategyKey: defaultStrategyKey
+      }
+    },
+    strategyCatalog,
+    rules: []
+  };
+}
+
+function buildDefaultPolicyContent(routerContent, routerConfigKey) {
+  const strategyCatalog = routerContent?.strategyCatalog && typeof routerContent.strategyCatalog === 'object'
+    ? routerContent.strategyCatalog
+    : {};
+  const defaultFallback = routerContent?.executionModel?.defaultFallback;
+  const defaultStrategy = defaultFallback?.strategyKey
+    ? strategyCatalog[defaultFallback.strategyKey]
+    : null;
+
+  return {
+    symbol: String(routerContent?.symbol || 'BTCJPY').toUpperCase(),
+    routerVersion: String(routerContent?.routerVersion || 'router_v1'),
+    catalogVersion: `${String(routerContent?.routerVersion || 'router_v1')}_policy_v1`,
+    generatedDate: new Date().toISOString(),
+    source: {
+      routerConfigPath: path.posix.basename(routerConfigKey),
+      notes: ['Created from Train Pipeline Router Studio']
+    },
+    ...(defaultFallback && defaultStrategy
+      ? {
+          defaultFallback: {
+            action: defaultFallback.action,
+            riskMultiplier: defaultFallback.riskMultiplier,
+            strategy: {
+              strategyKey: defaultFallback.strategyKey,
+              strategyLabel: defaultStrategy.shortLabel,
+              strategyName: defaultStrategy.strategyName
+            }
+          }
+        }
+      : {}),
+    eventSegments: [],
+    dailyGuards: []
+  };
+}
+
+function loadJsonFileIfExists(configKey) {
+  const absolutePath = resolveAbsoluteConfigPath(configKey);
+  if (!fs.existsSync(absolutePath)) {
+    return null;
+  }
+
+  return JSON.parse(fs.readFileSync(absolutePath, 'utf8'));
+}
+
 function safeUnlink(filePath) {
   try {
     if (filePath && fs.existsSync(filePath)) {
@@ -210,6 +334,64 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+router.get('/:id/router-artifacts/bootstrap', async (req, res) => {
+  try {
+    const hasRegistry = await ensureRegistryTableExists();
+    if (!hasRegistry) {
+      return sendRegistryNotReady(res);
+    }
+
+    const row = await loadConfigById(req.params.id);
+    if (!row) {
+      return res.status(404).json({
+        success: false,
+        error: 'Train config not found'
+      });
+    }
+
+    const trainingRecord = mapTrainConfigRecord(row, { includeContent: true });
+    assertTrainingRecord(trainingRecord);
+
+    const derivedConfigs = await loadDerivedConfigs(trainingRecord);
+    const snapshotRecord = [...derivedConfigs]
+      .filter((item) => String(item.configType || '') === 'top-strategies')
+      .sort((left, right) => Number(right.id || 0) - Number(left.id || 0))[0] || null;
+
+    const existingRouterRef = String(trainingRecord.content?.regimeRouting?.routerConfigPath || '').trim();
+    const existingPolicyRef = String(trainingRecord.content?.regimeRouting?.policyCatalogPath || '').trim();
+    const routerConfigKey = existingRouterRef
+      ? toPosix(path.posix.normalize(path.posix.join(path.posix.dirname(trainingRecord.configKey), existingRouterRef)))
+      : buildDefaultRouterConfigKey(trainingRecord);
+    const policyConfigKey = existingPolicyRef
+      ? toPosix(path.posix.normalize(path.posix.join(path.posix.dirname(trainingRecord.configKey), existingPolicyRef)))
+      : buildDefaultPolicyConfigKey(routerConfigKey);
+
+    const routerContent = loadJsonFileIfExists(routerConfigKey)
+      || buildDefaultRouterContent(trainingRecord, routerConfigKey, policyConfigKey, snapshotRecord);
+    const policyContent = loadJsonFileIfExists(policyConfigKey)
+      || buildDefaultPolicyContent(routerContent, routerConfigKey);
+
+    res.json({
+      success: true,
+      data: {
+        trainingConfigId: trainingRecord.id,
+        trainingConfigKey: trainingRecord.configKey,
+        routerConfigKey,
+        policyConfigKey,
+        routerRelativeRef: buildRelativeConfigRef(trainingRecord.configKey, routerConfigKey),
+        policyRelativeRef: buildRelativeConfigRef(trainingRecord.configKey, policyConfigKey),
+        routerContent,
+        policyContent,
+        strategyCatalogCount: Object.keys(routerContent.strategyCatalog || {}).length,
+        snapshotConfigKey: snapshotRecord?.configKey || null,
+        snapshotReady: Boolean(snapshotRecord)
+      }
+    });
+  } catch (error) {
+    return sendJsonError(res, 400, 'Failed to bootstrap router artifacts', getErrorMessage(error));
+  }
+});
+
 router.post('/', async (req, res) => {
   try {
     const hasRegistry = await ensureRegistryTableExists();
@@ -279,6 +461,141 @@ router.post('/', async (req, res) => {
   }
 });
 
+router.post('/:id/router-artifacts', async (req, res) => {
+  try {
+    const hasRegistry = await ensureRegistryTableExists();
+    if (!hasRegistry) {
+      return sendRegistryNotReady(res);
+    }
+
+    const row = await loadConfigById(req.params.id);
+    if (!row) {
+      return res.status(404).json({
+        success: false,
+        error: 'Train config not found'
+      });
+    }
+
+    const trainingRecord = mapTrainConfigRecord(row, { includeContent: true });
+    assertTrainingRecord(trainingRecord);
+
+    const routerContent = ensureJsonObject(parseJsonContent(req.body?.routerContent), 'routerContent');
+    const policyContent = ensureJsonObject(parseJsonContent(req.body?.policyContent), 'policyContent');
+    const routerConfigKey = String(req.body?.routerConfigKey || '').trim();
+    const policyConfigKey = String(req.body?.policyConfigKey || '').trim();
+
+    if (!routerConfigKey || !policyConfigKey) {
+      return sendJsonError(res, 400, 'Failed to save router artifacts', 'routerConfigKey 和 policyConfigKey 为必填');
+    }
+
+    if (!routerConfigKey.startsWith('configs/generated/regime-routing/') || !routerConfigKey.endsWith('.json')) {
+      return sendJsonError(res, 400, 'Failed to save router artifacts', 'routerConfigKey 必须位于 configs/generated/regime-routing/ 且以 .json 结尾');
+    }
+    if (!policyConfigKey.startsWith('configs/generated/regime-routing/') || !policyConfigKey.endsWith('.json')) {
+      return sendJsonError(res, 400, 'Failed to save router artifacts', 'policyConfigKey 必须位于 configs/generated/regime-routing/ 且以 .json 结尾');
+    }
+
+    routerContent.policyCatalogPath = path.posix.basename(policyConfigKey);
+    policyContent.source = {
+      ...(policyContent.source && typeof policyContent.source === 'object' ? policyContent.source : {}),
+      routerConfigPath: path.posix.basename(routerConfigKey)
+    };
+
+    const routerAbsolutePath = resolveAbsoluteConfigPath(routerConfigKey);
+    const policyAbsolutePath = resolveAbsoluteConfigPath(policyConfigKey);
+    fs.mkdirSync(path.dirname(routerAbsolutePath), { recursive: true });
+    fs.mkdirSync(path.dirname(policyAbsolutePath), { recursive: true });
+    fs.writeFileSync(routerAbsolutePath, `${JSON.stringify(routerContent, null, 2)}\n`, 'utf8');
+    fs.writeFileSync(policyAbsolutePath, `${JSON.stringify(policyContent, null, 2)}\n`, 'utf8');
+
+    const trainConfigRegistry = loadTrainConfigRegistryService();
+    const routerMetadata = trainConfigRegistry.buildTrainConfigMetadata(routerConfigKey, routerContent, {
+      explicitType: 'router'
+    });
+
+    await db.query(
+      `INSERT INTO ${TRAIN_CONFIGS_TABLE}
+        (config_key, config_type, config_name, symbol, interval_type, result_group,
+         source_table, train_config_ref, training_year, is_generated, content_hash, content)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON))
+       ON DUPLICATE KEY UPDATE
+         config_type = VALUES(config_type),
+         config_name = VALUES(config_name),
+         symbol = VALUES(symbol),
+         interval_type = VALUES(interval_type),
+         result_group = VALUES(result_group),
+         source_table = VALUES(source_table),
+         train_config_ref = VALUES(train_config_ref),
+         training_year = VALUES(training_year),
+         is_generated = VALUES(is_generated),
+         content_hash = VALUES(content_hash),
+         content = VALUES(content)`,
+      [
+        routerMetadata.configKey,
+        routerMetadata.configType,
+        routerMetadata.configName,
+        routerMetadata.symbol,
+        routerMetadata.intervalType,
+        routerMetadata.resultGroup,
+        routerMetadata.sourceTable,
+        routerMetadata.trainConfigRef,
+        routerMetadata.trainingYear,
+        routerMetadata.isGenerated ? 1 : 0,
+        routerMetadata.contentHash,
+        routerMetadata.contentRaw
+      ]
+    );
+
+    const nextTrainingContent = {
+      ...trainingRecord.content,
+      regimeRouting: {
+        ...(trainingRecord.content?.regimeRouting && typeof trainingRecord.content.regimeRouting === 'object'
+          ? trainingRecord.content.regimeRouting
+          : {}),
+        routerConfigPath: buildRelativeConfigRef(trainingRecord.configKey, routerConfigKey),
+        policyCatalogPath: buildRelativeConfigRef(trainingRecord.configKey, policyConfigKey)
+      }
+    };
+
+    const trainingMetadata = trainConfigRegistry.buildTrainConfigMetadata(trainingRecord.configKey, nextTrainingContent, {
+      explicitType: 'training'
+    });
+
+    await db.query(
+      `UPDATE ${TRAIN_CONFIGS_TABLE}
+       SET config_name = ?, symbol = ?, interval_type = ?, result_group = ?, source_table = ?, train_config_ref = ?,
+           training_year = ?, is_generated = ?, content_hash = ?, content = CAST(? AS JSON)
+       WHERE id = ?`,
+      [
+        trainingMetadata.configName,
+        trainingMetadata.symbol,
+        trainingMetadata.intervalType,
+        trainingMetadata.resultGroup,
+        trainingMetadata.sourceTable,
+        trainingMetadata.trainConfigRef,
+        trainingMetadata.trainingYear,
+        trainingMetadata.isGenerated ? 1 : 0,
+        trainingMetadata.contentHash,
+        trainingMetadata.contentRaw,
+        trainingRecord.id
+      ]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        routerConfigKey,
+        policyConfigKey,
+        routerRelativeRef: buildRelativeConfigRef(trainingRecord.configKey, routerConfigKey),
+        policyRelativeRef: buildRelativeConfigRef(trainingRecord.configKey, policyConfigKey)
+      },
+      message: 'Router artifacts saved'
+    });
+  } catch (error) {
+    return sendJsonError(res, 400, 'Failed to save router artifacts', getErrorMessage(error));
+  }
+});
+
 router.post('/:id/export', async (req, res) => {
   try {
     const hasRegistry = await ensureRegistryTableExists();
@@ -305,8 +622,7 @@ router.post('/:id/export', async (req, res) => {
       data: {
         id: record.id,
         configKey: record.configKey,
-        exportedPath: absolutePath,
-        runCommand: trainOrchestration.buildRunCommand(record.configType, record.configKey)
+        exportedPath: absolutePath
       },
       message: 'Train config exported'
     });

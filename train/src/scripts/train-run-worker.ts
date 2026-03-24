@@ -88,6 +88,64 @@ function parseConfigContent(configRow: mysql.RowDataPacket): Record<string, any>
   throw new Error('config content is missing');
 }
 
+async function loadConfigRecordByKey(configKey: string): Promise<mysql.RowDataPacket | null> {
+  const [rows] = await db.query<mysql.RowDataPacket[]>(
+    `SELECT *
+     FROM ${TRAIN_CONFIGS_TABLE}
+     WHERE config_key = ?
+     LIMIT 1`,
+    [configKey]
+  );
+
+  return rows[0] ?? null;
+}
+
+function resolveTimeArg(timeRange: Record<string, any> | undefined, kind: 'start' | 'end'): string {
+  const isoKey = kind === 'start' ? 'startIso' : 'endIso';
+  const msKey = kind === 'start' ? 'startTimeMs' : 'endTimeMs';
+
+  if (timeRange?.[isoKey]) {
+    return String(timeRange[isoKey]);
+  }
+
+  if (timeRange?.[msKey] != null) {
+    return String(timeRange[msKey]);
+  }
+
+  throw new Error(`timeRange.${isoKey} is missing`);
+}
+
+async function resolveLinkedTrainingConfigRow(configRow: mysql.RowDataPacket): Promise<mysql.RowDataPacket | null> {
+  const configType = String(configRow['config_type'] || '');
+  if (configType === 'training') {
+    return configRow;
+  }
+
+  const config = parseConfigContent(configRow);
+  const linkedConfigKey = String(config['trainConfig'] || configRow['train_config_ref'] || '').trim();
+  if (!linkedConfigKey) {
+    return null;
+  }
+
+  return await loadConfigRecordByKey(linkedConfigKey);
+}
+
+async function resolveRouterConfigPath(configRow: mysql.RowDataPacket): Promise<string> {
+  const linkedTrainingRow = await resolveLinkedTrainingConfigRow(configRow);
+  if (!linkedTrainingRow) {
+    throw new Error('linked training config is missing for router validation');
+  }
+
+  const trainingConfig = parseConfigContent(linkedTrainingRow);
+  const regimeRouting = trainingConfig['regimeRouting'] as Record<string, any> | undefined;
+  const routerConfigPath = String(regimeRouting?.['routerConfigPath'] || '').trim();
+  if (!routerConfigPath) {
+    throw new Error('regimeRouting.routerConfigPath is missing');
+  }
+
+  return routerConfigPath;
+}
+
 function safeUnlink(filePath: string): void {
   try {
     if (fs.existsSync(filePath)) {
@@ -186,11 +244,11 @@ function createRuntimeExportPath(requestId: string, configRow: mysql.RowDataPack
   return path.join(runtimeDir, fileName);
 }
 
-function resolveCommand(
+async function resolveCommand(
   action: string,
   configRow: mysql.RowDataPacket,
   exportPath: string
-): { command: string; args: readonly string[] } {
+): Promise<{ command: string; args: readonly string[] }> {
   const configKey = String(configRow['config_key']);
   if (action === 'train' || action === 'validate') {
     return {
@@ -235,6 +293,59 @@ function resolveCommand(
         `--profile=${validationProfile}`,
         '--exact=true',
         '--outputMode=json'
+      ]
+    };
+  }
+
+  if (action === 'feature-causality') {
+    const config = parseConfigContent(configRow);
+    const market = config['market'] as Record<string, any> | undefined;
+    const timeRange = config['timeRange'] as Record<string, any> | undefined;
+    const symbol = String(market?.['symbol'] || '').trim().toUpperCase();
+    const intervalType = String(market?.['intervalType'] || '1min').trim();
+
+    if (!symbol) {
+      throw new Error('market.symbol is missing');
+    }
+
+    return {
+      command: 'node',
+      args: [
+        'dist/scripts/feature-causality-audit.js',
+        '--symbol',
+        symbol,
+        '--intervalType',
+        intervalType,
+        '--start',
+        resolveTimeArg(timeRange, 'start'),
+        '--end',
+        resolveTimeArg(timeRange, 'end'),
+        '--openingMinutes',
+        '60'
+      ]
+    };
+  }
+
+  if (action === 'cost-sensitivity') {
+    return {
+      command: 'node',
+      args: [
+        'dist/scripts/cost-sensitivity-report.js',
+        '--config',
+        exportPath
+      ]
+    };
+  }
+
+  if (action === 'router-validate') {
+    return {
+      command: 'node',
+      args: [
+        'dist/scripts/router-validate.js',
+        '--validation',
+        exportPath,
+        '--router',
+        await resolveRouterConfigPath(configRow)
       ]
     };
   }
@@ -475,7 +586,7 @@ async function processRequest(request: QueueRow): Promise<void> {
     return;
   }
 
-  const { command, args } = resolveCommand(request.action, configRow, exportPath);
+  const { command, args } = await resolveCommand(request.action, configRow, exportPath);
   const commandText = `${command} ${args.join(' ')}`;
 
   await updateRequestStatus(request.id, 'running', {

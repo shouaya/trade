@@ -1,0 +1,20 @@
+{
+  "symbol": "BTCJPY",
+  "routerVersion": "btcjpy_2025_router_v1",
+  "policyCatalogPath": "2025_btcjpy_v7_hf_rsi_macd_tp_atr_router.policy.json",
+  "executionModel": {
+    "precedence": [
+      "monthly_guard",
+      "weekly_guard",
+      "daily_router",
+      "loss_recheck"
+    ],
+    "defaultFallback": {
+      "action": "trade",
+      "riskMultiplier": 1,
+      "strategyKey": "rank1"
+    }
+  },
+  "strategyCatalog": {},
+  "rules": []
+}

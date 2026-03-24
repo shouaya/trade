@@ -27,6 +27,14 @@ function safeStat(filePath: string): fs.Stats | null {
   }
 }
 
+function safeReadText(filePath: string): string | null {
+  try {
+    return fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
 function parseMaybeJson(value: unknown): any {
   if (!value) {
     return null;
@@ -231,6 +239,31 @@ function findLatestMatch(files: readonly string[], matcher: (filePath: string) =
     .sort((left, right) => right.mtimeMs - left.mtimeMs);
 
   return matched[0] || null;
+}
+
+function buildReportPreview(filePath: string): string | null {
+  const raw = safeReadText(filePath);
+  if (!raw) {
+    return null;
+  }
+
+  if (filePath.endsWith('.json')) {
+    try {
+      const parsed = JSON.parse(raw);
+      return JSON.stringify(parsed, null, 2).slice(0, 1200).trim();
+    } catch {
+      return raw.slice(0, 1200).trim();
+    }
+  }
+
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0)
+    .slice(0, 12);
+
+  const preview = lines.join('\n').slice(0, 1200).trim();
+  return preview || null;
 }
 
 function buildStatus(stepDone: boolean, partial = false): string {
@@ -1130,15 +1163,18 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
     const reports = {
       costSensitivity: reportSummary.costSensitivity ? {
         path: toRepoRelative(repoRoot, reportSummary.costSensitivity.path),
-        modifiedAt: reportSummary.costSensitivity.modifiedAt
+        modifiedAt: reportSummary.costSensitivity.modifiedAt,
+        preview: buildReportPreview(reportSummary.costSensitivity.path)
       } : null,
       featureCausality: reportSummary.featureCausality ? {
         path: toRepoRelative(repoRoot, reportSummary.featureCausality.path),
-        modifiedAt: reportSummary.featureCausality.modifiedAt
+        modifiedAt: reportSummary.featureCausality.modifiedAt,
+        preview: buildReportPreview(reportSummary.featureCausality.path)
       } : null,
       routerValidation: reportSummary.routerValidation ? {
         path: toRepoRelative(repoRoot, reportSummary.routerValidation.path),
-        modifiedAt: reportSummary.routerValidation.modifiedAt
+        modifiedAt: reportSummary.routerValidation.modifiedAt,
+        preview: buildReportPreview(reportSummary.routerValidation.path)
       } : null
     };
 
