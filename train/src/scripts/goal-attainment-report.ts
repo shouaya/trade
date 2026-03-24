@@ -16,7 +16,7 @@ const TRAIN_ROOT = path.resolve(__dirname, '..', '..');
 const OUTPUT_DIR = path.resolve(__dirname, '../../reports/goal-tracking');
 const SCORING_MODEL_VERSION = 'goal-fit-v1';
 
-type JsonObject = Record<string, any>;
+type JsonObject = any;
 
 interface RegistryRow extends mysql.RowDataPacket {
   readonly id: number;
@@ -108,7 +108,9 @@ function median(values: readonly number[]): number {
   const sorted = [...values].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
   if (sorted.length % 2 === 0) {
-    return (sorted[middle - 1] + sorted[middle]) / 2;
+    const left = sorted[middle - 1] ?? 0;
+    const right = sorted[middle] ?? 0;
+    return (left + right) / 2;
   }
   return sorted[middle] ?? 0;
 }

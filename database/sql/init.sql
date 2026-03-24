@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS trades (
     percent DECIMAL(10, 4),
     actual_hold_minutes INT,
     strategy_name VARCHAR(255),
+    train_id VARCHAR(100) NULL COMMENT 'root training lineage id',
     symbol VARCHAR(20) DEFAULT 'USDJPY',
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -66,6 +67,7 @@ CREATE TABLE IF NOT EXISTS trades (
     INDEX idx_entry_time (entry_time),
     INDEX idx_exit_time (exit_time),
     INDEX idx_strategy_name (strategy_name),
+    INDEX idx_train_id (train_id),
     INDEX idx_symbol (symbol),
     INDEX idx_pnl (pnl)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -73,6 +75,7 @@ CREATE TABLE IF NOT EXISTS trades (
 CREATE TABLE IF NOT EXISTS strategies (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL UNIQUE,
+    train_id VARCHAR(100) NULL COMMENT 'root training lineage id',
     description TEXT,
     parameters JSON NOT NULL,
     type VARCHAR(50),
@@ -80,6 +83,7 @@ CREATE TABLE IF NOT EXISTS strategies (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_name (name),
+    INDEX idx_train_id (train_id),
     INDEX idx_type (type),
     INDEX idx_is_active (is_active)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -88,6 +92,7 @@ CREATE TABLE IF NOT EXISTS backtest_results (
     id INT AUTO_INCREMENT PRIMARY KEY,
     result_group VARCHAR(255) NOT NULL COMMENT 'logical result group',
     run_id VARCHAR(64) NOT NULL COMMENT 'single training or validation run id',
+    train_id VARCHAR(100) NULL COMMENT 'root training lineage id',
     config_name VARCHAR(255) NULL COMMENT 'config name',
     mode VARCHAR(20) NULL COMMENT 'training / validation',
     symbol VARCHAR(20) NULL COMMENT 'market symbol',
@@ -124,6 +129,7 @@ CREATE TABLE IF NOT EXISTS backtest_results (
     INDEX idx_result_group (result_group),
     INDEX idx_result_group_run_id (result_group, run_id),
     INDEX idx_result_group_run_rank (result_group, run_id, score, return_pct, total_pnl, strategy_name),
+    INDEX idx_train_id (train_id),
     INDEX idx_symbol_mode (symbol, mode),
     INDEX idx_strategy_name (strategy_name),
     INDEX idx_total_pnl (total_pnl),
@@ -136,6 +142,7 @@ CREATE TABLE IF NOT EXISTS backtest_results (
 CREATE TABLE IF NOT EXISTS tasks (
     id INT AUTO_INCREMENT PRIMARY KEY,
     task_id VARCHAR(100) NOT NULL UNIQUE,
+    train_id VARCHAR(100) NULL COMMENT 'root training lineage id',
     config_name VARCHAR(255) NOT NULL,
     description TEXT,
     status ENUM('pending', 'running', 'completed', 'failed') DEFAULT 'pending',
@@ -145,6 +152,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_status (status),
     INDEX idx_task_id (task_id),
+    INDEX idx_train_id (train_id),
     INDEX idx_config_name (config_name),
     INDEX idx_pid (pid)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -165,7 +173,7 @@ CREATE TABLE IF NOT EXISTS train_configs (
     version_no INT NOT NULL DEFAULT 1 COMMENT 'monotonic version within config key',
     status VARCHAR(20) NOT NULL DEFAULT 'active' COMMENT 'draft / active / archived',
     is_generated TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'generated config flag',
-    content_hash VARCHAR(64) NOT NULL COMMENT 'content hash',
+    content_hash VARCHAR(64) NOT NULL COMMENT 'canonical raw json hash',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uniq_config_key_version (config_key, version_no),
@@ -314,6 +322,7 @@ CREATE TABLE IF NOT EXISTS train_run_requests (
     config_key VARCHAR(255) NOT NULL,
     config_name VARCHAR(255) NULL,
     config_type VARCHAR(50) NOT NULL,
+    train_id VARCHAR(100) NULL COMMENT 'root training lineage id',
     action VARCHAR(20) NOT NULL COMMENT 'train / validate',
     status VARCHAR(20) NOT NULL COMMENT 'queued / exporting / running / completed / failed / cancelled',
     requested_by VARCHAR(100) NULL,
@@ -334,5 +343,33 @@ CREATE TABLE IF NOT EXISTS train_run_requests (
     INDEX idx_status_created (status, created_at),
     INDEX idx_config_id (config_id),
     INDEX idx_config_key (config_key),
+    INDEX idx_train_id (train_id),
     INDEX idx_action_status (action, status)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS train_goal_tracking (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    train_id VARCHAR(100) NOT NULL COMMENT 'root training lineage id',
+    config_id INT NOT NULL COMMENT 'training config registry id',
+    config_key VARCHAR(255) NOT NULL COMMENT 'training config key',
+    symbol VARCHAR(20) NULL COMMENT 'market symbol',
+    report_path VARCHAR(255) NULL COMMENT 'generated markdown/json path under train/',
+    goal_attainment_pct DECIMAL(8, 2) NOT NULL DEFAULT 0,
+    adaptation_score_pct DECIMAL(8, 2) NOT NULL DEFAULT 0,
+    validation_score_pct DECIMAL(8, 2) NOT NULL DEFAULT 0,
+    router_score_pct DECIMAL(8, 2) NULL,
+    stability_score_pct DECIMAL(8, 2) NOT NULL DEFAULT 0,
+    profitable_validation_ratio DECIMAL(10, 4) NULL,
+    router_positive_ratio DECIMAL(10, 4) NULL,
+    router_beat_baseline_ratio DECIMAL(10, 4) NULL,
+    monthly_pool_turnover_ratio DECIMAL(10, 4) NULL,
+    avg_pool_size DECIMAL(10, 4) NULL,
+    payload_json JSON NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_train_goal_tracking (train_id, config_id),
+    INDEX idx_train_id (train_id),
+    INDEX idx_config_id (config_id),
+    INDEX idx_symbol_updated_at (symbol, updated_at),
+    CONSTRAINT fk_train_goal_tracking_config_id FOREIGN KEY (config_id) REFERENCES train_configs(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
