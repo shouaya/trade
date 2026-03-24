@@ -591,7 +591,10 @@ async function loadKlines(
 ): Promise<readonly KlineRow[]> {
   const [rows] = await connection.query<KlineRow[]>(
     `SELECT open_time,
-            open, high, low, close,
+            CAST((bid_open + ask_open) / 2 AS CHAR) AS open,
+            CAST((bid_high + ask_high) / 2 AS CHAR) AS high,
+            CAST((bid_low + ask_low) / 2 AS CHAR) AS low,
+            CAST((bid_close + ask_close) / 2 AS CHAR) AS close,
             bid_open, bid_high, bid_low, bid_close,
             ask_open, ask_high, ask_low, ask_close
      FROM klines
