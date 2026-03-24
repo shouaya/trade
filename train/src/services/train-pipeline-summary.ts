@@ -1,5 +1,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import {
+  buildTrainConfigContentSelectSql,
+  buildTrainConfigDetailJoinsSql
+} from './train-config-registry';
 
 type Queryable = {
   readonly query: (sql: string, params?: readonly unknown[]) => Promise<[any[], any]>;
@@ -173,14 +177,8 @@ function getValidationProfile(validationConfig: any, fallbackName: string): stri
   if (fileText.includes('rolling')) {
     return 'rolling-window';
   }
-  if (fileText.includes('future')) {
-    return 'future-window';
-  }
   if (fileText.includes('custom')) {
     return 'custom-range';
-  }
-  if (String(fallbackName || '').match(/_(\d{4})_validation\.json$/i)) {
-    return 'legacy-annual';
   }
 
   return 'unknown';
@@ -188,14 +186,10 @@ function getValidationProfile(validationConfig: any, fallbackName: string): stri
 
 function getValidationPriority(profile: unknown): number {
   switch (String(profile || '')) {
-    case 'future-window':
-      return 1;
     case 'rolling-window':
-      return 2;
+      return 1;
     case 'custom-range':
-      return 3;
-    case 'legacy-annual':
-      return 4;
+      return 2;
     default:
       return 9;
   }
@@ -499,7 +493,7 @@ export function buildMethodologyStages(pipeline: any, trainingConfig: any): any[
         ? '已有 router 相关验证报告，说明日级 overlay 已进入可回放状态。'
         : hasRouter || hasAnyValidationRun
           ? '已经具备部分样本或路由产物，可以继续收敛 daily overlay。'
-          : '先准备未来期样本，再提炼日级映射。',
+          : '先准备 rolling 验证样本，再提炼日级映射。',
       inputs: ['坏日 / 好日样本', '日级特征', '候选策略差异'],
       outputs: ['daily_router'],
       gates: ['每条规则都能解释具体坏日', '不能只修单个记忆样本', '不能一上来大量 stop'],
@@ -551,9 +545,9 @@ export function buildMethodologyStages(pipeline: any, trainingConfig: any): any[
       actionKeys: ['build-router']
     },
     {
-      key: 'stage-8-future-validation',
+      key: 'stage-8-rolling-validation',
       label: '阶段 8',
-      title: '未来期验证',
+      title: 'Rolling 验证',
       status: hasActiveValidationRequest
         ? 'running'
         : hasAllValidationRuns && (hasCostSensitivity || hasRouterValidation)
@@ -562,18 +556,18 @@ export function buildMethodologyStages(pipeline: any, trainingConfig: any): any[
             ? 'partial'
             : 'todo',
       summary: hasAllValidationRuns
-        ? `未来期 validation 已完成 ${validations.length} 个目标区间。`
+        ? `rolling validation 已完成 ${validations.length} 个目标区间。`
         : hasValidationConfig
-          ? 'validation 配置已经就绪，可以直接执行未来期验证。'
-          : '先生成最终策略 config 与 validation config，再进入未来期验证。',
+          ? 'validation 配置已经就绪，可以直接执行 rolling 验证。'
+          : '先生成最终策略 config 与 validation config，再进入 rolling 验证。',
       inputs: ['validation config', 'final strategy config', '同版 router'],
-      outputs: ['future validation result', 'scorecard', 'cost sensitivity'],
+      outputs: ['rolling validation result', 'scorecard', 'cost sensitivity'],
       gates: ['至少和 default/rank1/topN/oracle 对比', '检查摩擦成本', '关注负收益周和坏周解释'],
       evidence: [
         ...validationLabels.slice(0, 3),
         hasCostSensitivity ? pipeline.reports.costSensitivity.path : '尚无成本敏感度报告'
       ],
-      notes: '这里才是方法论里的“未来期检验泛化能力”，不是单纯按年度做一个 shortcut。',
+      notes: '这里是方法论里的滚动泛化检验，要连续覆盖多个验证窗口，而不是退回按年度切一刀的旧模式。',
       actionKeys: ['generate-validation', 'prepare-validation', 'waiting-generate-validation', 'run-validation', 'waiting-validation', 'cost-sensitivity', 'router-validate']
     },
     {
@@ -585,7 +579,7 @@ export function buildMethodologyStages(pipeline: any, trainingConfig: any): any[
         ? '复盘材料已经具备，可以按坏周 -> 坏日 -> 规则误伤顺序迭代。'
         : hasAllValidationRuns
           ? '验证结果已出来，下一步应该进入复盘和迭代，而不是继续盲目扩参数。'
-          : '等待未来期验证结果，再决定是否进入迭代。',
+          : '等待 rolling 验证结果，再决定是否进入迭代。',
       inputs: ['坏周清单', '坏日样本', '误伤样本', '回撤对比'],
       outputs: ['新一轮训练/规则修订计划'],
       gates: ['先查候选池', '再查周级', '再查日级', '不要盲目扩大参数空间'],
@@ -642,7 +636,7 @@ function buildNextAction(training: any, validationRecords: readonly any[], repor
   if (!training.topStrategySnapshot) {
     return {
       key: 'generate-validation',
-      title: '生成最终策略 config 和未来期 validation 配置',
+      title: '生成最终策略 config 和 rolling validation 配置',
       reason: '训练结果已经存在，但数据库里还没有看到对应的最终策略 config。',
       commands: [
         '优先直接在 UI 中点击“下一步”，系统会把最终策略 config 与 validation config 直接写入数据库；只有需要离线保存时再手动导出。'
@@ -715,13 +709,15 @@ function buildNextAction(training: any, validationRecords: readonly any[], repor
     };
   }
 
-  if (!routerFiles.routerPath) {
+  if (!routerFiles.routerPath || !routerFiles.policyPath) {
     return {
       key: 'build-router',
       title: '补 router / policy catalog',
-      reason: '训练和验证已经跑通，但还没有找到可用的 router 配置文件。',
+      reason: !routerFiles.routerPath
+        ? '训练和验证已经跑通，但还没有找到可用的 router 配置文件。'
+        : 'router 已存在，但 policy catalog 还没有同步完成。',
       commands: [
-        '参考 train/PLAYBOOK.md 阶段 8 生成 router 和 policy catalog'
+        '系统会按 rolling 训练结果自动维护 router 和 policy catalog，也可以手动补跑 build-router'
       ]
     };
   }
@@ -772,7 +768,8 @@ async function loadDbSummary(db: Queryable): Promise<any> {
       training: [],
       validation: [],
       topStrategies: [],
-      router: []
+      router: [],
+      policy: []
     }
   };
 
@@ -879,19 +876,21 @@ async function loadDbSummary(db: Queryable): Promise<any> {
     if (tables.has('train_configs')) {
       const [rows] = await db.query(`
         SELECT
-          config_key,
-          config_type,
-          config_name,
-          symbol,
-          interval_type,
-          result_group,
-          source_table,
-          train_config_ref,
-          training_year,
-          updated_at,
-          content
-        FROM train_configs
-        ORDER BY config_key ASC
+          tc.config_key,
+          tc.config_type,
+          tc.config_name,
+          tc.symbol,
+          tc.interval_type,
+          tc.result_group,
+          tc.source_table,
+          tc.train_config_ref,
+          tc.training_year,
+          tc.updated_at,
+          ${buildTrainConfigContentSelectSql()}
+        FROM train_configs tc
+        ${buildTrainConfigDetailJoinsSql('tc')}
+        WHERE tc.status = 'active'
+        ORDER BY tc.config_key ASC
       `);
 
       for (const row of rows) {
@@ -918,6 +917,8 @@ async function loadDbSummary(db: Queryable): Promise<any> {
           result.configRegistry.topStrategies.push(entry);
         } else if (entry.configType === 'router') {
           result.configRegistry.router.push(entry);
+        } else if (entry.configType === 'policy') {
+          result.configRegistry.policy.push(entry);
         }
       }
     }
@@ -961,7 +962,10 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
       }
     }));
 
-  const routerRegistryKeys = dbSummary.configRegistry.router.map((entry: any) => entry.configKey);
+  const routerRegistryKeys = [
+    ...dbSummary.configRegistry.router.map((entry: any) => entry.configKey),
+    ...dbSummary.configRegistry.policy.map((entry: any) => entry.configKey)
+  ];
   const routerFiles = routerRegistryKeys.length > 0
     ? routerRegistryKeys
     : listFiles(routerConfigDir, (filePath) => filePath.endsWith('.json'));

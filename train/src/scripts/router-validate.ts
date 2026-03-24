@@ -12,6 +12,15 @@ interface CliArgs {
   readonly tradeCreatedAt?: string;
 }
 
+function loadTrainIdFromValidationConfig(validationPath: string): string | null {
+  try {
+    const payload = JSON.parse(fs.readFileSync(path.resolve(validationPath), 'utf8'));
+    return String(payload?.trainId || payload?.trainingMeta?.trainId || '').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 function parseArgs(argv: readonly string[]): CliArgs {
   const args = argv.slice(2);
   let validation = '';
@@ -316,6 +325,13 @@ async function main(): Promise<void> {
     };
 
   const report = await runRouterValidation(runOptions);
+  const trainId = loadTrainIdFromValidationConfig(args.validation);
+  const reportPayload = trainId
+    ? {
+        ...report,
+        trainId
+      }
+    : report;
 
   const outputDir = path.resolve(__dirname, '../../reports/regime-routing-results');
   ensureDir(outputDir);
@@ -325,7 +341,7 @@ async function main(): Promise<void> {
   const jsonPath = path.join(outputDir, `${prefix}.json`);
   const mdPath = path.join(outputDir, `${prefix}.md`);
 
-  fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2) + '\n', 'utf8');
+  fs.writeFileSync(jsonPath, JSON.stringify(reportPayload, null, 2) + '\n', 'utf8');
   fs.writeFileSync(mdPath, renderMarkdown(report), 'utf8');
 
   console.log(`Router validation JSON written: ${jsonPath}`);

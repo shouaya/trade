@@ -28,6 +28,7 @@ export interface KlineData {
 
 export interface TradeRecord {
   readonly id?: number | undefined;
+  readonly train_id?: string | undefined;
   readonly direction: 'long' | 'short';
   readonly entry_time: number;
   readonly entry_price: number;
@@ -68,6 +69,7 @@ export type ExitReason =
 
 export interface Task {
   readonly task_id: string;
+  readonly train_id?: string | null;
   readonly config_name: string;
   readonly description: string;
   readonly pid: number;
@@ -84,6 +86,7 @@ export type TaskStatus = 'running' | 'completed' | 'failed';
 
 export interface Strategy {
   readonly id: number;
+  readonly train_id?: string | null;
   readonly name: string;
   readonly type: StrategyType;
   readonly parameters: StrategyParameters;
@@ -233,6 +236,7 @@ export interface FeeModelConfig {
 // ============================================================================
 
 export interface TrainingConfig {
+  readonly trainId?: string;
   readonly startTimeMs: number;
   readonly endTimeMs: number;
   readonly symbol: string;

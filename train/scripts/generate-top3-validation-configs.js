@@ -82,10 +82,10 @@ function resolveTrainConfigRef(trainConfigPath, explicitRef) {
 
 function normalizeValidationProfile(value) {
   const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'future-window' || normalized === 'rolling-window' || normalized === 'custom-range') {
+  if (normalized === 'rolling-window' || normalized === 'custom-range') {
     return normalized;
   }
-  return 'future-window';
+  return 'rolling-window';
 }
 
 function buildValidationTableName(symbol, year) {
@@ -163,12 +163,19 @@ function buildValidationArtifacts({
   rows,
   profile
 }) {
+  const trainId = String(
+    trainConfig?.trainId
+    || trainConfig?.trainingMeta?.trainId
+    || trainConfig?.trainingContext?.trainId
+    || ''
+  ).trim();
   const validationConfigs = validationDefinitions.map((definition) => {
     const configKey = `configs/validation/${outPrefix}_${definition.suffix}.json`;
     return {
       configKey,
       configType: 'validation',
       content: {
+        ...(trainId ? { trainId } : {}),
         name: `${symbol}_TOP${limit}_${definition.shortLabel.toUpperCase().replace(/-/g, '_')}_FROM_${trainingYear}_VALIDATION`,
         description: `${symbol} ${definition.descriptionLabel} - 基于 ${trainingYear} training Top${limit} 参数`,
         timeRange: definition.timeRange,
@@ -198,6 +205,11 @@ function buildValidationArtifacts({
         },
         sourceTable,
         trainConfig: trainConfigRef,
+        trainingMeta: trainId
+          ? {
+              trainId
+            }
+          : undefined,
         validationProfile: profile,
         validationTarget: {
           label: definition.label,
@@ -211,6 +223,7 @@ function buildValidationArtifacts({
 
   const snapshotConfigKey = `configs/top-strategies/${buildSnapshotFileName(outPrefix, limit)}`;
   const snapshotContent = {
+    ...(trainId ? { trainId } : {}),
     artifactType: 'final-strategy-config',
     name: `${symbol}_TOP${limit}_FINAL_CONFIG_FROM_${trainingYear}`,
     description: `${symbol} Top${limit} 最终策略配置 - 基于 ${trainingYear} training 候选池`,
@@ -235,10 +248,18 @@ function buildValidationArtifacts({
       descriptionPrefix: `${descriptionPrefix} final strategy package`
     },
     trainingContext: {
+      ...(trainId ? { trainId } : {}),
       trainingYear,
       timeRange: trainConfig.timeRange,
       resultGroup: sourceTable
     },
+    ...(trainId
+      ? {
+          trainingMeta: {
+            trainId
+          }
+        }
+      : {}),
     validationTargets: validationDefinitions.map((definition) => ({
       label: definition.label,
       startIso: definition.timeRange.startIso,
@@ -317,22 +338,7 @@ function buildValidationDefinitions({
   const futureEndMs = Number(coverage.maxOpenTime);
 
   if (futureStartMs > futureEndMs) {
-    throw new Error(`future window is empty for symbol=${symbol}`);
-  }
-
-  if (profile === 'future-window') {
-    const startLabel = formatIsoDate(futureStartMs);
-    const cutoffLabel = formatIsoDate(futureEndMs);
-    return [
-      {
-        suffix: `future_from_${trainingYear}_to_${formatCompactDate(futureEndMs)}_validation`,
-        label: `future ${startLabel} -> ${cutoffLabel}`,
-        shortLabel: 'future-window',
-        tableToken: `future_${formatCompactDate(futureEndMs)}`,
-        descriptionLabel: `未来期 ${startLabel} -> ${cutoffLabel}`,
-        timeRange: buildTimeRange(futureStartMs, futureEndMs)
-      }
-    ];
+    throw new Error(`rolling validation window is empty for symbol=${symbol}`);
   }
 
   if (profile === 'custom-range') {
@@ -419,7 +425,7 @@ async function main() {
   const descriptionPrefix = required(args, 'descriptionPrefix');
   const limit = Number(args.limit || '3');
   const exact = String(args.exact || 'false').toLowerCase() === 'true';
-  const profile = normalizeValidationProfile(args.profile || 'future-window');
+  const profile = normalizeValidationProfile(args.profile || 'rolling-window');
   const outputMode = String(args.outputMode || 'files').trim().toLowerCase();
 
   if (!Number.isInteger(limit) || limit <= 0) {

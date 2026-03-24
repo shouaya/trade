@@ -11,6 +11,7 @@ const DEFAULT_OPENING_MINUTES = 60;
 const DEFAULT_OUTPUT_DIR = path.resolve(__dirname, '../../reports/feature-causality');
 
 interface CliArgs {
+  readonly trainId?: string;
   readonly symbol: string;
   readonly intervalType: string;
   readonly startTimeMs: number;
@@ -59,6 +60,7 @@ function parseArgs(argv: readonly string[]): CliArgs {
   let end = '';
   let openingMinutes = DEFAULT_OPENING_MINUTES;
   let outputDir: string | undefined;
+  let trainId: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -116,6 +118,15 @@ function parseArgs(argv: readonly string[]): CliArgs {
     if (arg === '--outputDir') {
       outputDir = args[index + 1] ?? '';
       index += 1;
+      continue;
+    }
+    if (arg.startsWith('--trainId=')) {
+      trainId = arg.slice('--trainId='.length);
+      continue;
+    }
+    if (arg === '--trainId') {
+      trainId = args[index + 1] ?? '';
+      index += 1;
     }
   }
 
@@ -127,6 +138,7 @@ function parseArgs(argv: readonly string[]): CliArgs {
   }
 
   return {
+    ...(trainId ? { trainId } : {}),
     symbol: symbol.toUpperCase(),
     intervalType,
     startTimeMs: parseTimeArg(start, 'start'),
@@ -353,6 +365,7 @@ async function main(): Promise<void> {
 
   const payload = {
     generatedAt: new Date().toISOString(),
+    trainId: args.trainId ?? null,
     symbol: args.symbol,
     intervalType: args.intervalType,
     startTimeMs: args.startTimeMs,

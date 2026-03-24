@@ -29,6 +29,10 @@ interface CliArgs {
 }
 
 interface ConfigFile {
+  readonly trainId?: string;
+  readonly trainingMeta?: {
+    readonly trainId?: string;
+  };
   readonly name: string;
   readonly description?: string;
   readonly timeRange: {
@@ -466,6 +470,7 @@ async function main(): Promise<void> {
 
   const payload = {
     generatedAt: new Date().toISOString(),
+    trainId: String(config.trainId || config.trainingMeta?.trainId || '').trim() || null,
     configPath: resolvedConfigPath,
     configName: config.name,
     symbol: config.market.symbol,

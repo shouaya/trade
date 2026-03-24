@@ -1,11 +1,10 @@
 export const DEFAULT_TRAINING_SYMBOL = 'BTCJPY';
 export const DEFAULT_TRAINING_RUN_TAG = 'V7_HF_RSI_MACD_TP_ATR';
 export const DEFAULT_TRADING_SCHEDULE = '* 12-18 * * 1-5';
-export const DEFAULT_VALIDATION_PROFILE = 'future-window';
+export const DEFAULT_VALIDATION_PROFILE = 'rolling-window';
 
 export const VALIDATION_PROFILE_OPTIONS = [
-  { value: 'future-window', label: '未来期主验证', hint: 'Recommended' },
-  { value: 'rolling-window', label: 'Rolling 强化验证', hint: 'Advanced' },
+  { value: 'rolling-window', label: 'Rolling 主验证', hint: 'Recommended' },
   { value: 'custom-range', label: '自定义区间', hint: 'Manual' }
 ] as const;
 
@@ -16,8 +15,8 @@ export const TRAINING_GUIDE_RECOMMENDATIONS = [
   'maxHoldMinutes 建议先用 6 到 8 分钟，控制高频策略持仓时长。',
   '默认手续费档案已经切到 GMO 取引所レバレッジ 2倍；交易手续费记为 0，但保留 0.04%/日持仓费和 0.5% 强平费元数据。',
   '如果只是第一次创建配置，router 路径可以先留空，等训练和 validation 跑通后再补。',
-  '默认先走未来期主验证，先确认训练后的泛化能力，再考虑扩展。',
-  'rolling / walk-forward 更适合作为强化验证轨道，而不是替代主链路的第一步。',
+  '默认直接走 rolling-window，把主链路对齐到持续滚动验证。',
+  'custom-range 只用于补充复验，不再作为主链路默认方案。',
   '年度模板已经退出主链路，不再作为默认生成方案。'
 ] as const;
 

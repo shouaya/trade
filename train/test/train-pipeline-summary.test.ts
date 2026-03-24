@@ -46,8 +46,8 @@ test('train pipeline summary builds methodology stages from core pipeline dto', 
     },
     validationConfigs: [
       {
-        targetLabel: 'future 2026-01-01 -> 2026-03-31',
-        validationProfile: 'future-window',
+        targetLabel: 'rolling 2026-01-01 -> 2026-03-31',
+        validationProfile: 'rolling-window',
         latestRun: null,
         latestRequest: null,
       },
@@ -76,7 +76,7 @@ test('train pipeline summary builds methodology stages from core pipeline dto', 
   };
 
   const stages = buildMethodologyStages(pipeline, trainingConfig);
-  const futureValidationStage = stages.find((stage) => stage.key === 'stage-8-future-validation');
+  const futureValidationStage = stages.find((stage) => stage.key === 'stage-8-rolling-validation');
   const routerStage = stages.find((stage) => stage.key === 'stage-7-router');
 
   assert.equal(stages.length, 10);

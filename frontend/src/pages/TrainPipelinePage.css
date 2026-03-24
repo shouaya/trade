@@ -438,6 +438,36 @@
   background: rgba(121, 147, 179, 0.18);
 }
 
+.config-version-chip,
+.config-lineage-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.config-version-chip.active {
+  color: #8cf2cb;
+  background: rgba(37, 122, 97, 0.18);
+}
+
+.config-version-chip.archived {
+  color: #cbb8ff;
+  background: rgba(100, 77, 172, 0.22);
+}
+
+.config-version-chip.draft {
+  color: #ffd38a;
+  background: rgba(176, 109, 21, 0.18);
+}
+
+.config-lineage-chip {
+  color: #9bd0ff;
+  background: rgba(50, 94, 168, 0.2);
+}
+
 .config-key,
 .config-meta {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
@@ -449,9 +479,14 @@
 
 .config-row-actions {
   display: flex;
+  flex-wrap: wrap;
   flex-shrink: 0;
   gap: 10px;
   align-items: center;
+}
+
+.history-row {
+  align-items: flex-start;
 }
 
 .editor-form {
@@ -782,6 +817,13 @@
 .pipeline-step-title,
 .validation-target {
   color: #f3f6fb;
+}
+
+.summary-box-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .pipeline-steps {

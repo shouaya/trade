@@ -2,6 +2,7 @@ const STRATEGIES_DDL = `
   CREATE TABLE IF NOT EXISTS strategies (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL UNIQUE,
+    train_id VARCHAR(100) NULL COMMENT 'root training lineage id',
     description TEXT,
     parameters JSON NOT NULL,
     type VARCHAR(50),
@@ -9,6 +10,7 @@ const STRATEGIES_DDL = `
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_name (name),
+    INDEX idx_train_id (train_id),
     INDEX idx_type (type),
     INDEX idx_is_active (is_active)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci

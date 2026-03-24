@@ -4,10 +4,22 @@ export const STRATEGIES_DDL: string;
 export const TASKS_DDL: string;
 export const TRADES_DDL: string;
 export const TRAIN_CONFIGS_DDL: string;
+export const TRAINING_CONFIG_DETAILS_DDL: string;
+export const VALIDATION_CONFIG_DETAILS_DDL: string;
+export const SNAPSHOT_CONFIG_DETAILS_DDL: string;
+export const ROUTER_CONFIG_DETAILS_DDL: string;
+export const POLICY_CONFIG_DETAILS_DDL: string;
+export const GENERIC_CONFIG_DETAILS_DDL: string;
 export const TRAIN_RUN_REQUESTS_DDL: string;
 export const INIT_DDLS: readonly string[];
 export const BACKTEST_RESULTS_TABLE: "backtest_results";
 export const TRAIN_CONFIGS_TABLE: "train_configs";
+export const TRAINING_CONFIG_DETAILS_TABLE: "training_config_details";
+export const VALIDATION_CONFIG_DETAILS_TABLE: "validation_config_details";
+export const SNAPSHOT_CONFIG_DETAILS_TABLE: "snapshot_config_details";
+export const ROUTER_CONFIG_DETAILS_TABLE: "router_config_details";
+export const POLICY_CONFIG_DETAILS_TABLE: "policy_config_details";
+export const GENERIC_CONFIG_DETAILS_TABLE: "generic_config_details";
 export const TRAIN_RUN_REQUESTS_TABLE: "train_run_requests";
 export const TABLES: {
   readonly BACKTEST_RESULTS: "backtest_results";
@@ -16,6 +28,12 @@ export const TABLES: {
   readonly TASKS: "tasks";
   readonly TRADES: "trades";
   readonly TRAIN_CONFIGS: "train_configs";
+  readonly TRAINING_CONFIG_DETAILS: "training_config_details";
+  readonly VALIDATION_CONFIG_DETAILS: "validation_config_details";
+  readonly SNAPSHOT_CONFIG_DETAILS: "snapshot_config_details";
+  readonly ROUTER_CONFIG_DETAILS: "router_config_details";
+  readonly POLICY_CONFIG_DETAILS: "policy_config_details";
+  readonly GENERIC_CONFIG_DETAILS: "generic_config_details";
   readonly TRAIN_RUN_REQUESTS: "train_run_requests";
 };
 
@@ -47,6 +65,7 @@ export interface MysqlConnectionOptions {
 
 export function ensureKlineSchema(db: QueryableDatabase): Promise<void>;
 export function ensureBacktestResultsSchema(db: QueryableDatabase, tableName?: string): Promise<void>;
+export function ensureTrainDataTraceSchema(db: QueryableDatabase): Promise<void>;
 export function ensureTrainConfigsSchema(db: QueryableDatabase): Promise<void>;
 export function ensureTrainRunRequestsSchema(db: QueryableDatabase): Promise<void>;
 export function tableExists(db: QueryableDatabase, tableName: string): Promise<boolean>;

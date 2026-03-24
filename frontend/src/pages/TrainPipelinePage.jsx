@@ -14,7 +14,7 @@ const configTypeOptions = [
 ];
 
 const DEFAULT_TRAINING_RUN_TAG = 'V7_HF_RSI_MACD_TP_ATR';
-const DEFAULT_VALIDATION_PROFILE = 'future-window';
+const DEFAULT_VALIDATION_PROFILE = 'rolling-window';
 
 const EMPTY_TRAINING_GUIDE_META = {
   recommendations: [],
@@ -55,7 +55,7 @@ const EMPTY_TRAINING_GUIDE_DRAFT = {
 
 function normalizeValidationProfile(value) {
   const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'future-window' || normalized === 'rolling-window' || normalized === 'custom-range') {
+  if (normalized === 'rolling-window' || normalized === 'custom-range') {
     return normalized;
   }
   return DEFAULT_VALIDATION_PROFILE;
@@ -63,25 +63,21 @@ function normalizeValidationProfile(value) {
 
 function getValidationProfileLabel(value) {
   switch (normalizeValidationProfile(value)) {
-    case 'future-window':
-      return '未来期主验证';
     case 'rolling-window':
-      return 'Rolling 强化验证';
+      return 'Rolling 主验证';
     case 'custom-range':
       return '自定义区间';
     default:
-      return '未来期主验证';
+      return 'Rolling 主验证';
   }
 }
 
 function getValidationProfileTone(value) {
   switch (normalizeValidationProfile(value)) {
-    case 'future-window':
-      return 'done';
     case 'rolling-window':
-      return 'partial';
+      return 'done';
     case 'custom-range':
-      return 'todo';
+      return 'partial';
     default:
       return 'todo';
   }
@@ -230,17 +226,43 @@ function isActiveRequestStatus(status) {
 
 function getValidationProfilePriority(profile) {
   switch (normalizeValidationProfile(profile)) {
-    case 'future-window':
-      return 1;
     case 'rolling-window':
-      return 2;
+      return 1;
     case 'custom-range':
-      return 3;
-    case 'legacy-annual':
-      return 4;
+      return 2;
     default:
       return 9;
   }
+}
+
+function getConfigStatusText(status) {
+  switch (status) {
+    case 'active':
+      return '当前版本';
+    case 'archived':
+      return '历史版本';
+    case 'draft':
+      return '草稿';
+    default:
+      return status || 'unknown';
+  }
+}
+
+function formatConfigVersion(config) {
+  return `v${Number(config?.versionNo || 1)}`;
+}
+
+function findConfigVersionByKey(configHistoryByKey, configKey) {
+  if (!configKey) {
+    return null;
+  }
+
+  const items = configHistoryByKey[configKey];
+  if (!Array.isArray(items) || items.length === 0) {
+    return null;
+  }
+
+  return items.find((item) => item.status === 'active') || items[0] || null;
 }
 
 function getHashQueryParams() {
@@ -348,7 +370,7 @@ function isUiRunnableAction(actionKey) {
 function getNextActionButtonLabel(nextActionKey) {
   switch (nextActionKey) {
     case 'run-training':
-      return '执行阶段 3：训练候选池';
+      return '启动自动训练链路';
     case 'run-validation':
       return '执行阶段 8：运行 Validation';
     case 'generate-validation':
@@ -600,7 +622,7 @@ function RouterStudioPanel({
         <div>
           <div className="hero-kicker">Router Studio</div>
           <h2>Router / Policy 配置</h2>
-          <p>这里先完成 Web 端的 router / policy 编辑、保存和挂载。自动推导规则后面再补。</p>
+          <p>系统会先按 rolling 结果自动维护 router / policy；这里保留为人工覆写入口。</p>
         </div>
         <button type="button" className="editor-close" onClick={onClose}>关闭</button>
       </div>
@@ -761,6 +783,7 @@ function MethodologyStageFocus({
 
 function ConfigStudio({
   configs,
+  configHistoryByKey,
   latestRequestByConfigId,
   filterType,
   onFilterChange,
@@ -770,6 +793,7 @@ function ConfigStudio({
   onExport,
   onClear,
   onRun,
+  onOpenHistory,
   actionMessage
 }) {
   return (
@@ -815,6 +839,9 @@ function ConfigStudio({
               <div className="config-row-main">
                 <div className="config-row-top">
                   <span className="config-type-chip">training</span>
+                  <span className={`config-version-chip ${config.status || 'active'}`}>
+                    {formatConfigVersion(config)} · {getConfigStatusText(config.status)}
+                  </span>
                   {config.symbol && <span className="pipeline-symbol">{config.symbol}</span>}
                   {config.trainingYear && <span className="pipeline-year">{config.trainingYear}</span>}
                   {latestRequestByConfigId[config.id] && (
@@ -828,6 +855,8 @@ function ConfigStudio({
                 <div className="config-meta">
                   {config.resultGroup || 'no result_group'}
                   {' · '}
+                  {`${(configHistoryByKey[config.configKey] || []).length || 1} versions`}
+                  {' · '}
                   updated {formatDateTime(config.updatedAt)}
                   {latestRequestByConfigId[config.id]
                     ? ` · last queue ${formatDateTime(latestRequestByConfigId[config.id].createdAt)}`
@@ -838,10 +867,79 @@ function ConfigStudio({
                 <button type="button" onClick={() => onRun(config.id)}>
                   启动训练
                 </button>
+                <button type="button" onClick={() => onOpenHistory(config.configKey)}>
+                  查看历史
+                </button>
                 <button type="button" onClick={() => onClear(config)}>
                   清除数据
                 </button>
                 <button type="button" onClick={() => onEdit(config.id)}>编辑</button>
+                <button type="button" onClick={() => onExport(config.id)}>导出</button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ConfigHistoryPanel({
+  open,
+  configKey,
+  items,
+  latestRequestByConfigId,
+  onClose,
+  onEdit,
+  onExport
+}) {
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <section className="editor-panel">
+      <div className="editor-panel-head">
+        <div>
+          <div className="hero-kicker">Version History</div>
+          <h2>配置版本历史</h2>
+          <p>{configKey || '未选择配置'}</p>
+        </div>
+        <button type="button" className="editor-close" onClick={onClose}>关闭</button>
+      </div>
+
+      <div className="config-list">
+        {items.length === 0 ? (
+          <div className="pipeline-empty">当前没有可显示的历史版本。</div>
+        ) : (
+          items.map((config) => (
+            <div key={config.id} className="config-row history-row">
+              <div className="config-row-main">
+                <div className="config-row-top">
+                  <span className="config-type-chip">{config.configType}</span>
+                  <span className={`config-version-chip ${config.status || 'active'}`}>
+                    {formatConfigVersion(config)} · {getConfigStatusText(config.status)}
+                  </span>
+                  {config.parentConfigId ? (
+                    <span className="config-lineage-chip">from #{config.parentConfigId}</span>
+                  ) : null}
+                  {latestRequestByConfigId[config.id] && (
+                    <span className={`request-status-chip ${latestRequestByConfigId[config.id].status}`}>
+                      {getRequestStatusText(latestRequestByConfigId[config.id].status)}
+                    </span>
+                  )}
+                </div>
+                <strong>{config.configName || config.fileName}</strong>
+                <div className="config-key">{config.configKey}</div>
+                <div className="config-meta">
+                  id {config.id}
+                  {' · '}
+                  updated {formatDateTime(config.updatedAt)}
+                  {config.contentHash ? ` · hash ${String(config.contentHash).slice(0, 10)}` : ''}
+                </div>
+              </div>
+              <div className="config-row-actions">
+                <button type="button" onClick={() => onEdit(config.id)}>编辑为新版本</button>
                 <button type="button" onClick={() => onExport(config.id)}>导出</button>
               </div>
             </div>
@@ -1081,13 +1179,11 @@ function TrainingGuidePanel({
           <span>Validation 主线</span>
           <strong>{getValidationProfileLabel(draft.validationProfile)}</strong>
           <em>
-            {draft.validationProfile === 'future-window'
-              ? `从 ${draft.validationStartDate} 开始，覆盖到 ${draft.validationEndDate}`
-              : draft.validationProfile === 'rolling-window'
-                ? `把 ${draft.validationStartDate} -> ${draft.validationEndDate} 拆成月度 rolling 验证窗口`
+            {draft.validationProfile === 'rolling-window'
+              ? `把 ${draft.validationStartDate} -> ${draft.validationEndDate} 拆成月度 rolling 验证窗口`
               : draft.validationProfile === 'custom-range'
                 ? `${draft.validationStartDate} -> ${draft.validationEndDate}`
-                : '按所选区间生成验证配置'}
+                : `把 ${draft.validationStartDate} -> ${draft.validationEndDate} 拆成月度 rolling 验证窗口`}
           </em>
         </div>
       </div>
@@ -1104,13 +1200,11 @@ function TrainingGuidePanel({
           <div className="validation-item">
             <div className="validation-item-head">
               <span className="validation-target">
-                {draft.validationProfile === 'future-window'
-                  ? '未来期主验证'
-                  : draft.validationProfile === 'rolling-window'
-                    ? 'Rolling 强化验证'
+                {draft.validationProfile === 'rolling-window'
+                  ? 'Rolling 主验证'
                   : draft.validationProfile === 'custom-range'
                     ? '自定义区间'
-                    : '未来期主验证'}
+                    : 'Rolling 主验证'}
               </span>
               <span className="validation-chip todo">由 training config 派生</span>
             </div>
@@ -1118,7 +1212,7 @@ function TrainingGuidePanel({
             <div className="validation-meta">
               保存时不会单独创建 validation 草稿。
               {' · '}
-              训练完成后通过 pipeline 的“下一步”生成最终策略 config 与可运行 validation。
+              训练启动后会自动串行完成最终策略 config、validation 与后续报告任务。
             </div>
           </div>
         </div>
@@ -1345,6 +1439,7 @@ function TrainPipelinePage() {
   const [routerStudioData, setRouterStudioData] = useState(null);
   const [routerStudioRouterText, setRouterStudioRouterText] = useState('{}');
   const [routerStudioPolicyText, setRouterStudioPolicyText] = useState('{}');
+  const [historyConfigKey, setHistoryConfigKey] = useState('');
 
   const loadPipeline = async ({ silent = false } = {}) => {
     try {
@@ -1374,7 +1469,7 @@ function TrainPipelinePage() {
       if (!silent) {
         setConfigLoading(true);
       }
-      const response = await trainConfigsAPI.list({ includeDerived: true });
+      const response = await trainConfigsAPI.list({ includeDerived: true, includeHistory: true });
       if (response.success) {
         setConfigs(response.data || []);
       }
@@ -1727,7 +1822,7 @@ function TrainPipelinePage() {
     }
 
     const confirmText = config.configType === 'training'
-      ? `确认清除 ${config.configName || config.configKey} 的训练结果吗？这会删除训练结果，并清掉关联的 top snapshot / validation 派生产物。`
+      ? `确认删除 ${config.configName || config.configKey} 的训练数据吗？这会一并删除本次训练关联的 trades、tasks、strategies、train_configs、train_run_requests、回测结果、validation / top snapshot / router / policy 派生产物与自动生成报告。`
       : `确认清除 ${config.configName || config.configKey} 的验证结果吗？这会删除该 validation 的落库结果。`;
 
     if (typeof window !== 'undefined' && !window.confirm(confirmText)) {
@@ -1739,8 +1834,14 @@ function TrainPipelinePage() {
       if (response.success) {
         const deletedFiles = Array.isArray(response.data?.deletedFiles) ? response.data.deletedFiles.length : 0;
         const deletedGroups = Array.isArray(response.data?.clearedResultGroups) ? response.data.clearedResultGroups.length : 0;
+        const deletedReportFiles = Array.isArray(response.data?.deletedReportFiles) ? response.data.deletedReportFiles.length : 0;
+        const deletedRequestRows = Number(response.data?.deletedRequestRows || 0);
+        const deletedTaskRows = Number(response.data?.deletedTaskRows || 0);
+        const deletedTradeRows = Number(response.data?.deletedTradeRows || 0);
+        const deletedStrategyRows = Number(response.data?.deletedStrategyRows || 0);
+        const deletedRegistryRows = Number(response.data?.deletedRegistryRows || 0);
         setActionMessage({
-          text: `已清除 ${deletedGroups} 个结果分组，删除 ${response.data?.deletedBacktestRows || 0} 条回测结果${deletedFiles > 0 ? `，并清理 ${deletedFiles} 个历史遗留导出文件` : ''}`
+          text: `已删除 ${deletedGroups} 个结果分组、${response.data?.deletedBacktestRows || 0} 条回测结果、${deletedTradeRows} 条 trades、${deletedTaskRows} 条 tasks、${deletedStrategyRows} 条 strategies、${deletedRegistryRows} 条 train_configs、${deletedRequestRows} 条 train_run_requests${deletedFiles > 0 ? `，并清理 ${deletedFiles} 个派生配置文件` : ''}${deletedReportFiles > 0 ? `、${deletedReportFiles} 个自动生成报告` : ''}`
         });
         await refreshAll();
       }
@@ -1762,6 +1863,8 @@ function TrainPipelinePage() {
         const request = response.data;
         const actionLabel = request.action === 'generate-validation'
           ? '生成 Validation'
+          : request.action === 'build-router'
+            ? '维护 Router / Policy'
           : request.action === 'validate'
             ? '验证'
             : request.action === 'feature-causality'
@@ -1772,7 +1875,11 @@ function TrainPipelinePage() {
                   ? 'Router 验证'
                   : '训练';
         setActionMessage({
-          text: `${actionLabel} 已加入队列: ${request.requestId} (${getRequestStatusText(request.status)})`
+          text: request.action === 'train'
+            ? `${actionLabel} 主链路已加入队列: ${request.requestId} (${getRequestStatusText(request.status)})，后续步骤将自动串行执行`
+            : request.action === 'build-router'
+              ? `${actionLabel} 已加入队列: ${request.requestId} (${getRequestStatusText(request.status)})，完成后会自动刷新 pipeline`
+              : `${actionLabel} 已加入队列: ${request.requestId} (${getRequestStatusText(request.status)})`
         });
         await refreshAll();
         await handleSelectRequest(request.id);
@@ -1815,7 +1922,8 @@ function TrainPipelinePage() {
     }
   };
 
-  const filteredConfigs = configs.filter((item) => item.configType === configFilter);
+  const activeConfigs = configs.filter((item) => item.status === 'active');
+  const filteredConfigs = activeConfigs.filter((item) => item.configType === configFilter);
 
   const latestRequestByConfigId = runRequests.reduce((accumulator, request) => {
     if (!(request.configId in accumulator)) {
@@ -1831,10 +1939,24 @@ function TrainPipelinePage() {
     return accumulator;
   }, Object.create(null));
 
-  const configByKey = configs.reduce((accumulator, config) => {
+  const configByKey = activeConfigs.reduce((accumulator, config) => {
     accumulator[config.configKey] = config;
     return accumulator;
   }, Object.create(null));
+
+  const configHistoryByKey = configs.reduce((accumulator, config) => {
+    if (!accumulator[config.configKey]) {
+      accumulator[config.configKey] = [];
+    }
+    accumulator[config.configKey].push(config);
+    return accumulator;
+  }, Object.create(null));
+
+  Object.values(configHistoryByKey).forEach((items) => {
+    items.sort((left, right) => Number(right.versionNo || 1) - Number(left.versionNo || 1));
+  });
+
+  const selectedHistoryItems = historyConfigKey ? (configHistoryByKey[historyConfigKey] || []) : [];
 
   const handlePipelineNextAction = async (pipeline) => {
     const actionKey = pipeline?.nextAction?.key;
@@ -1849,7 +1971,7 @@ function TrainPipelinePage() {
         await handleRunConfig(trainingConfig.id);
         setNextActionFeedbackByPipelineId((current) => ({
           ...current,
-          [pipeline.id]: '训练请求已加入队列。'
+          [pipeline.id]: '训练主链路已加入队列，后续会自动接续生成 validation、执行验证并补报告。'
         }));
         return;
       }
@@ -1894,6 +2016,18 @@ function TrainPipelinePage() {
       }
     }
 
+    if (actionKey === 'build-router') {
+      const trainingConfig = configByKey[pipeline.trainingConfigPath];
+      if (trainingConfig?.id) {
+        await handleRunConfig(trainingConfig.id, 'build-router');
+        setNextActionFeedbackByPipelineId((current) => ({
+          ...current,
+          [pipeline.id]: 'Router / policy 维护任务已加入队列。'
+        }));
+        return;
+      }
+    }
+
     if (actionKey === 'waiting-generate-validation' || actionKey === 'waiting-validation') {
       await refreshAll();
       setNextActionFeedbackByPipelineId((current) => ({
@@ -1921,9 +2055,7 @@ function TrainPipelinePage() {
       }
     }
 
-    const unsupportedMessage = actionKey === 'build-router'
-      ? 'Router / policy catalog 目前还需要人工整理，Web 端暂未接入自动生成。'
-      : actionKey === 'review'
+    const unsupportedMessage = actionKey === 'review'
         ? '这一步是结果复盘阶段，当前以看板汇总和人工判断为主。'
         : '当前步骤暂未接入自动执行，请根据页面说明继续。';
 
@@ -1956,6 +2088,7 @@ function TrainPipelinePage() {
 
       <ConfigStudio
         configs={filteredConfigs}
+        configHistoryByKey={configHistoryByKey}
         latestRequestByConfigId={latestRequestByConfigId}
         filterType={configFilter}
         onFilterChange={setConfigFilter}
@@ -1965,6 +2098,7 @@ function TrainPipelinePage() {
         onExport={handleExportConfig}
         onClear={handleClearConfigResults}
         onRun={handleRunConfig}
+        onOpenHistory={setHistoryConfigKey}
         actionMessage={actionMessage}
       />
 
@@ -2014,6 +2148,16 @@ function TrainPipelinePage() {
         onSave={handleSaveRouterArtifacts}
       />
 
+      <ConfigHistoryPanel
+        open={Boolean(historyConfigKey)}
+        configKey={historyConfigKey}
+        items={selectedHistoryItems}
+        latestRequestByConfigId={latestRequestByConfigId}
+        onClose={() => setHistoryConfigKey('')}
+        onEdit={openEditEditor}
+        onExport={handleExportConfig}
+      />
+
       <RequestDetailPanel
         request={selectedRequest}
         onClose={() => {
@@ -2048,6 +2192,8 @@ function TrainPipelinePage() {
           {pipelines.map((pipeline) => {
             const latestTrainingRequest = pipeline.latestRequest || latestRequestByConfigKey[pipeline.trainingConfigPath] || null;
             const trainingConfigRecord = configByKey[pipeline.trainingConfigPath] || null;
+            const routerConfigRecord = findConfigVersionByKey(configHistoryByKey, pipeline.router?.routerPath);
+            const policyConfigRecord = findConfigVersionByKey(configHistoryByKey, pipeline.router?.policyPath);
             const finalConfigState = getFinalConfigState(pipeline);
             const methodologyStages = buildMethodologyStages(pipeline);
             const suggestedStageKey = pipeline.suggestedStageKey || getSuggestedStageKey(methodologyStages);
@@ -2088,13 +2234,20 @@ function TrainPipelinePage() {
                     <span>任务边界</span>
                     <strong>{pipeline.trainingConfigPath}</strong>
                     <em>{formatRange(pipeline.timeRange)} · updated {formatDateTime(pipeline.configUpdatedAt)}</em>
-                    {trainingConfigRecord?.id && (
+                    <div className="summary-box-chips">
+                      {trainingConfigRecord ? (
+                        <span className={`config-version-chip ${trainingConfigRecord.status || 'active'}`}>
+                          training {formatConfigVersion(trainingConfigRecord)}
+                        </span>
+                      ) : null}
+                    </div>
+                    {trainingConfigRecord?.id && pipeline.trainingRun && (
                       <button
                         type="button"
                         className="summary-box-action"
                         onClick={() => handleClearConfigResults(trainingConfigRecord)}
                       >
-                        清除训练数据
+                        删除训练数据
                       </button>
                     )}
                   </div>
@@ -2131,6 +2284,18 @@ function TrainPipelinePage() {
                         ? `policy ${pipeline.router.policyPath}`
                         : finalConfigState.detail}
                     </em>
+                    <div className="summary-box-chips">
+                      {routerConfigRecord ? (
+                        <span className={`config-version-chip ${routerConfigRecord.status || 'active'}`}>
+                          router {formatConfigVersion(routerConfigRecord)}
+                        </span>
+                      ) : null}
+                      {policyConfigRecord ? (
+                        <span className={`config-version-chip ${policyConfigRecord.status || 'active'}`}>
+                          policy {formatConfigVersion(policyConfigRecord)}
+                        </span>
+                      ) : null}
+                    </div>
                     {finalConfigState.requestId && !pipeline.router?.policyPath && (
                       <button
                         type="button"

@@ -227,7 +227,7 @@
 - [BTCJPY_dual_year_router_v10_weekly_refined.json](/Users/ts-changchang.zhuang/git/money/train/configs/generated/regime-routing/BTCJPY_dual_year_router_v10_weekly_refined.json)
 - [BTCJPY_dual_year_router_v10_weekly_refined.policy.json](/Users/ts-changchang.zhuang/git/money/train/configs/generated/regime-routing/BTCJPY_dual_year_router_v10_weekly_refined.policy.json)
 
-### 第四步：未来期验证
+### 第四步：rolling 验证
 
 验证时必须把 router 和候选策略池一起放到未来区间重跑。
 
@@ -251,7 +251,7 @@
 3. 日级切换/减仓/停做规则
 4. 亏损反馈规则
 5. 训练期回放结果
-6. 未来期验证结果
+6. rolling 验证结果
 7. 策略说明书
 
 当前 BTCJPY 对应说明书：
@@ -335,7 +335,7 @@
 - 哪些日型需要减仓；
 - 哪些日型即使整周可做，当天也必须停做。
 
-### 6. 最后做未来期验证
+### 6. 最后做 rolling 验证
 
 训练完后必须用完全未来的数据集做验证。
 
@@ -444,7 +444,7 @@ AI 在本仓库中处理任意交易对时，必须先接受以下前提：
 
 1. 不要把已有交易对的最终策略直接复制给新交易对。
 2. 不要默认“Top1 策略 = 最终系统”。
-3. 不要只看训练期收益，不看未来期验证。
+3. 不要只看训练期收益，不看 rolling 验证。
 4. 不要把某条单策略的胜率当作主要目标。
 5. 最终产出必须是“交易对专属 router + policy catalog + 验证结果 + 说明书”。
 
@@ -466,7 +466,7 @@ AI 在本仓库中处理任意交易对时，必须先接受以下前提：
    - 分析周级结构
    - 分析日级结构
    - 生成 router
-   - 未来期验证
+   - rolling 验证
    - 文档化
 7. 当前是否已经有可复用的 policy catalog？
 
@@ -835,7 +835,7 @@ npm run train -- configs/training/<your_config>.json
 - 不允许只有 router，没有说明书；
 - 不允许只有说明书，没有可执行 router。
 
-### 阶段 8：未来期验证
+### 阶段 8：rolling 验证
 
 目标：
 
@@ -909,7 +909,7 @@ DB_HOST=127.0.0.1 node dist/scripts/router-validate.js \
 
 ### 阶段 9：失败后的迭代顺序
 
-如果未来期验证失败，必须按以下顺序排查。
+如果 rolling 验证失败，必须按以下顺序排查。
 
 先排查：
 

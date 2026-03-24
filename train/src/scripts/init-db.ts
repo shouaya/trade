@@ -9,6 +9,7 @@ import {
   TASKS_DDL,
   TRADES_DDL,
   ensureBacktestResultsSchema,
+  ensureTrainDataTraceSchema,
   ensureTrainConfigsSchema,
   ensureTrainRunRequestsSchema
 } from '@money/database';
@@ -62,6 +63,7 @@ async function createBacktestResultsTable(): Promise<void> {
 async function createStrategiesTable(): Promise<void> {
   console.log('📊 创建 strategies 表...');
   await db.query(STRATEGIES_DDL);
+  await ensureTrainDataTraceSchema(db);
 
   if (!await columnExists('strategies', 'type')) {
     console.log('🔧 补齐 strategies.type 列...');
@@ -84,6 +86,7 @@ async function createStrategiesTable(): Promise<void> {
 async function createTradesTable(): Promise<void> {
   console.log('📊 创建 trades 表...');
   await db.query(TRADES_DDL);
+  await ensureTrainDataTraceSchema(db);
 
   await db.query('ALTER TABLE trades MODIFY COLUMN entry_price DECIMAL(20, 8) NOT NULL');
   await db.query('ALTER TABLE trades MODIFY COLUMN stop_loss DECIMAL(20, 8) NULL');
@@ -106,6 +109,7 @@ async function createTradesTable(): Promise<void> {
 async function createTasksTable(): Promise<void> {
   console.log('📊 创建 tasks 表...');
   await db.query(TASKS_DDL);
+  await ensureTrainDataTraceSchema(db);
   console.log('✅ tasks 表创建成功');
 }
 
@@ -155,7 +159,21 @@ async function main(): Promise<void> {
     console.log('');
 
     // 检查所有表
-    const tables = ['klines', 'backtest_results', 'strategies', 'trades', 'tasks', 'train_configs', 'train_run_requests'];
+    const tables = [
+      'klines',
+      'backtest_results',
+      'strategies',
+      'trades',
+      'tasks',
+      'train_configs',
+      'training_config_details',
+      'validation_config_details',
+      'snapshot_config_details',
+      'router_config_details',
+      'policy_config_details',
+      'generic_config_details',
+      'train_run_requests'
+    ];
     const results: TableCheckResult[] = [];
 
     for (const tableName of tables) {

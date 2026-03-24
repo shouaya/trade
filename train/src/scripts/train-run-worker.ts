@@ -2,14 +2,20 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { spawn, type ChildProcess } from 'child_process';
-import { createHash, randomBytes } from 'crypto';
+import { randomBytes } from 'crypto';
 import {
   TRAIN_CONFIGS_TABLE,
   TRAIN_RUN_REQUESTS_TABLE,
   ensureTrainRunRequestsSchema
 } from '@money/database';
 import db from '../configs/database';
-import { ensureTrainConfigRegistryTable } from '../services/train-config-registry';
+import {
+  buildTrainConfigContentSelectSql,
+  buildTrainConfigDetailJoinsSql,
+  ensureTrainConfigRegistryTable,
+  loadTrainConfigByKey,
+  upsertTrainConfig
+} from '../services/train-config-registry';
 import type * as mysql from 'mysql2/promise';
 
 type RunRequestStatus = 'queued' | 'exporting' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
@@ -21,6 +27,7 @@ interface QueueRow extends mysql.RowDataPacket {
   readonly config_key: string;
   readonly config_name: string | null;
   readonly config_type: string;
+  readonly train_id: string | null;
   readonly action: string;
 }
 
@@ -69,35 +76,46 @@ function deriveValidationPrefix(trainingName: string, symbol: string, topN: numb
 
 function normalizeValidationProfile(profile: unknown): string {
   const normalized = String(profile || '').trim().toLowerCase();
-  if (normalized === 'future-window' || normalized === 'rolling-window' || normalized === 'custom-range') {
+  if (normalized === 'rolling-window' || normalized === 'custom-range') {
     return normalized;
   }
-  return 'future-window';
+  return 'rolling-window';
 }
 
 function parseConfigContent(configRow: mysql.RowDataPacket): Record<string, any> {
   const content = configRow['content'];
+  const trainId = String(configRow['train_id'] || '').trim();
+
   if (content && typeof content === 'object') {
-    return content as Record<string, any>;
+    return applyTrainIdToConfig(content as Record<string, any>, trainId);
   }
 
   if (typeof content === 'string') {
-    return JSON.parse(content);
+    return applyTrainIdToConfig(JSON.parse(content), trainId);
   }
 
   throw new Error('config content is missing');
 }
 
-async function loadConfigRecordByKey(configKey: string): Promise<mysql.RowDataPacket | null> {
-  const [rows] = await db.query<mysql.RowDataPacket[]>(
-    `SELECT *
-     FROM ${TRAIN_CONFIGS_TABLE}
-     WHERE config_key = ?
-     LIMIT 1`,
-    [configKey]
-  );
+function applyTrainIdToConfig(config: Record<string, any>, trainId: string): Record<string, any> {
+  if (!trainId) {
+    return config;
+  }
 
-  return rows[0] ?? null;
+  return {
+    ...config,
+    trainId,
+    trainingMeta: {
+      ...(config['trainingMeta'] && typeof config['trainingMeta'] === 'object'
+        ? config['trainingMeta'] as Record<string, any>
+        : {}),
+      trainId
+    }
+  };
+}
+
+async function loadConfigRecordByKey(configKey: string): Promise<mysql.RowDataPacket | null> {
+  return await loadTrainConfigByKey(db, configKey);
 }
 
 function resolveTimeArg(timeRange: Record<string, any> | undefined, kind: 'start' | 'end'): string {
@@ -166,58 +184,14 @@ function safeRmdir(dirPath: string): void {
   }
 }
 
-function resolveTrainingYearFromPayload(configKey: string, payload: Record<string, any>): string | null {
-  return getYearFromConfig(payload, path.basename(configKey));
-}
-
 async function upsertRegistryConfig(
   configKey: string,
   configType: string,
   payload: Record<string, any>
 ): Promise<void> {
-  const contentRaw = JSON.stringify(payload, null, 2);
-  const contentHash = createHash('sha256').update(contentRaw).digest('hex');
-  const configName = payload['name'] ? String(payload['name']) : null;
-  const market = payload['market'] as Record<string, any> | undefined;
-  const database = payload['database'] as Record<string, any> | undefined;
-  const symbol = market?.['symbol'] ? String(market['symbol']).toUpperCase() : null;
-  const intervalType = market?.['intervalType'] ? String(market['intervalType']) : null;
-  const resultGroup = database?.['tableName'] ? String(database['tableName']) : null;
-  const sourceTable = payload['sourceTable'] ? String(payload['sourceTable']) : null;
-  const trainConfigRef = payload['trainConfig'] ? String(payload['trainConfig']) : null;
-  const trainingYear = resolveTrainingYearFromPayload(configKey, payload);
-
-  await db.query(
-    `INSERT INTO ${TRAIN_CONFIGS_TABLE}
-      (config_key, config_type, config_name, symbol, interval_type, result_group,
-       source_table, train_config_ref, training_year, is_generated, content_hash, content)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, CAST(? AS JSON))
-     ON DUPLICATE KEY UPDATE
-       config_type = VALUES(config_type),
-       config_name = VALUES(config_name),
-       symbol = VALUES(symbol),
-       interval_type = VALUES(interval_type),
-       result_group = VALUES(result_group),
-       source_table = VALUES(source_table),
-       train_config_ref = VALUES(train_config_ref),
-       training_year = VALUES(training_year),
-       is_generated = VALUES(is_generated),
-       content_hash = VALUES(content_hash),
-       content = VALUES(content)`,
-    [
-      configKey,
-      configType,
-      configName,
-      symbol,
-      intervalType,
-      resultGroup,
-      sourceTable,
-      trainConfigRef,
-      trainingYear,
-      contentHash,
-      contentRaw
-    ]
-  );
+  await upsertTrainConfig(db, configKey, payload, {
+    explicitType: configType
+  });
 }
 
 async function persistGeneratedArtifacts(stdoutText: string): Promise<void> {
@@ -235,6 +209,21 @@ async function persistGeneratedArtifacts(stdoutText: string): Promise<void> {
     await upsertRegistryConfig(item.configKey, item.configType, item.content);
     safeUnlink(path.resolve(TRAIN_ROOT, item.configKey));
   }
+}
+
+function parseGeneratedArtifacts(stdoutText: string): {
+  readonly validationConfigs: readonly { readonly configKey: string; readonly configType: string; readonly content: Record<string, any>; }[];
+  readonly snapshot: { readonly configKey: string; readonly configType: string; readonly content: Record<string, any>; } | null;
+} {
+  const parsed = JSON.parse(stdoutText) as {
+    readonly validationConfigs?: readonly { readonly configKey: string; readonly configType: string; readonly content: Record<string, any>; }[];
+    readonly snapshot?: { readonly configKey: string; readonly configType: string; readonly content: Record<string, any>; };
+  };
+
+  return {
+    validationConfigs: parsed.validationConfigs || [],
+    snapshot: parsed.snapshot || null
+  };
 }
 
 function createRuntimeExportPath(requestId: string, configRow: mysql.RowDataPacket): string {
@@ -297,12 +286,26 @@ async function resolveCommand(
     };
   }
 
+  if (action === 'build-router') {
+    return {
+      command: 'node',
+      args: [
+        'dist/scripts/build-router-artifacts.js',
+        '--trainConfig',
+        exportPath,
+        '--trainConfigRef',
+        configKey
+      ]
+    };
+  }
+
   if (action === 'feature-causality') {
     const config = parseConfigContent(configRow);
     const market = config['market'] as Record<string, any> | undefined;
     const timeRange = config['timeRange'] as Record<string, any> | undefined;
     const symbol = String(market?.['symbol'] || '').trim().toUpperCase();
     const intervalType = String(market?.['intervalType'] || '1min').trim();
+    const trainId = String(configRow['train_id'] || config['trainId'] || '').trim();
 
     if (!symbol) {
       throw new Error('market.symbol is missing');
@@ -321,7 +324,8 @@ async function resolveCommand(
         '--end',
         resolveTimeArg(timeRange, 'end'),
         '--openingMinutes',
-        '60'
+        '60',
+        ...(trainId ? ['--trainId', trainId] : [])
       ]
     };
   }
@@ -387,9 +391,10 @@ function buildRequestId(): string {
 
 async function loadConfigRecord(configId: number): Promise<mysql.RowDataPacket | null> {
   const [rows] = await db.query<mysql.RowDataPacket[]>(
-    `SELECT *
-     FROM ${TRAIN_CONFIGS_TABLE}
-     WHERE id = ?
+    `SELECT tc.*, ${buildTrainConfigContentSelectSql()}
+     FROM ${TRAIN_CONFIGS_TABLE} tc
+     ${buildTrainConfigDetailJoinsSql('tc')}
+     WHERE tc.id = ?
      LIMIT 1`,
     [configId]
   );
@@ -409,37 +414,113 @@ async function loadRequestRecord(id: number): Promise<mysql.RowDataPacket | null
   return rows[0] ?? null;
 }
 
-async function enqueueFollowUpGenerateValidation(request: QueueRow, configRow: mysql.RowDataPacket): Promise<boolean> {
+async function hasActiveRequestForAction(configId: number, action: string): Promise<boolean> {
   const [existingRows] = await db.query<mysql.RowDataPacket[]>(
     `SELECT id
      FROM ${QUEUE_TABLE}
      WHERE config_id = ?
-       AND action = 'generate-validation'
+       AND action = ?
        AND status IN ('queued', 'exporting', 'running', 'cancelling')
      LIMIT 1`,
-    [Number(request.config_id)]
+    [configId, action]
   );
 
-  if (existingRows.length > 0) {
+  return existingRows.length > 0;
+}
+
+async function enqueueRequestForConfigRow(
+  configRow: mysql.RowDataPacket,
+  action: string,
+  triggerSource: string
+): Promise<boolean> {
+  const configId = Number(configRow['id']);
+  if (!Number.isInteger(configId) || configId <= 0) {
+    return false;
+  }
+
+  if (await hasActiveRequestForAction(configId, action)) {
     return false;
   }
 
   await db.query(
     `INSERT INTO ${QUEUE_TABLE}
-      (request_id, config_id, config_key, config_name, config_type, action, status, requested_by, trigger_source)
-     VALUES (?, ?, ?, ?, ?, 'generate-validation', 'queued', ?, ?)`,
+      (request_id, config_id, config_key, config_name, config_type, train_id, action, status, requested_by, trigger_source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)`,
     [
       buildRequestId(),
-      Number(request.config_id),
+      configId,
       String(configRow['config_key']),
       configRow['config_name'] ? String(configRow['config_name']) : null,
-      String(configRow['config_type'] || request.config_type),
+      String(configRow['config_type'] || ''),
+      configRow['train_id'] ? String(configRow['train_id']) : null,
+      action,
       'worker',
-      'post-train'
+      triggerSource
     ]
   );
 
   return true;
+}
+
+async function enqueueGeneratedValidationRuns(stdoutText: string): Promise<void> {
+  const generatedArtifacts = parseGeneratedArtifacts(stdoutText);
+  for (const item of generatedArtifacts.validationConfigs) {
+    const configRow = await loadConfigRecordByKey(item.configKey);
+    if (!configRow) {
+      continue;
+    }
+
+    const enqueued = await enqueueRequestForConfigRow(configRow, 'validate', 'post-generate-validation');
+    if (enqueued) {
+      console.log(`🧪 queued auto validation for ${item.configKey}`);
+    }
+  }
+}
+
+async function enqueueBuildRouterForConfigRow(configRow: mysql.RowDataPacket): Promise<void> {
+  const enqueued = await enqueueRequestForConfigRow(configRow, 'build-router', 'post-generate-validation');
+  if (enqueued) {
+    console.log(`🧭 queued rolling router maintenance for ${configRow['config_key']}`);
+  }
+}
+
+function hasRouterConfigPath(trainingRow: mysql.RowDataPacket | null): boolean {
+  if (!trainingRow) {
+    return false;
+  }
+
+  const trainingConfig = parseConfigContent(trainingRow);
+  const regimeRouting = trainingConfig['regimeRouting'] as Record<string, any> | undefined;
+  return String(regimeRouting?.['routerConfigPath'] || '').trim().length > 0;
+}
+
+async function enqueuePostTrainFollowUps(configRow: mysql.RowDataPacket): Promise<void> {
+  const followUps = [
+    { action: 'generate-validation', triggerSource: 'post-train' },
+    { action: 'feature-causality', triggerSource: 'post-train' }
+  ];
+
+  for (const item of followUps) {
+    const enqueued = await enqueueRequestForConfigRow(configRow, item.action, item.triggerSource);
+    if (enqueued) {
+      console.log(`🧩 queued follow-up ${item.action} for ${configRow['config_key']}`);
+    }
+  }
+}
+
+async function enqueuePostValidationFollowUps(configRow: mysql.RowDataPacket): Promise<void> {
+  const linkedTrainingRow = await resolveLinkedTrainingConfigRow(configRow);
+  const followUps = ['cost-sensitivity'];
+  if (hasRouterConfigPath(linkedTrainingRow)) {
+    followUps.push('router-validate');
+  }
+
+  for (const action of followUps) {
+    const enqueued = await enqueueRequestForConfigRow(configRow, action, 'post-validation');
+    if (enqueued) {
+      console.log(`📊 queued follow-up ${action} for ${configRow['config_key']}`);
+    }
+  }
 }
 
 async function updateRequestStatus(
@@ -470,9 +551,11 @@ async function updateRequestStatus(
 }
 
 async function exportConfigToRuntimeFile(request: QueueRow, configRow: mysql.RowDataPacket): Promise<string> {
-  const content = typeof configRow['content'] === 'string'
-    ? String(configRow['content'])
-    : JSON.stringify(configRow['content'], null, 2);
+  const contentObject = parseConfigContent({
+    ...configRow,
+    train_id: configRow['train_id'] || request.train_id || null
+  } as mysql.RowDataPacket);
+  const content = JSON.stringify(contentObject, null, 2);
   const fullPath = createRuntimeExportPath(request.request_id, configRow);
   fs.writeFileSync(fullPath, `${content.trimEnd()}\n`, 'utf8');
   return fullPath;
@@ -615,10 +698,14 @@ async function processRequest(request: QueueRow): Promise<void> {
         execution_pid: null
       });
       if (request.action === 'train') {
-        const enqueued = await enqueueFollowUpGenerateValidation(request, configRow);
-        if (enqueued) {
-          console.log(`🧩 queued follow-up generate-validation for ${request.config_key}`);
-        }
+        await enqueuePostTrainFollowUps(configRow);
+      }
+      if (request.action === 'generate-validation') {
+        await enqueueBuildRouterForConfigRow(configRow);
+        await enqueueGeneratedValidationRuns(result.stdoutText);
+      }
+      if (request.action === 'validate') {
+        await enqueuePostValidationFollowUps(configRow);
       }
       return;
     }

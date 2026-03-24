@@ -16,7 +16,7 @@ test('training management bootstrap returns API-ready default guide state', () =
   assert.equal(bootstrap.configKey, 'configs/training/2026_btcjpy_v7_hf_rsi_macd_tp_atr.json');
   assert.equal(bootstrap.draft.year, '2026');
   assert.equal(bootstrap.draft.symbol, 'BTCJPY');
-  assert.equal(bootstrap.draft.validationProfile, 'future-window');
+  assert.equal(bootstrap.draft.validationProfile, 'rolling-window');
   assert.ok(Array.isArray(bootstrap.recommendations));
   assert.ok(bootstrap.recommendations.length > 0);
   assert.ok(Array.isArray(bootstrap.validationProfiles));
@@ -92,6 +92,6 @@ test('training management draft hydrates from saved config and normalizes valida
 
   const draft = buildTrainingGuideDraft(content, 'configs/training/2024_btcjpy_sample_tag.json', new Date('2026-03-24T00:00:00.000Z'));
   assert.equal(draft.runTag, 'SAMPLE_TAG');
-  assert.equal(draft.validationProfile, 'future-window');
+  assert.equal(draft.validationProfile, 'rolling-window');
   assert.equal(normalizeValidationProfile('rolling-window'), 'rolling-window');
 });

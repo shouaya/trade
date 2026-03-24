@@ -3,6 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const {
   BACKTEST_RESULTS_TABLE,
+  TABLES,
+  ensureBacktestResultsSchema,
+  ensureTrainDataTraceSchema,
+  ensureTrainConfigsSchema,
   TRAIN_CONFIGS_TABLE,
   tableExists
 } = require('@money/database');
@@ -26,7 +30,12 @@ const {
 const router = express.Router();
 
 async function ensureRegistryTableExists() {
+  await ensureTrainConfigsSchema(db);
   return tableExists(db, TRAIN_CONFIGS_TABLE);
+}
+
+function getTrainConfigRegistryService() {
+  return loadTrainConfigRegistryService();
 }
 
 function sendRegistryNotReady(res) {
@@ -39,15 +48,7 @@ function sendRegistryNotReady(res) {
 }
 
 async function loadConfigById(id) {
-  const [rows] = await db.query(
-    `SELECT *
-     FROM ${TRAIN_CONFIGS_TABLE}
-     WHERE id = ?
-     LIMIT 1`,
-    [id]
-  );
-
-  return rows[0] || null;
+  return getTrainConfigRegistryService().loadTrainConfigById(db, id);
 }
 
 function resolveAbsoluteConfigPath(configKey) {
@@ -196,20 +197,149 @@ function safeUnlink(filePath) {
   return false;
 }
 
+function formatIsoDateOnly(value) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toISOString().slice(0, 10);
+}
+
+function resolveRelativeConfigRef(baseConfigKey, targetRef) {
+  const normalizedRef = String(targetRef || '').trim();
+  if (!normalizedRef) {
+    return '';
+  }
+
+  return toPosix(path.posix.normalize(path.posix.join(path.posix.dirname(String(baseConfigKey || '')), normalizedRef)));
+}
+
+function buildRouterValidationReportPaths(trainingRecord, validationRecord) {
+  const routerConfigRef = String(trainingRecord?.content?.regimeRouting?.routerConfigPath || '').trim();
+  if (!routerConfigRef) {
+    return [];
+  }
+
+  const routerConfigKey = resolveRelativeConfigRef(trainingRecord.configKey, routerConfigRef);
+  const routerContent = loadJsonFileIfExists(routerConfigKey);
+  const routerVersion = String(routerContent?.routerVersion || '').trim();
+  if (!routerVersion) {
+    return [];
+  }
+
+  const symbol = String(validationRecord?.symbol || trainingRecord?.symbol || trainingRecord?.content?.market?.symbol || '').trim().toUpperCase();
+  const timeRange = validationRecord?.content?.timeRange || {};
+  const startLabel = formatIsoDateOnly(timeRange.startIso || timeRange.startTimeMs);
+  const endLabel = formatIsoDateOnly(timeRange.endIso || timeRange.endTimeMs);
+  if (!symbol || !startLabel || !endLabel) {
+    return [];
+  }
+
+  const prefix = `reports/regime-routing-results/${symbol}_${routerVersion}_${startLabel}_to_${endLabel}`;
+  return [`${prefix}.json`, `${prefix}.md`];
+}
+
+function buildReportDeletePlan(trainingRecord, relatedConfigs) {
+  const fileKeys = new Set();
+
+  const trainingSymbol = String(trainingRecord?.symbol || trainingRecord?.content?.market?.symbol || '').trim().toUpperCase();
+  const trainingTimeRange = trainingRecord?.content?.timeRange || {};
+  const featureStart = formatIsoDateOnly(trainingTimeRange.startIso || trainingTimeRange.startTimeMs);
+  const featureEnd = formatIsoDateOnly(trainingTimeRange.endIso || trainingTimeRange.endTimeMs);
+  if (trainingSymbol && featureStart && featureEnd) {
+    const featurePrefix = `reports/feature-causality/${trainingSymbol}_${featureStart}_to_${featureEnd}_60m`;
+    fileKeys.add(`${featurePrefix}.json`);
+    fileKeys.add(`${featurePrefix}.md`);
+  }
+
+  for (const item of relatedConfigs) {
+    const configType = String(item?.configType || '');
+    if (configType === 'validation') {
+      const baseName = path.basename(String(item.configKey || ''), '.json');
+      if (baseName) {
+        fileKeys.add(`reports/cost-sensitivity/${baseName}.json`);
+        fileKeys.add(`reports/cost-sensitivity/${baseName}.md`);
+      }
+
+      for (const reportPath of buildRouterValidationReportPaths(trainingRecord, item)) {
+        fileKeys.add(reportPath);
+      }
+    }
+  }
+
+  return Array.from(fileKeys);
+}
+
 async function loadDerivedConfigs(trainingRecord) {
+  const trainConfigRegistry = getTrainConfigRegistryService();
   const [rows] = await db.query(
-    `SELECT *
-     FROM ${TRAIN_CONFIGS_TABLE}
-     WHERE id <> ?
-       AND (
-         train_config_ref = ?
-         OR source_table = ?
-       )
-     ORDER BY id ASC`,
-    [trainingRecord.id, trainingRecord.configKey, trainingRecord.resultGroup || '']
+    `SELECT tc.*, ${trainConfigRegistry.buildTrainConfigContentSelectSql()}
+     FROM ${TRAIN_CONFIGS_TABLE} tc
+     ${trainConfigRegistry.buildTrainConfigDetailJoinsSql('tc')}
+     WHERE tc.id <> ?
+       AND tc.train_id = ?
+       AND tc.status = 'active'
+     ORDER BY tc.id ASC`,
+    [trainingRecord.id, trainingRecord.trainId]
   );
 
   return rows.map((row) => mapTrainConfigRecord(row, { includeContent: true }));
+}
+
+async function loadDistinctStrategyNamesForResultGroups(connection, resultGroups) {
+  const strategyNames = new Set();
+
+  for (const resultGroup of resultGroups) {
+    const [rows] = await connection.query(
+      `SELECT DISTINCT strategy_name
+       FROM ${BACKTEST_RESULTS_TABLE}
+       WHERE result_group = ?
+         AND strategy_name IS NOT NULL
+         AND strategy_name <> ''`,
+      [resultGroup]
+    );
+
+    for (const row of rows) {
+      const strategyName = String(row.strategy_name || '').trim();
+      if (strategyName) {
+        strategyNames.add(strategyName);
+      }
+    }
+  }
+
+  return Array.from(strategyNames);
+}
+
+function buildTrackedConfigNames(record, relatedConfigs) {
+  return Array.from(new Set(
+    [record, ...relatedConfigs]
+      .map((item) => String(item?.configName || '').trim())
+      .filter(Boolean)
+  ));
+}
+
+function buildTrackedSymbols(record, relatedConfigs) {
+  return Array.from(new Set(
+    [record, ...relatedConfigs]
+      .map((item) => String(item?.symbol || item?.content?.market?.symbol || '').trim().toUpperCase())
+      .filter(Boolean)
+  ));
+}
+
+function buildStrategyRegistryNames(trainingRecord, rawStrategyNames) {
+  const prefix = String(trainingRecord?.content?.output?.strategyNamePrefix || '').trim();
+  if (!prefix) {
+    return [];
+  }
+
+  return rawStrategyNames
+    .map((name) => `${prefix}${name}`)
+    .filter(Boolean);
 }
 
 router.get('/', async (req, res) => {
@@ -227,21 +357,29 @@ router.get('/', async (req, res) => {
 
     const includeContent = String(req.query.includeContent || 'false') === 'true';
     const includeDerived = String(req.query.includeDerived || 'false') === 'true';
+    const includeHistory = String(req.query.includeHistory || 'false') === 'true';
     const configType = req.query.type ? String(req.query.type) : null;
+    const trainConfigRegistry = getTrainConfigRegistryService();
     const params = [];
     let query = `
-      SELECT *
-      FROM ${TRAIN_CONFIGS_TABLE}
+      SELECT tc.*
+      ${includeContent ? `, ${trainConfigRegistry.buildTrainConfigContentSelectSql()}` : ''}
+      FROM ${TRAIN_CONFIGS_TABLE} tc
+      ${includeContent ? trainConfigRegistry.buildTrainConfigDetailJoinsSql('tc') : ''}
     `;
 
     if (configType) {
-      query += ' WHERE config_type = ?';
+      query += ' WHERE tc.config_type = ?';
       params.push(configType);
     } else if (!includeDerived) {
-      query += ` WHERE config_type = 'training'`;
+      query += ` WHERE tc.config_type = 'training'`;
     }
 
-    query += ' ORDER BY updated_at DESC, id DESC';
+    if (!includeHistory) {
+      query += query.includes(' WHERE ') ? ` AND tc.status = 'active'` : ` WHERE tc.status = 'active'`;
+    }
+
+    query += ' ORDER BY tc.updated_at DESC, tc.id DESC';
 
     const [rows] = await db.query(query, params);
 
@@ -316,6 +454,8 @@ router.get('/:id', async (req, res) => {
     if (!hasRegistry) {
       return sendRegistryNotReady(res);
     }
+    await ensureBacktestResultsSchema(db);
+    await ensureTrainDataTraceSchema(db);
 
     const row = await loadConfigById(req.params.id);
     if (!row) {
@@ -401,59 +541,20 @@ router.post('/', async (req, res) => {
 
     const body = req.body || {};
     const payload = parseJsonContent(body.content);
-    const trainConfigRegistry = loadTrainConfigRegistryService();
-    const metadata = trainConfigRegistry.buildTrainConfigMetadata(
+    const trainConfigRegistry = getTrainConfigRegistryService();
+    const saved = await trainConfigRegistry.upsertTrainConfig(
+      db,
       body.configKey || body.config_key,
       payload,
       {
         explicitType: body.configType || body.config_type
       }
     );
-
-    await db.query(
-      `INSERT INTO ${TRAIN_CONFIGS_TABLE}
-        (config_key, config_type, config_name, symbol, interval_type, result_group,
-         source_table, train_config_ref, training_year, is_generated, content_hash, content)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON))
-       ON DUPLICATE KEY UPDATE
-         config_type = VALUES(config_type),
-         config_name = VALUES(config_name),
-         symbol = VALUES(symbol),
-         interval_type = VALUES(interval_type),
-         result_group = VALUES(result_group),
-         source_table = VALUES(source_table),
-         train_config_ref = VALUES(train_config_ref),
-         training_year = VALUES(training_year),
-         is_generated = VALUES(is_generated),
-         content_hash = VALUES(content_hash),
-         content = VALUES(content)`,
-      [
-        metadata.configKey,
-        metadata.configType,
-        metadata.configName,
-        metadata.symbol,
-        metadata.intervalType,
-        metadata.resultGroup,
-        metadata.sourceTable,
-        metadata.trainConfigRef,
-        metadata.trainingYear,
-        metadata.isGenerated ? 1 : 0,
-        metadata.contentHash,
-        metadata.contentRaw
-      ]
-    );
-
-    const [rows] = await db.query(
-      `SELECT *
-       FROM ${TRAIN_CONFIGS_TABLE}
-       WHERE config_key = ?
-       LIMIT 1`,
-      [metadata.configKey]
-    );
+    const savedRow = await trainConfigRegistry.loadTrainConfigByKey(db, saved.configKey);
 
     res.json({
       success: true,
-      data: mapTrainConfigRecord(rows[0], { includeContent: true }),
+      data: mapTrainConfigRecord(savedRow, { includeContent: true }),
       message: 'Train config saved'
     });
   } catch (error) {
@@ -495,6 +596,19 @@ router.post('/:id/router-artifacts', async (req, res) => {
       return sendJsonError(res, 400, 'Failed to save router artifacts', 'policyConfigKey 必须位于 configs/generated/regime-routing/ 且以 .json 结尾');
     }
 
+    if (trainingRecord.trainId) {
+      routerContent.trainId = trainingRecord.trainId;
+      routerContent.trainingMeta = {
+        ...(routerContent.trainingMeta && typeof routerContent.trainingMeta === 'object' ? routerContent.trainingMeta : {}),
+        trainId: trainingRecord.trainId
+      };
+      policyContent.trainId = trainingRecord.trainId;
+      policyContent.trainingMeta = {
+        ...(policyContent.trainingMeta && typeof policyContent.trainingMeta === 'object' ? policyContent.trainingMeta : {}),
+        trainId: trainingRecord.trainId
+      };
+    }
+
     routerContent.policyCatalogPath = path.posix.basename(policyConfigKey);
     policyContent.source = {
       ...(policyContent.source && typeof policyContent.source === 'object' ? policyContent.source : {}),
@@ -508,46 +622,29 @@ router.post('/:id/router-artifacts', async (req, res) => {
     fs.writeFileSync(routerAbsolutePath, `${JSON.stringify(routerContent, null, 2)}\n`, 'utf8');
     fs.writeFileSync(policyAbsolutePath, `${JSON.stringify(policyContent, null, 2)}\n`, 'utf8');
 
-    const trainConfigRegistry = loadTrainConfigRegistryService();
-    const routerMetadata = trainConfigRegistry.buildTrainConfigMetadata(routerConfigKey, routerContent, {
-      explicitType: 'router'
+    const trainConfigRegistry = getTrainConfigRegistryService();
+    await trainConfigRegistry.upsertTrainConfig(db, routerConfigKey, routerContent, {
+      explicitType: 'router',
+      parentConfigId: trainingRecord.id
     });
-
-    await db.query(
-      `INSERT INTO ${TRAIN_CONFIGS_TABLE}
-        (config_key, config_type, config_name, symbol, interval_type, result_group,
-         source_table, train_config_ref, training_year, is_generated, content_hash, content)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON))
-       ON DUPLICATE KEY UPDATE
-         config_type = VALUES(config_type),
-         config_name = VALUES(config_name),
-         symbol = VALUES(symbol),
-         interval_type = VALUES(interval_type),
-         result_group = VALUES(result_group),
-         source_table = VALUES(source_table),
-         train_config_ref = VALUES(train_config_ref),
-         training_year = VALUES(training_year),
-         is_generated = VALUES(is_generated),
-         content_hash = VALUES(content_hash),
-         content = VALUES(content)`,
-      [
-        routerMetadata.configKey,
-        routerMetadata.configType,
-        routerMetadata.configName,
-        routerMetadata.symbol,
-        routerMetadata.intervalType,
-        routerMetadata.resultGroup,
-        routerMetadata.sourceTable,
-        routerMetadata.trainConfigRef,
-        routerMetadata.trainingYear,
-        routerMetadata.isGenerated ? 1 : 0,
-        routerMetadata.contentHash,
-        routerMetadata.contentRaw
-      ]
-    );
+    await trainConfigRegistry.upsertTrainConfig(db, policyConfigKey, policyContent, {
+      explicitType: 'policy',
+      parentConfigId: trainingRecord.id
+    });
 
     const nextTrainingContent = {
       ...trainingRecord.content,
+      ...(trainingRecord.trainId
+        ? {
+            trainId: trainingRecord.trainId,
+            trainingMeta: {
+              ...(trainingRecord.content?.trainingMeta && typeof trainingRecord.content.trainingMeta === 'object'
+                ? trainingRecord.content.trainingMeta
+                : {}),
+              trainId: trainingRecord.trainId
+            }
+          }
+        : {}),
       regimeRouting: {
         ...(trainingRecord.content?.regimeRouting && typeof trainingRecord.content.regimeRouting === 'object'
           ? trainingRecord.content.regimeRouting
@@ -557,29 +654,10 @@ router.post('/:id/router-artifacts', async (req, res) => {
       }
     };
 
-    const trainingMetadata = trainConfigRegistry.buildTrainConfigMetadata(trainingRecord.configKey, nextTrainingContent, {
-      explicitType: 'training'
+    await trainConfigRegistry.upsertTrainConfig(db, trainingRecord.configKey, nextTrainingContent, {
+      explicitType: 'training',
+      parentConfigId: trainingRecord.id
     });
-
-    await db.query(
-      `UPDATE ${TRAIN_CONFIGS_TABLE}
-       SET config_name = ?, symbol = ?, interval_type = ?, result_group = ?, source_table = ?, train_config_ref = ?,
-           training_year = ?, is_generated = ?, content_hash = ?, content = CAST(? AS JSON)
-       WHERE id = ?`,
-      [
-        trainingMetadata.configName,
-        trainingMetadata.symbol,
-        trainingMetadata.intervalType,
-        trainingMetadata.resultGroup,
-        trainingMetadata.sourceTable,
-        trainingMetadata.trainConfigRef,
-        trainingMetadata.trainingYear,
-        trainingMetadata.isGenerated ? 1 : 0,
-        trainingMetadata.contentHash,
-        trainingMetadata.contentRaw,
-        trainingRecord.id
-      ]
-    );
 
     res.json({
       success: true,
@@ -654,23 +732,71 @@ router.post('/:id/clear-results', async (req, res) => {
       : [];
     const trainOrchestration = loadTrainOrchestrationService();
     const clearPlan = trainOrchestration.buildClearResultsPlan(record, relatedConfigs);
+    const reportDeletePlan = record.configType === 'training'
+      ? buildReportDeletePlan(record, relatedConfigs)
+      : [];
+    if (record.configType === 'training' && !record.trainId) {
+      return sendJsonError(res, 400, 'Failed to clear train results', 'train_id is required; old data compatibility has been removed');
+    }
 
     connection = await db.getConnection();
     await connection.beginTransaction();
 
     let deletedBacktestRows = 0;
-    for (const resultGroup of clearPlan.resultGroups) {
+    if (record.configType === 'training') {
       const [deleteResult] = await connection.query(
         `DELETE FROM ${BACKTEST_RESULTS_TABLE}
-         WHERE result_group = ?`,
-        [resultGroup]
+         WHERE train_id = ?`,
+        [record.trainId]
       );
-      deletedBacktestRows += Number(deleteResult.affectedRows || 0);
+      deletedBacktestRows = Number(deleteResult.affectedRows || 0);
+    } else {
+      for (const resultGroup of clearPlan.resultGroups) {
+        const [deleteResult] = await connection.query(
+          `DELETE FROM ${BACKTEST_RESULTS_TABLE}
+           WHERE result_group = ?`,
+          [resultGroup]
+        );
+        deletedBacktestRows += Number(deleteResult.affectedRows || 0);
+      }
     }
 
     const deletedFiles = [];
+    const deletedReportFiles = [];
     let deletedRegistryRows = 0;
+    let deletedRequestRows = 0;
+    let deletedTaskRows = 0;
+    let deletedTradeRows = 0;
+    let deletedStrategyRows = 0;
     if (record.configType === 'training') {
+      const [deleteRequestsResult] = await connection.query(
+        `DELETE FROM ${TABLES.TRAIN_RUN_REQUESTS}
+         WHERE train_id = ?`,
+        [record.trainId]
+      );
+      deletedRequestRows = Number(deleteRequestsResult.affectedRows || 0);
+
+      const [deleteTasksResult] = await connection.query(
+        `DELETE FROM ${TABLES.TASKS}
+         WHERE train_id = ?`,
+        [record.trainId]
+      );
+      deletedTaskRows = Number(deleteTasksResult.affectedRows || 0);
+
+      const [deleteTradesResult] = await connection.query(
+        `DELETE FROM ${TABLES.TRADES}
+         WHERE train_id = ?`,
+        [record.trainId]
+      );
+      deletedTradeRows = Number(deleteTradesResult.affectedRows || 0);
+
+      const [deleteStrategiesResult] = await connection.query(
+        `DELETE FROM ${TABLES.STRATEGIES}
+         WHERE train_id = ?`,
+        [record.trainId]
+      );
+      deletedStrategyRows = Number(deleteStrategiesResult.affectedRows || 0);
+
       for (const item of clearPlan.removableConfigs) {
         const absolutePath = resolveAbsoluteConfigPath(item.configKey);
         if (safeUnlink(absolutePath)) {
@@ -678,15 +804,19 @@ router.post('/:id/clear-results', async (req, res) => {
         }
       }
 
-      if (clearPlan.removableConfigs.length > 0) {
-        const ids = clearPlan.removableConfigs.map((item) => item.id);
-        const [deleteRegistryResult] = await connection.query(
-          `DELETE FROM ${TRAIN_CONFIGS_TABLE}
-           WHERE id IN (${ids.map(() => '?').join(', ')})`,
-          ids
-        );
-        deletedRegistryRows = Number(deleteRegistryResult.affectedRows || 0);
+      for (const reportKey of reportDeletePlan) {
+        const absolutePath = resolveAbsoluteConfigPath(reportKey);
+        if (safeUnlink(absolutePath)) {
+          deletedReportFiles.push(reportKey);
+        }
       }
+
+      const [deleteRegistryResult] = await connection.query(
+        `DELETE FROM ${TRAIN_CONFIGS_TABLE}
+         WHERE train_id = ?`,
+        [record.trainId]
+      );
+      deletedRegistryRows = Number(deleteRegistryResult.affectedRows || 0);
     }
 
     await connection.commit();
@@ -702,7 +832,12 @@ router.post('/:id/clear-results', async (req, res) => {
         clearedResultGroups: Array.from(clearPlan.resultGroups),
         deletedBacktestRows,
         deletedRegistryRows,
-        deletedFiles
+        deletedRequestRows,
+        deletedTaskRows,
+        deletedTradeRows,
+        deletedStrategyRows,
+        deletedFiles,
+        deletedReportFiles
       },
       message: 'Train results cleared'
     });

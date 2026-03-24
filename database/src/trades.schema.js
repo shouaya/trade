@@ -37,6 +37,7 @@ const TRADES_DDL = `
     percent DECIMAL(10, 4),
     actual_hold_minutes INT,
     strategy_name VARCHAR(255),
+    train_id VARCHAR(100) NULL COMMENT 'root training lineage id',
     symbol VARCHAR(20) DEFAULT 'USDJPY',
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -45,6 +46,7 @@ const TRADES_DDL = `
     INDEX idx_entry_time (entry_time),
     INDEX idx_exit_time (exit_time),
     INDEX idx_strategy_name (strategy_name),
+    INDEX idx_train_id (train_id),
     INDEX idx_symbol (symbol),
     INDEX idx_pnl (pnl)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci

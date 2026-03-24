@@ -1,6 +1,8 @@
 const express = require('express');
 const crypto = require('crypto');
 const {
+  ensureTrainConfigsSchema,
+  ensureTrainRunRequestsSchema,
   TRAIN_CONFIGS_TABLE,
   TRAIN_RUN_REQUESTS_TABLE,
   allTablesExist
@@ -20,12 +22,14 @@ const REQUEST_TABLE = TRAIN_RUN_REQUESTS_TABLE;
 const CONFIG_TABLE = TRAIN_CONFIGS_TABLE;
 
 async function ensureTablesReady() {
+  await ensureTrainConfigsSchema(db);
+  await ensureTrainRunRequestsSchema(db);
   return allTablesExist(db, [REQUEST_TABLE, CONFIG_TABLE]);
 }
 
 async function loadConfigById(configId) {
   const [rows] = await db.query(
-    `SELECT id, config_key, config_name, config_type
+    `SELECT id, config_key, config_name, config_type, train_id
      FROM ${CONFIG_TABLE}
      WHERE id = ?
      LIMIT 1`,
@@ -51,19 +55,44 @@ function buildRequestId() {
   return `runreq-${new Date().toISOString().slice(0, 10)}-${crypto.randomBytes(4).toString('hex')}`;
 }
 
+function buildTrainId() {
+  return `train-${new Date().toISOString().slice(0, 10)}-${crypto.randomBytes(4).toString('hex')}`;
+}
+
+async function ensureConfigTrainId(configId, nextTrainId) {
+  await db.query(
+    `UPDATE ${CONFIG_TABLE}
+     SET train_id = ?
+     WHERE id = ?`,
+    [nextTrainId, configId]
+  );
+}
+
 async function insertQueuedRequest(config, action, requestedBy, triggerSource) {
   const requestId = buildRequestId();
+  const trainId = action === 'train'
+    ? buildTrainId()
+    : String(config.train_id || '').trim();
+
+  if (!trainId) {
+    throw new Error('train_id is required before queuing non-training actions');
+  }
+
+  if (action === 'train') {
+    await ensureConfigTrainId(Number(config.id), trainId);
+  }
 
   await db.query(
     `INSERT INTO ${REQUEST_TABLE}
-      (request_id, config_id, config_key, config_name, config_type, action, status, requested_by, trigger_source)
-     VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)`,
+      (request_id, config_id, config_key, config_name, config_type, train_id, action, status, requested_by, trigger_source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)`,
     [
       requestId,
       Number(config.id),
       String(config.config_key),
       config.config_name ? String(config.config_name) : null,
       String(config.config_type),
+      trainId,
       action,
       requestedBy,
       triggerSource

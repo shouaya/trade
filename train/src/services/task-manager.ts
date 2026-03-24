@@ -13,14 +13,14 @@ export class TaskManager {
   /**
    * 创建新任务
    */
-  async createTask(configName: string, description: string): Promise<string> {
+  async createTask(configName: string, description: string, trainId?: string): Promise<string> {
     const taskId = this.generateTaskId();
     const pid = process.pid;
 
     await this.db.query(
-      `INSERT INTO tasks (task_id, config_name, description, pid, status)
-       VALUES (?, ?, ?, ?, 'running')`,
-      [taskId, configName, description, pid]
+      `INSERT INTO tasks (task_id, train_id, config_name, description, pid, status)
+       VALUES (?, ?, ?, ?, ?, 'running')`,
+      [taskId, trainId ?? null, configName, description, pid]
     );
 
     console.log(`✅ 任务已注册: ${taskId} (PID: ${pid})`);

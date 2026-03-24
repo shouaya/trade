@@ -16,7 +16,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { randomBytes } from 'crypto';
-import { BACKTEST_RESULTS_TABLE, ensureBacktestResultsSchema } from '@money/database';
+import { BACKTEST_RESULTS_TABLE, ensureBacktestResultsSchema, ensureTrainDataTraceSchema } from '@money/database';
 import db from '../configs/database';
 import { TaskManager } from '../services/task-manager';
 import { StrategyExecutor } from '../services/strategy-executor';
@@ -51,6 +51,10 @@ const TRAIN_ROOT = path.resolve(__dirname, '..', '..');
 const CONFIGS_ROOT = path.join(TRAIN_ROOT, 'configs');
 
 interface TrainingConfig {
+  readonly trainId?: string;
+  readonly trainingMeta?: {
+    readonly trainId?: string;
+  };
   readonly name: string;
   readonly description?: string;
   readonly timeRange: {
@@ -316,7 +320,7 @@ async function loadKlines(config: TrainingConfig): Promise<readonly KlineData[]>
 /**
  * 批量保存交易记录
  */
-async function saveTrades(trades: readonly TradeRecord[], tradeBatchCreatedAt: string): Promise<void> {
+async function saveTrades(trades: readonly TradeRecord[], tradeBatchCreatedAt: string, trainId: string): Promise<void> {
   if (!trades || trades.length === 0) return;
 
   const values = trades.map(t => [
@@ -346,6 +350,7 @@ async function saveTrades(trades: readonly TradeRecord[], tradeBatchCreatedAt: s
     sanitizeNumber(t.percent ?? null),
     sanitizeNumber(t.actual_hold_minutes ?? t.hold_minutes ?? 0),
     t.strategy_name,
+    trainId,
     t.symbol ?? 'USDJPY',
     null, // notes
     tradeBatchCreatedAt
@@ -359,7 +364,7 @@ async function saveTrades(trades: readonly TradeRecord[], tradeBatchCreatedAt: s
       exit_time, exit_price, exit_rsi, exit_macd,
       exit_macd_signal, exit_macd_histogram,
       exit_reason, gross_pnl, commission_fee, pnl, pips, percent,
-      actual_hold_minutes, strategy_name, symbol, notes, created_at
+      actual_hold_minutes, strategy_name, train_id, symbol, notes, created_at
     ) VALUES ?`,
     [values]
   );
@@ -397,6 +402,7 @@ async function saveStrategyResult(
   config: TrainingConfig,
   resultGroup: string,
   runId: string,
+  trainId: string,
   strategy: Strategy,
   result: BacktestResult,
   executorVersion: string,
@@ -419,7 +425,7 @@ async function saveStrategyResult(
 
   await db.query(
     `INSERT INTO ${BACKTEST_RESULTS_TABLE}
-     (result_group, run_id, config_name, mode, symbol, interval_type, period_start_ms, period_end_ms,
+     (result_group, run_id, train_id, config_name, mode, symbol, interval_type, period_start_ms, period_end_ms,
       strategy_name, strategy_type, total_trades, winning_trades, losing_trades,
       win_rate, gross_pnl, total_commission, total_pnl, return_pct, avg_pnl, sharpe_ratio, profit_factor, max_drawdown, max_drawdown_pct,
      gross_profit, gross_loss, avg_win, avg_loss, score, parameters,
@@ -452,6 +458,7 @@ async function saveStrategyResult(
     [
       resultGroup,
       runId,
+      trainId,
       config.name,
       resolveRunMode(config),
       config.market.symbol,
@@ -508,6 +515,14 @@ function createTradeBatchCreatedAt(): string {
   return new Date().toISOString().slice(0, 19).replace('T', ' ');
 }
 
+function createTrainId(): string {
+  return `train-${new Date().toISOString().slice(0, 10)}-${randomBytes(4).toString('hex')}`;
+}
+
+function resolveTrainId(config: TrainingConfig): string {
+  return String(config.trainId || config.trainingMeta?.trainId || '').trim() || createTrainId();
+}
+
 /**
  * 执行训练
  */
@@ -516,7 +531,8 @@ async function runTraining(
   strategies: readonly Strategy[],
   klines: readonly KlineData[],
   executorOptions: ExecutorOptions,
-  runId: string
+  runId: string,
+  trainId: string
 ): Promise<void> {
   const resultGroup = resolveResultGroup(config);
   const executorVersion = config.executor.version;
@@ -552,12 +568,12 @@ async function runTraining(
 
         // 批量保存交易
         if (persistTrades && allTrades.length >= TRADE_BATCH_SIZE) {
-          await saveTrades(allTrades, tradeBatchCreatedAt);
+          await saveTrades(allTrades, tradeBatchCreatedAt, trainId);
           allTrades = [];
         }
 
         // 保存策略结果
-        await saveStrategyResult(config, resultGroup, runId, strategy, result, executorVersion, executorOptions);
+        await saveStrategyResult(config, resultGroup, runId, trainId, strategy, result, executorVersion, executorOptions);
       }
 
       // 显示进度
@@ -574,7 +590,7 @@ async function runTraining(
 
   // 保存剩余交易
   if (persistTrades && allTrades.length > 0) {
-    await saveTrades(allTrades, tradeBatchCreatedAt);
+    await saveTrades(allTrades, tradeBatchCreatedAt, trainId);
   }
 
   const endTime = Date.now();
@@ -636,7 +652,7 @@ async function queryTopStrategies(resultGroup: string, topN: number, runId?: str
 /**
  * 保存Top策略到strategies表
  */
-async function saveTopStrategies(topResults: readonly StrategyResult[], config: TrainingConfig): Promise<void> {
+async function saveTopStrategies(topResults: readonly StrategyResult[], config: TrainingConfig, trainId: string): Promise<void> {
   console.log(`\n💾 保存 Top ${topResults.length} 策略到 strategies 表...\n`);
 
   const prefix = config.output.strategyNamePrefix ?? '';
@@ -655,13 +671,14 @@ async function saveTopStrategies(topResults: readonly StrategyResult[], config: 
 
     try {
       await db.query(
-        `INSERT INTO strategies (name, type, parameters, description, is_active)
-         VALUES (?, ?, ?, ?, 1)
+        `INSERT INTO strategies (name, train_id, type, parameters, description, is_active)
+         VALUES (?, ?, ?, ?, ?, 1)
          ON DUPLICATE KEY UPDATE
+         train_id = VALUES(train_id),
          parameters = VALUES(parameters),
          description = VALUES(description),
          updated_at = CURRENT_TIMESTAMP`,
-        [name, result.strategy_type, JSON.stringify(params), description]
+        [name, trainId, result.strategy_type, JSON.stringify(params), description]
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -710,10 +727,12 @@ async function main(): Promise<void> {
     // 1. 加载配置
     const resolvedConfigPath = resolveConfigPath(configPath);
     const config = loadConfig(configPath);
+    const trainId = resolveTrainId(config);
     if (shouldSyncConfigToRegistry(resolvedConfigPath)) {
       await ensureTrainConfigRegistryTable(db);
       await upsertTrainConfigFromFile(db, resolvedConfigPath);
     }
+    await ensureTrainDataTraceSchema(db);
     const policyCatalog = loadRouterPolicyCatalogFromRefs({
       baseFilePath: resolvedConfigPath,
       routerConfigPath: config.regimeRouting?.routerConfigPath,
@@ -731,7 +750,8 @@ async function main(): Promise<void> {
     // 2. 注册任务
     taskId = await taskManager.createTask(
       config.name,
-      config.description ?? `Training ${config.name}`
+      config.description ?? `Training ${config.name}`,
+      trainId
     );
 
     // 3. 确保数据库表
@@ -749,7 +769,7 @@ async function main(): Promise<void> {
     const klines = await loadKlines(config);
 
     // 6. 执行训练
-    await runTraining(config, strategies, klines, config.executor.options, runId);
+    await runTraining(config, strategies, klines, config.executor.options, runId, trainId);
 
     // 7. 查询Top策略
     const topN = config.output.topN ?? 10;
@@ -757,7 +777,7 @@ async function main(): Promise<void> {
 
     // 8. 保存Top策略
     if (topResults.length > 0 && (config.output.persistTopStrategies ?? true)) {
-      await saveTopStrategies(topResults, config);
+      await saveTopStrategies(topResults, config, trainId);
     }
 
     // 9. 标记任务完成
@@ -777,6 +797,7 @@ async function main(): Promise<void> {
     console.log(`   - 结果表: ${BACKTEST_RESULTS_TABLE}`);
     console.log(`   - 逻辑分组: ${resultGroup}`);
     console.log(`   - run_id: ${runId}`);
+    console.log(`   - train_id: ${trainId}`);
     if (policyCatalog) {
       console.log(`   - 路由策略表: ${policyCatalog.routerVersion} (${policyCatalog.catalogVersion})`);
     }

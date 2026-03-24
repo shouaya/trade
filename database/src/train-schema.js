@@ -1,5 +1,13 @@
 const { BACKTEST_RESULTS_DDL } = require('./backtest-results.schema');
-const { TRAIN_CONFIGS_DDL } = require('./train-configs.schema');
+const {
+  GENERIC_CONFIG_DETAILS_DDL,
+  POLICY_CONFIG_DETAILS_DDL,
+  ROUTER_CONFIG_DETAILS_DDL,
+  SNAPSHOT_CONFIG_DETAILS_DDL,
+  TRAIN_CONFIGS_DDL,
+  TRAINING_CONFIG_DETAILS_DDL,
+  VALIDATION_CONFIG_DETAILS_DDL
+} = require('./train-configs.schema');
 const { TRAIN_RUN_REQUESTS_DDL } = require('./train-run-requests.schema');
 const {
   dropColumnIfExists,
@@ -10,7 +18,14 @@ const {
 } = require('./schema-utils');
 const {
   BACKTEST_RESULTS_TABLE,
+  GENERIC_CONFIG_DETAILS_TABLE,
+  POLICY_CONFIG_DETAILS_TABLE,
+  ROUTER_CONFIG_DETAILS_TABLE,
+  SNAPSHOT_CONFIG_DETAILS_TABLE,
+  TABLES,
   TRAIN_CONFIGS_TABLE,
+  TRAINING_CONFIG_DETAILS_TABLE,
+  VALIDATION_CONFIG_DETAILS_TABLE,
   TRAIN_RUN_REQUESTS_TABLE
 } = require('./table-names');
 
@@ -19,6 +34,7 @@ async function ensureBacktestResultsSchema(db, tableName = BACKTEST_RESULTS_TABL
 
   await ensureColumn(db, tableName, 'result_group', `VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'logical result group' AFTER id`);
   await ensureColumn(db, tableName, 'run_id', `VARCHAR(64) NOT NULL DEFAULT '' COMMENT 'single training or validation run id' AFTER result_group`);
+  await ensureColumn(db, tableName, 'train_id', `VARCHAR(100) NULL COMMENT 'root training lineage id' AFTER run_id`);
   await ensureColumn(db, tableName, 'config_name', `VARCHAR(255) NULL COMMENT 'config name' AFTER run_id`);
   await ensureColumn(db, tableName, 'mode', `VARCHAR(20) NULL COMMENT 'training / validation' AFTER config_name`);
   await ensureColumn(db, tableName, 'symbol', `VARCHAR(20) NULL COMMENT 'market symbol' AFTER mode`);
@@ -50,27 +66,59 @@ async function ensureBacktestResultsSchema(db, tableName = BACKTEST_RESULTS_TABL
 
   await ensureIndex(db, tableName, 'idx_result_group', 'INDEX idx_result_group (result_group)');
   await ensureIndex(db, tableName, 'idx_result_group_run_id', 'INDEX idx_result_group_run_id (result_group, run_id)');
+  await ensureIndex(db, tableName, 'idx_train_id', 'INDEX idx_train_id (train_id)');
   await ensureIndex(db, tableName, 'idx_symbol_mode', 'INDEX idx_symbol_mode (symbol, mode)');
   await ensureIndex(db, tableName, 'uniq_result_group_run_strategy', 'UNIQUE INDEX uniq_result_group_run_strategy (result_group, run_id, strategy_name)');
 }
 
 async function ensureTrainConfigsSchema(db) {
   await db.query(TRAIN_CONFIGS_DDL);
+  await db.query(TRAINING_CONFIG_DETAILS_DDL);
+  await db.query(VALIDATION_CONFIG_DETAILS_DDL);
+  await db.query(SNAPSHOT_CONFIG_DETAILS_DDL);
+  await db.query(ROUTER_CONFIG_DETAILS_DDL);
+  await db.query(POLICY_CONFIG_DETAILS_DDL);
+  await db.query(GENERIC_CONFIG_DETAILS_DDL);
+
+  await ensureColumn(db, TRAIN_CONFIGS_TABLE, 'train_id', `VARCHAR(100) NULL COMMENT 'root training lineage id' AFTER training_year`);
+  await ensureColumn(db, TRAIN_CONFIGS_TABLE, 'parent_config_id', `INT NULL COMMENT 'upstream config version id' AFTER train_id`);
+  await ensureColumn(db, TRAIN_CONFIGS_TABLE, 'version_no', `INT NOT NULL DEFAULT 1 COMMENT 'monotonic version within config key' AFTER parent_config_id`);
+  await ensureColumn(db, TRAIN_CONFIGS_TABLE, 'status', `VARCHAR(20) NOT NULL DEFAULT 'active' COMMENT 'draft / active / archived' AFTER version_no`);
+  await ensureIndex(db, TRAIN_CONFIGS_TABLE, 'uniq_config_key_version', 'UNIQUE INDEX uniq_config_key_version (config_key, version_no)');
+  await ensureIndex(db, TRAIN_CONFIGS_TABLE, 'idx_train_id', 'INDEX idx_train_id (train_id)');
+  await ensureIndex(db, TRAIN_CONFIGS_TABLE, 'idx_parent_config_id', 'INDEX idx_parent_config_id (parent_config_id)');
+  await ensureIndex(db, TRAIN_CONFIGS_TABLE, 'idx_config_key_status', 'INDEX idx_config_key_status (config_key, status, updated_at)');
   await dropIndexIfExists(db, TRAIN_CONFIGS_TABLE, 'idx_synced_at');
+  await dropIndexIfExists(db, TRAIN_CONFIGS_TABLE, 'uniq_config_key');
   await dropColumnIfExists(db, TRAIN_CONFIGS_TABLE, 'file_mtime');
   await dropColumnIfExists(db, TRAIN_CONFIGS_TABLE, 'synced_at');
   await dropColumnIfExists(db, TRAIN_CONFIGS_TABLE, 'file_path');
   await dropColumnIfExists(db, TRAIN_CONFIGS_TABLE, 'file_name');
+  await dropColumnIfExists(db, TRAIN_CONFIGS_TABLE, 'content');
 }
 
 async function ensureTrainRunRequestsSchema(db) {
   await db.query(TRAIN_RUN_REQUESTS_DDL);
+  await ensureColumn(db, TRAIN_RUN_REQUESTS_TABLE, 'train_id', `VARCHAR(100) NULL COMMENT 'root training lineage id' AFTER config_type`);
+  await ensureIndex(db, TRAIN_RUN_REQUESTS_TABLE, 'idx_train_id', 'INDEX idx_train_id (train_id)');
   await ensureColumn(db, TRAIN_RUN_REQUESTS_TABLE, 'execution_pid', 'INT NULL AFTER worker_pid');
   await ensureColumn(db, TRAIN_RUN_REQUESTS_TABLE, 'cancel_requested', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER execution_pid');
+}
+
+async function ensureTrainDataTraceSchema(db) {
+  await ensureColumn(db, TABLES.STRATEGIES, 'train_id', `VARCHAR(100) NULL COMMENT 'root training lineage id' AFTER name`);
+  await ensureIndex(db, TABLES.STRATEGIES, 'idx_train_id', 'INDEX idx_train_id (train_id)');
+
+  await ensureColumn(db, TABLES.TRADES, 'train_id', `VARCHAR(100) NULL COMMENT 'root training lineage id' AFTER strategy_name`);
+  await ensureIndex(db, TABLES.TRADES, 'idx_train_id', 'INDEX idx_train_id (train_id)');
+
+  await ensureColumn(db, TABLES.TASKS, 'train_id', `VARCHAR(100) NULL COMMENT 'root training lineage id' AFTER task_id`);
+  await ensureIndex(db, TABLES.TASKS, 'idx_train_id', 'INDEX idx_train_id (train_id)');
 }
 
 module.exports = {
   ensureBacktestResultsSchema,
   ensureTrainConfigsSchema,
-  ensureTrainRunRequestsSchema
+  ensureTrainRunRequestsSchema,
+  ensureTrainDataTraceSchema
 };

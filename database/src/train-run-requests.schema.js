@@ -6,6 +6,7 @@ const TRAIN_RUN_REQUESTS_DDL = `
     config_key VARCHAR(255) NOT NULL,
     config_name VARCHAR(255) NULL,
     config_type VARCHAR(50) NOT NULL,
+    train_id VARCHAR(100) NULL COMMENT 'root training lineage id',
     action VARCHAR(20) NOT NULL COMMENT 'train / validate',
     status VARCHAR(20) NOT NULL COMMENT 'queued / exporting / running / completed / failed / cancelled',
     requested_by VARCHAR(100) NULL,
@@ -26,6 +27,7 @@ const TRAIN_RUN_REQUESTS_DDL = `
     INDEX idx_status_created (status, created_at),
     INDEX idx_config_id (config_id),
     INDEX idx_config_key (config_key),
+    INDEX idx_train_id (train_id),
     INDEX idx_action_status (action, status)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;

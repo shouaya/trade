@@ -11,7 +11,7 @@
 1. 数据确认
 2. 策略池训练
 3. 生成验证配置
-4. 未来期验证
+4. rolling 验证
 5. router 生成或迭代
 6. 路由验证
 7. 文档固化
@@ -53,7 +53,7 @@
 
 1. 新建候选池
 2. 生成验证配置
-3. 跑未来期验证
+3. 跑 rolling 验证
 4. 生成或修正 router
 5. 路由验证
 6. 整理文档
@@ -189,7 +189,7 @@ reports/regime-routing-results/<SYMBOL>_<router_name>_<period>.md
 - 训练：`2024-01-01 -> 2025-12-31`
 - 验证：`2026-01-01 -> 2026-12-31`
 
-如果未来期不完整，也可以先用部分未来期验证，但必须在报告中明确写出截止日期。
+如果 rolling 区间暂时不完整，也可以先用部分窗口验证，但必须在报告中明确写出截止日期。
 
 ### 阶段输出
 
@@ -468,7 +468,7 @@ npm run train -- configs/training/<training_config>.json
 
 ---
 
-## 阶段 9：未来期验证
+## 阶段 9：rolling 验证
 
 ### 目标
 
@@ -528,7 +528,7 @@ DB_HOST=127.0.0.1 node dist/scripts/router-validate.js \
 - stop / reduce / full-size / `loss_recheck`
 - strategy churn / action churn
 
-### 未来期通过标准
+### rolling 验证通过标准
 
 - 总收益为正，或明显优于默认策略
 - 最大回撤可接受
@@ -557,7 +557,7 @@ DB_HOST=127.0.0.1 node dist/scripts/router-validate.js \
 - 候选池是否太依赖薄 edge
 - router 是否用过多切换来堆理论收益
 
-### 未来期失败后如何处理
+### rolling 验证失败后如何处理
 
 按以下顺序回退：
 
@@ -626,10 +626,10 @@ DB_HOST=127.0.0.1 node dist/scripts/router-validate.js \
 9. 再构建日级规则。
 10. 必要时加入 `loss_recheck`。
 11. 生成 router / policy catalog / summary。
-12. 跑未来期验证。
+12. 跑 rolling 验证。
 13. 与 default / rank1 / topN / oracle 比较。
 14. 记录坏周、坏日、修正原因。
-15. 迭代直到未来期表现稳定。
+15. 迭代直到 rolling 验证表现稳定。
 
 ### 模板：既有交易对 router 迭代
 
@@ -641,7 +641,7 @@ DB_HOST=127.0.0.1 node dist/scripts/router-validate.js \
 6. 判断是切策略、减仓还是停做。
 7. 写入新规则。
 8. 重跑训练期，确认无明显误伤。
-9. 重跑未来期，确认泛化改善。
+9. 重跑 rolling 验证，确认泛化改善。
 10. 更新 policy catalog 和 summary。
 
 ## 与 METHODOLOGY 的关系

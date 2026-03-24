@@ -20,7 +20,7 @@ export function buildRunCommand(configType: unknown, configKey: unknown): string
 
 export function resolveAllowedActions(configType: unknown): readonly string[] {
   if (configType === 'training') {
-    return ['train', 'generate-validation', 'feature-causality'];
+    return ['train', 'generate-validation', 'build-router', 'feature-causality'];
   }
 
   if (configType === 'validation') {
@@ -62,7 +62,10 @@ export function buildClearResultsPlan(
   const removableConfigs = String(primaryConfig?.configType || '') === 'training'
     ? relatedConfigs.filter((item) => {
       const configType = String(item?.configType || '');
-      return configType === 'validation' || configType === 'top-strategies';
+      return configType === 'validation'
+        || configType === 'top-strategies'
+        || configType === 'router'
+        || configType === 'policy';
     })
     : [];
 

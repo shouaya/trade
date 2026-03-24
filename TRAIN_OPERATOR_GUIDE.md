@@ -19,7 +19,7 @@
 
 当前 `train` 的最小工作流分成两层：
 
-- 第一层：训练候选池 -> 生成验证配置 -> 跑未来期验证
+- 第一层：训练候选池 -> 生成验证配置 -> 跑 rolling 验证
 - 第二层：补 router / policy catalog -> 跑 router 验证 -> 出策略系统报告
 
 如果你只是第一次上手，建议先跑通第一层。
@@ -233,7 +233,7 @@ docker compose run --rm train sh -lc "npm install && npm run build && npm run tr
 
 ## Step 4：把 Top 策略导出成验证配置
 
-训练跑完后，下一步通常不是直接写 router，而是先做未来期验证。
+训练跑完后，下一步通常不是直接写 router，而是先做 rolling 验证。
 
 最省事的做法是用现有脚本生成验证配置和 Top 策略快照。
 
@@ -271,7 +271,7 @@ docker compose run --rm train sh -lc "npm install && node scripts/generate-top3-
 - `exact=true`
   表示验证配置里写入显式策略列表，最适合复验
 
-## Step 5：跑未来期验证
+## Step 5：跑 rolling 验证
 
 拿到验证配置后，直接跑：
 
@@ -279,7 +279,7 @@ docker compose run --rm train sh -lc "npm install && node scripts/generate-top3-
 docker compose run --rm train sh -lc "npm install && npm run build && npm run validate -- configs/validation/2026_btcjpy_top10_exact_from_my_run_2026_validation.json"
 ```
 
-这一步主要会把未来期候选池结果也写进：
+这一步主要会把 rolling 验证结果写进：
 
 - 数据库表 `backtest_results`
 
@@ -317,7 +317,7 @@ docker compose run --rm train sh -lc "npm install && npm run build && npm run au
 
 - 候选池已经跑通
 - Top 策略有明显差异
-- 未来期验证已经有基础结果
+- rolling 验证已经有基础结果
 - 你已经知道最差周、最差日大概在哪里
 
 这时再根据：
@@ -357,7 +357,7 @@ docker compose run --rm train sh -lc "npm install && npm run build && node dist/
 1. 新建训练配置
 2. 跑训练
 3. 生成验证配置
-4. 跑未来期验证
+4. 跑 rolling 验证
 5. 跑成本敏感度
 6. 跑因果特征审计
 
@@ -407,6 +407,6 @@ docker compose run --rm train sh -lc "npm install && npm run build && node dist/
 
 先跑通：
 
-**训练配置 -> 候选池训练 -> 验证配置 -> 未来期验证 -> 成本/因果审计**
+**训练配置 -> 候选池训练 -> 验证配置 -> rolling 验证 -> 成本/因果审计**
 
 等这些结果看明白了，再进入 router 和 policy system 阶段。
