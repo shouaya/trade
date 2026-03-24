@@ -9,7 +9,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@money/simulator': path.resolve(__dirname, '../simulator/esm/index.mjs'),
+      '@money/simulator': path.resolve(__dirname, '../simulator/src/index.ts'),
     },
   },
   server: {
