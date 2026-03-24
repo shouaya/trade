@@ -7,6 +7,8 @@ require('./train-orchestration.test.ts');
 require('./training-management.test.ts');
 require('./train-pipeline-summary.test.ts');
 require('./train-pipeline-summary.integration.test.ts');
+require('./goal-attainment-report.test.ts');
+require('./ut-feature-baselines.test.ts');
 require('./rolling-artifact-builder.test.ts');
 require('./rolling-features.test.ts');
 require('./market-feature-scenarios.test.ts');

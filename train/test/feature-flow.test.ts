@@ -410,6 +410,8 @@ test('feature flow runs training params to rolling artifacts and router outputs 
     assert.equal(routerReport.policyCatalog !== null, true);
     assert.equal(routerReport.dailyRoutes.length >= 1, true);
     assert.equal(typeof routerReport.comparison.router.totalPnl, 'number');
+    assert.equal(routerReport.comparison.router.tradedDays > 0, true);
+    assert.notEqual(routerReport.comparison.router.totalPnl, 0);
   } finally {
     dbModule.default.query = originalQuery;
     fs.rmSync(tempRoot, { recursive: true, force: true });

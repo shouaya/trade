@@ -1,7 +1,10 @@
 const assert = require('node:assert/strict');
 
 const { test } = require('./harness.ts');
-const { buildRollingArtifactPackage } = require('../dist/services/rolling-artifact-builder.js');
+const {
+  buildRollingArtifactPackage,
+  normalizeLayerSummary,
+} = require('../dist/services/rolling-artifact-builder.js');
 
 test('rolling artifact builder creates month week day mapping package from training data', () => {
   const strategyRows = [
@@ -150,4 +153,27 @@ test('rolling artifact builder respects routerSplit featureEngineering defaults'
   });
 
   assert.ok(splitDisabled.routerRules.every((rule) => !(rule.when && rule.when.positiveStrategyRatio)));
+});
+
+test('rolling artifact builder downgrades weekly all-stop summary to reduce so router does not flatline by default', () => {
+  const weeklySummary = normalizeLayerSummary('weekly_guard', {
+    actionType: 'stop',
+    averageRisk: 0,
+    dominantStrategy: 'alpha',
+    sampleCount: 5,
+  });
+
+  assert.equal(weeklySummary.actionType, 'reduce');
+  assert.equal(weeklySummary.averageRisk, 0.5);
+  assert.equal(weeklySummary.dominantStrategy, 'alpha');
+
+  const monthlySummary = normalizeLayerSummary('monthly_guard', {
+    actionType: 'stop',
+    averageRisk: 0,
+    dominantStrategy: 'alpha',
+    sampleCount: 5,
+  });
+
+  assert.equal(monthlySummary.actionType, 'stop');
+  assert.equal(monthlySummary.averageRisk, 0);
 });

@@ -149,3 +149,95 @@ test('train config registry persists rolling package child rows for top-strategi
   assert.ok(queries.some((entry) => entry.sql.includes('INSERT INTO rolling_pool_details')));
   assert.ok(queries.some((entry) => entry.sql.includes('INSERT INTO rolling_rule_details')));
 });
+
+test('train config registry persists rolling rule detail fields needed by reports and db analysis', async () => {
+  const rollingRuleInserts = [];
+  const db = {
+    query: async (sql, params = []) => {
+      const text = String(sql);
+      if (text.includes('SELECT id, version_no')) {
+        return [[]];
+      }
+      if (text.includes('INSERT INTO train_configs')) {
+        return [{ insertId: 34 }];
+      }
+      if (text.includes('INSERT INTO rolling_rule_details')) {
+        rollingRuleInserts.push(params);
+      }
+      return [{}];
+    }
+  };
+
+  await upsertTrainConfig(
+    db,
+    'configs/top-strategies/rolling_beta.generated.json',
+    {
+      artifactType: 'rolling-strategy-package',
+      generatedAt: '2026-03-25T00:00:00.000Z',
+      market: {
+        symbol: 'BTCJPY',
+        intervalType: '1min',
+      },
+      trainingContext: {
+        trainId: 'train-beta',
+      },
+      rollingPlan: {
+        monthlyPools: [],
+        rules: {
+          monthlyGuard: [
+            {
+              id: 'monthly_guard_range_mid_vol',
+              priority: 1,
+              when: { featureBucket: ['range-mid-vol'] },
+              action: { type: 'trade', riskCap: 1, strategyKey: 'rank1' },
+              rationale: 'monthly trade rule'
+            }
+          ],
+          weeklyGuard: [
+            {
+              id: 'weekly_guard_range_mid_vol',
+              priority: 2,
+              when: { featureBucket: ['range-mid-vol'] },
+              action: { type: 'stop', riskCap: 0 },
+              rationale: 'weekly stop rule'
+            }
+          ],
+          dailyRouter: [],
+          lossRecheck: []
+        }
+      },
+      rollingRouter: {
+        defaultStrategyKey: 'rank1',
+        strategyCatalog: {
+          rank1: {
+            strategyName: 'alpha',
+            shortLabel: 'TOP1'
+          }
+        },
+        rules: []
+      }
+    },
+    {
+      explicitType: 'top-strategies'
+    }
+  );
+
+  assert.equal(rollingRuleInserts.length, 2);
+
+  const monthlyInsert = rollingRuleInserts.find((params) => params[1] === 'monthly_guard');
+  const weeklyInsert = rollingRuleInserts.find((params) => params[1] === 'weekly_guard');
+
+  assert.ok(monthlyInsert);
+  assert.equal(monthlyInsert[4], 'range-mid-vol');
+  assert.equal(monthlyInsert[5], 'rank1');
+  assert.equal(monthlyInsert[6], 'alpha');
+  assert.equal(monthlyInsert[7], 'trade');
+  assert.equal(monthlyInsert[8], 1);
+
+  assert.ok(weeklyInsert);
+  assert.equal(weeklyInsert[4], 'range-mid-vol');
+  assert.equal(weeklyInsert[5], null);
+  assert.equal(weeklyInsert[6], null);
+  assert.equal(weeklyInsert[7], 'stop');
+  assert.equal(weeklyInsert[8], 0);
+});

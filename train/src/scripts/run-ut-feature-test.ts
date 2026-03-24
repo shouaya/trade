@@ -8,6 +8,9 @@ import {
   computeScenarioCoverage,
   getMarketFeatureScenario
 } from '../ut/market-feature-scenarios';
+import {
+  assertUtFeatureBaseline
+} from '../ut/ut-feature-baselines';
 
 interface CliArgs {
   readonly scenario: string;
@@ -268,6 +271,16 @@ async function main(): Promise<void> {
       throw new Error('router validation produced no daily routes in UT feature flow');
     }
 
+    const baseline = assertUtFeatureBaseline({
+      scenarioKey: scenario.key,
+      coverage,
+      validationConfigCount: artifacts.validationConfigs.length,
+      routerRuleCount: routerResult.carriedRuleCount,
+      routerTradedDays: Number(routerReport.comparison?.router?.tradedDays || 0),
+      routerTotalPnl: Number(routerReport.comparison?.router?.totalPnl || 0),
+      pipelineStepCount: Array.isArray(pipeline.steps) ? pipeline.steps.length : 0
+    });
+
     console.log('='.repeat(80));
     console.log('✅ UT feature flow completed');
     console.log(`DB: ${utDbName}`);
@@ -278,7 +291,10 @@ async function main(): Promise<void> {
     console.log(`Validation configs: ${artifacts.validationConfigs.length}`);
     console.log(`Selected validation: ${selectedValidation.configKey}`);
     console.log(`Router rules: ${routerResult.carriedRuleCount}`);
+    console.log(`Router traded days: ${routerReport.comparison.router.tradedDays}`);
+    console.log(`Router total pnl: ${routerReport.comparison.router.totalPnl}`);
     console.log(`Pipeline step count: ${pipeline.steps.length}`);
+    console.log(`Baseline checks: ${baseline.checks.length}`);
     console.log('='.repeat(80));
 
     await db.end();

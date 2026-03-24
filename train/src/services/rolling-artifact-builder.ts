@@ -257,6 +257,21 @@ interface SampleSummary {
   readonly sampleCount: number;
 }
 
+export function normalizeLayerSummary(
+  layer: RollingRouterLayer,
+  summary: SampleSummary
+): SampleSummary {
+  if (layer !== 'weekly_guard' || summary.actionType !== 'stop') {
+    return summary;
+  }
+
+  return {
+    ...summary,
+    actionType: 'reduce',
+    averageRisk: Math.max(summary.averageRisk, 0.5)
+  };
+}
+
 function summarizeSamples(samples: readonly PeriodDecisionSample[]): SampleSummary {
   const candidateScores = new Map<string, { score: number; count: number }>();
   let stopCount = 0;
@@ -312,15 +327,18 @@ function buildAction(
   summary: SampleSummary,
   strategyKeyMap: ReadonlyMap<string, string>
 ): RouterRule['action'] {
-  const strategyKey = summary.dominantStrategy ? strategyKeyMap.get(summary.dominantStrategy) ?? null : null;
+  const normalizedSummary = normalizeLayerSummary(layer, summary);
+  const strategyKey = normalizedSummary.dominantStrategy
+    ? strategyKeyMap.get(normalizedSummary.dominantStrategy) ?? null
+    : null;
   return {
-    type: summary.actionType,
+    type: normalizedSummary.actionType,
     ...(layer === 'monthly_guard' || layer === 'weekly_guard'
-      ? { riskCap: summary.actionType === 'stop' ? 0 : summary.averageRisk }
-      : summary.actionType === 'reduce'
-        ? { riskMultiplier: summary.averageRisk }
+      ? { riskCap: normalizedSummary.actionType === 'stop' ? 0 : normalizedSummary.averageRisk }
+      : normalizedSummary.actionType === 'reduce'
+        ? { riskMultiplier: normalizedSummary.averageRisk }
         : {}),
-    ...(strategyKey && summary.actionType !== 'stop' ? { strategyKey } : {})
+    ...(strategyKey && normalizedSummary.actionType !== 'stop' ? { strategyKey } : {})
   };
 }
 

@@ -82,6 +82,15 @@ interface ValidationWindowSummary {
   readonly bestMaxDrawdownPct: number;
 }
 
+interface Queryable {
+  readonly query: (sql: string, params?: unknown[]) => Promise<[any, any]>;
+}
+
+export interface ValidationWindowRange {
+  readonly startTimeMs: number;
+  readonly endTimeMs: number;
+}
+
 interface ParsedArgs {
   readonly trainConfigPath: string;
   readonly trainConfigRef: string | null;
@@ -273,30 +282,74 @@ async function loadDerivedRows(trainId: string): Promise<readonly RegistryRow[]>
   return rows;
 }
 
-async function loadLatestValidationRows(resultGroup: string): Promise<readonly BacktestResultRow[]> {
-  const [runRows] = await db.query<mysql.RowDataPacket[]>(
+export function resolveValidationWindowRange(validationContent: JsonObject | null | undefined): ValidationWindowRange | null {
+  const startTimeMs = Number(
+    validationContent?.timeRange?.startTimeMs
+    ?? (validationContent?.timeRange?.startIso ? Date.parse(String(validationContent.timeRange.startIso)) : Number.NaN)
+  );
+  const endTimeMs = Number(
+    validationContent?.timeRange?.endTimeMs
+    ?? (validationContent?.timeRange?.endIso ? Date.parse(String(validationContent.timeRange.endIso)) : Number.NaN)
+  );
+
+  if (!Number.isFinite(startTimeMs) || !Number.isFinite(endTimeMs)) {
+    return null;
+  }
+
+  return {
+    startTimeMs,
+    endTimeMs
+  };
+}
+
+export async function loadLatestValidationRows(
+  queryable: Queryable,
+  resultGroup: string,
+  windowRange?: ValidationWindowRange | null
+): Promise<readonly BacktestResultRow[]> {
+  const runWhere = windowRange
+    ? `WHERE result_group = ?
+       AND mode = 'validation'
+       AND period_start_ms = ?
+       AND period_end_ms = ?`
+    : `WHERE result_group = ?
+       AND mode = 'validation'`;
+  const runParams = windowRange
+    ? [resultGroup, windowRange.startTimeMs, windowRange.endTimeMs]
+    : [resultGroup];
+
+  const [runRows] = await queryable.query(
     `SELECT run_id
      FROM ${BACKTEST_RESULTS_TABLE}
-     WHERE result_group = ?
-       AND mode = 'validation'
+     ${runWhere}
      ORDER BY created_at DESC, id DESC
      LIMIT 1`,
-    [resultGroup]
+    [...runParams]
   );
-  const latestRunId = String(runRows[0]?.['run_id'] || '').trim();
+  const latestRunId = String((runRows as mysql.RowDataPacket[])[0]?.['run_id'] || '').trim();
   if (!latestRunId) {
     return [];
   }
 
-  const [rows] = await db.query<BacktestResultRow[]>(
+  const resultWhere = windowRange
+    ? `WHERE result_group = ?
+       AND run_id = ?
+       AND period_start_ms = ?
+       AND period_end_ms = ?`
+    : `WHERE result_group = ?
+       AND run_id = ?`;
+  const resultParams = windowRange
+    ? [resultGroup, latestRunId, windowRange.startTimeMs, windowRange.endTimeMs]
+    : [resultGroup, latestRunId];
+
+  const [rows] = await queryable.query(
     `SELECT strategy_name, total_pnl, return_pct, max_drawdown_pct, score, created_at
      FROM ${BACKTEST_RESULTS_TABLE}
-     WHERE result_group = ?
-       AND run_id = ?
+     ${resultWhere}
      ORDER BY total_pnl DESC, return_pct DESC, score DESC, strategy_name ASC`,
-    [resultGroup, latestRunId]
+    [...resultParams]
   );
-  return rows;
+  return rows as BacktestResultRow[];
 }
 
 function pickBestValidationRow(rows: readonly BacktestResultRow[]): BacktestResultRow | null {
@@ -571,7 +624,11 @@ async function main(): Promise<void> {
     if (!resultGroup) {
       continue;
     }
-    const latestRows = await loadLatestValidationRows(resultGroup);
+    const latestRows = await loadLatestValidationRows(
+      db,
+      resultGroup,
+      resolveValidationWindowRange(validationContent)
+    );
     const bestRow = pickBestValidationRow(latestRows);
     validationWindows.push({
       configKey: String(row.config_key || ''),
@@ -808,13 +865,15 @@ async function main(): Promise<void> {
   await db.end();
 }
 
-void main().catch(async (error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`Goal tracking failed: ${message}`);
-  try {
-    await db.end();
-  } catch {
-    // ignore
-  }
-  process.exit(1);
-});
+if (require.main === module) {
+  void main().catch(async (error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Goal tracking failed: ${message}`);
+    try {
+      await db.end();
+    } catch {
+      // ignore
+    }
+    process.exit(1);
+  });
+}

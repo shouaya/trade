@@ -28,6 +28,8 @@ async function run(): Promise<void> {
   if (failures > 0) {
     process.exitCode = 1;
   }
+
+  process.exit(process.exitCode || 0);
 }
 
 module.exports = {

@@ -11,7 +11,7 @@ define require_var
 $(if $($(1)),,$(error 缺少参数 $(1). 示例: $(2)))
 endef
 
-.PHONY: help up down restart logs logs-train ps shell mysql db-init db-clear clear-db db-backup db-tables import clear-klines reimport-klines train validate feature-test ut-db-init ut-db-seed ut-feature-test clean
+.PHONY: help up down restart logs logs-train ps shell mysql db-init db-clear clear-db db-backup db-tables import clear-klines reimport-klines train validate feature-test ut-db-init ut-db-seed ut-feature-test ut-feature-test-rolling clean
 
 # ============================================================================
 # 默认命令：显示帮助
@@ -57,6 +57,7 @@ help:
 	@echo "  3. 疏通测试 - 在真正训练前检查参数 -> rolling -> 产物链路"
 	@echo "     make feature-test"
 	@echo "     make ut-feature-test scenario=rolling-regime-shift"
+	@echo "     make ut-feature-test-rolling"
 	@echo ""
 	@echo "📘 Train 说明:"
 	@echo "  现在正式运行入口在 train/src/scripts/*，对应 npm run train / validate / init-db / worker:run-queue"
@@ -201,6 +202,9 @@ ut-feature-test:
 	@echo "🧪 运行基于 trading_ut 的全链路疏通测试..."
 	@docker-compose run --rm -e DB_NAME=trading_ut -e UT_DB_NAME=trading_ut -e UT_DB_ADMIN_USER=root -e UT_DB_ADMIN_PASSWORD=rootpassword train sh -c "npm install && npm run build && npm run test:feature-db -- --scenario=$(if $(scenario),$(scenario),rolling-regime-shift)"
 	@echo "✅ UT feature DB test 通过"
+
+ut-feature-test-rolling:
+	@$(MAKE) ut-feature-test scenario=rolling-regime-shift
 
 # ============================================================================
 # 清理
