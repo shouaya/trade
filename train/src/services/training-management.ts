@@ -10,12 +10,13 @@ export const VALIDATION_PROFILE_OPTIONS = [
 
 export const TRAINING_GUIDE_RECOMMENDATIONS = [
   '首次训练建议从 BTCJPY + 1min 开始，先验证主链路是否跑通。',
+  '默认训练区间会从 DB 数据起点后第 3 个月的月初开始，一直滚动到当前数据终点。',
   'Top N 建议先固定为 10，先看候选池质量，再考虑扩容。',
   'lotSize 建议先固定 0.008，避免一次改太多维度。',
   'maxHoldMinutes 建议先用 6 到 8 分钟，控制高频策略持仓时长。',
   '默认手续费档案已经切到 GMO 取引所レバレッジ 2倍；交易手续费记为 0，但保留 0.04%/日持仓费和 0.5% 强平费元数据。',
   '如果只是第一次创建配置，router 路径可以先留空，等训练和 validation 跑通后再补。',
-  '默认直接走 rolling-window，把主链路对齐到持续滚动验证。',
+  'rolling-window 默认按训练区间内部逐月滚动验证，不再切到训练结束后的未来区间。',
   'custom-range 只用于补充复验，不再作为主链路默认方案。',
   '年度模板已经退出主链路，不再作为默认生成方案。'
 ] as const;
@@ -95,6 +96,13 @@ export interface TrainingGuideBootstrap {
   readonly validationProfiles: typeof VALIDATION_PROFILE_OPTIONS;
 }
 
+export interface TrainingGuideCoverage {
+  readonly symbol?: string;
+  readonly intervalType?: string;
+  readonly minOpenTime?: number | null;
+  readonly maxOpenTime?: number | null;
+}
+
 function asObject(value: unknown): JsonObject {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as JsonObject
@@ -136,13 +144,36 @@ function parseDateInputToIso(dateInput: string, endOfDay = false): string | null
   return utcMs == null ? null : new Date(utcMs).toISOString();
 }
 
-function addUtcDays(dateInput: string, days: number): string | null {
-  const utcMs = parseDateInputToUtcMs(dateInput, false);
-  if (utcMs == null) {
-    return null;
+function startOfUtcMonth(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1, 0, 0, 0));
+}
+
+function resolveCoverageDefaultRange(
+  coverage: TrainingGuideCoverage | null | undefined,
+  now: Date
+): {
+  readonly startDate: string;
+  readonly endDate: string;
+} {
+  const minOpenTime = Number(coverage?.minOpenTime);
+  const maxOpenTime = Number(coverage?.maxOpenTime);
+
+  if (Number.isFinite(minOpenTime) && Number.isFinite(maxOpenTime) && minOpenTime > 0 && maxOpenTime > 0) {
+    const minDate = startOfUtcMonth(new Date(minOpenTime));
+    const startDate = new Date(Date.UTC(minDate.getUTCFullYear(), minDate.getUTCMonth() + 3, 1, 0, 0, 0)).toISOString().slice(0, 10);
+    const maxDate = new Date(maxOpenTime);
+    const endDate = maxDate.toISOString().slice(0, 10);
+    return {
+      startDate,
+      endDate
+    };
   }
 
-  return new Date(utcMs + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const currentYear = now.getUTCFullYear();
+  return {
+    startDate: `${currentYear}-01-01`,
+    endDate: `${currentYear}-12-31`
+  };
 }
 
 function sanitizeToken(value: unknown, fallback = 'run'): string {
@@ -196,24 +227,32 @@ export function inferTrainingRunTag(config: unknown): string {
   return tokens.join('_') || DEFAULT_TRAINING_RUN_TAG;
 }
 
-export function buildDefaultTrainingTemplate(now = new Date()): JsonObject {
+export function buildDefaultTrainingTemplate(now = new Date(), coverage: TrainingGuideCoverage | null = null): JsonObject {
   const currentYear = now.getUTCFullYear();
+  const coverageRange = resolveCoverageDefaultRange(coverage, now);
+  const startTimeMs = parseDateInputToUtcMs(coverageRange.startDate, false) ?? Date.UTC(currentYear, 0, 1, 0, 0, 0);
+  const endTimeMs = parseDateInputToUtcMs(coverageRange.endDate, true) ?? Date.UTC(currentYear, 11, 31, 23, 59, 0);
+  const startIso = parseDateInputToIso(coverageRange.startDate, false) ?? `${currentYear}-01-01T00:00:00.000Z`;
+  const endIso = parseDateInputToIso(coverageRange.endDate, true) ?? `${currentYear}-12-31T23:59:00.000Z`;
+  const startYear = String(coverageRange.startDate).slice(0, 4) || String(currentYear);
+  const symbol = String(coverage?.symbol || DEFAULT_TRAINING_SYMBOL).toUpperCase();
+  const intervalType = String(coverage?.intervalType || '1min');
   const normalizedRunTag = DEFAULT_TRAINING_RUN_TAG.toLowerCase();
   return {
-    name: `${currentYear}_${DEFAULT_TRAINING_SYMBOL}_${DEFAULT_TRAINING_RUN_TAG}`,
-    description: `${currentYear} ${DEFAULT_TRAINING_SYMBOL} ${DEFAULT_TRAINING_RUN_TAG.replace(/_/g, ' ')}`,
+    name: `${startYear}_${symbol}_${DEFAULT_TRAINING_RUN_TAG}`,
+    description: `${coverageRange.startDate} -> ${coverageRange.endDate} ${symbol} ${DEFAULT_TRAINING_RUN_TAG.replace(/_/g, ' ')}`,
     timeRange: {
-      startTimeMs: Date.UTC(currentYear, 0, 1, 0, 0, 0),
-      endTimeMs: Date.UTC(currentYear, 11, 31, 23, 59, 0),
-      startIso: `${currentYear}-01-01T00:00:00.000Z`,
-      endIso: `${currentYear}-12-31T23:59:00.000Z`
+      startTimeMs,
+      endTimeMs,
+      startIso,
+      endIso
     },
     market: {
-      symbol: DEFAULT_TRAINING_SYMBOL,
-      intervalType: '1min'
+      symbol,
+      intervalType
     },
     database: {
-      tableName: `${DEFAULT_TRAINING_SYMBOL.toLowerCase()}_${normalizedRunTag}_train_${currentYear}`,
+      tableName: `${symbol.toLowerCase()}_${normalizedRunTag}_train_${startYear}`,
       resetTableBeforeRun: true
     },
     strategy: {
@@ -252,8 +291,8 @@ export function buildDefaultTrainingTemplate(now = new Date()): JsonObject {
     },
     output: {
       topN: 10,
-      strategyNamePrefix: `${currentYear}-${DEFAULT_TRAINING_SYMBOL}-${DEFAULT_TRAINING_RUN_TAG.replace(/_/g, '-')}-`,
-      descriptionPrefix: `${currentYear} ${DEFAULT_TRAINING_SYMBOL} ${DEFAULT_TRAINING_RUN_TAG.replace(/_/g, ' ')}`
+      strategyNamePrefix: `${startYear}-${symbol}-${DEFAULT_TRAINING_RUN_TAG.replace(/_/g, '-')}-`,
+      descriptionPrefix: `${coverageRange.startDate} -> ${coverageRange.endDate} ${symbol} ${DEFAULT_TRAINING_RUN_TAG.replace(/_/g, ' ')}`
     }
   };
 }
@@ -275,7 +314,6 @@ export function buildTrainingGuideDraft(content: unknown, configKey: string, now
   const endDate = formatDateInput(timeRange['endIso'] || timeRange['endTimeMs'], `${currentYear}-12-31`);
   const year = String(startDate).slice(0, 4) || String(currentYear);
   const holdMinutes = Array.isArray(risk['maxHoldMinutes']) ? risk['maxHoldMinutes'] : [6, 8];
-  const futureValidationStartDate = addUtcDays(endDate, 1) || `${currentYear + 1}-01-01`;
   const fallbackValidationEndDate = now.toISOString().slice(0, 10);
 
   return {
@@ -296,8 +334,8 @@ export function buildTrainingGuideDraft(content: unknown, configKey: string, now
     tableName: String(database['tableName'] || ''),
     routerConfigPath: String(regimeRouting['routerConfigPath'] || ''),
     validationProfile: normalizeValidationProfile(validationPlan['profile']),
-    validationStartDate: formatDateInput(customRange['startIso'] || futureValidationStartDate, futureValidationStartDate),
-    validationEndDate: formatDateInput(customRange['endIso'] || fallbackValidationEndDate, fallbackValidationEndDate),
+    validationStartDate: formatDateInput(customRange['startIso'] || startDate, startDate),
+    validationEndDate: formatDateInput(customRange['endIso'] || endDate || fallbackValidationEndDate, endDate || fallbackValidationEndDate),
     configKey: String(configKey || '')
   };
 }
@@ -323,8 +361,8 @@ export function buildTrainingConfigFromGuide(draft: Partial<TrainingGuideDraft>,
   const tableName = String(draft.tableName || `${symbol.toLowerCase()}_${runTagSlug}_train_${year}`);
   const routerConfigPath = String(draft.routerConfigPath || '').trim();
   const validationProfile = normalizeValidationProfile(draft.validationProfile);
-  const validationStartDate = String(draft.validationStartDate || addUtcDays(endDate, 1) || `${Number(year) + 1}-01-01`);
-  const validationEndDate = String(draft.validationEndDate || now.toISOString().slice(0, 10));
+  const validationStartDate = String(draft.validationStartDate || startDate);
+  const validationEndDate = String(draft.validationEndDate || endDate);
   const configKey = `configs/training/${year}_${symbol.toLowerCase()}_${runTagSlug}.json`;
   const descriptionLabel = `${year} ${symbol} ${runTagDisplay.replace(/_/g, ' ')}`;
 
@@ -425,8 +463,11 @@ export function buildTrainingConfigFromGuide(draft: Partial<TrainingGuideDraft>,
   };
 }
 
-export function buildTrainingGuideBootstrap(now = new Date()): TrainingGuideBootstrap {
-  const content = buildDefaultTrainingTemplate(now);
+export function buildTrainingGuideBootstrap(
+  now = new Date(),
+  coverage: TrainingGuideCoverage | null = null
+): TrainingGuideBootstrap {
+  const content = buildDefaultTrainingTemplate(now, coverage);
   const preview = buildTrainingConfigFromGuide(
     buildTrainingGuideDraft(content, '', now),
     content,

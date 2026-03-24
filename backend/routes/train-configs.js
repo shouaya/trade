@@ -51,6 +51,28 @@ async function loadConfigById(id) {
   return getTrainConfigRegistryService().loadTrainConfigById(db, id);
 }
 
+async function loadTrainingGuideCoverage(symbol, intervalType) {
+  const [rows] = await db.query(
+    `SELECT MIN(open_time) AS min_open_time, MAX(open_time) AS max_open_time
+     FROM klines
+     WHERE symbol = ?
+       AND interval_type = ?`,
+    [symbol, intervalType]
+  );
+
+  const row = rows[0] || {};
+  if (row.min_open_time == null || row.max_open_time == null) {
+    return null;
+  }
+
+  return {
+    symbol,
+    intervalType,
+    minOpenTime: Number(row.min_open_time),
+    maxOpenTime: Number(row.max_open_time)
+  };
+}
+
 function resolveAbsoluteConfigPath(configKey) {
   const fullPath = path.resolve(TRAIN_ROOT, configKey);
   const normalizedRoot = `${TRAIN_ROOT}${path.sep}`;
@@ -95,6 +117,9 @@ function buildStrategyCatalogFromSnapshot(snapshotRecord) {
   const content = snapshotRecord?.content && typeof snapshotRecord.content === 'object'
     ? snapshotRecord.content
     : {};
+  if (content?.rollingRouter?.strategyCatalog && typeof content.rollingRouter.strategyCatalog === 'object') {
+    return content.rollingRouter.strategyCatalog;
+  }
   const explicitStrategies = Array.isArray(content?.strategy?.explicitStrategies)
     ? content.strategy.explicitStrategies
     : [];
@@ -118,7 +143,12 @@ function buildStrategyCatalogFromSnapshot(snapshotRecord) {
 function buildDefaultRouterContent(trainingRecord, routerConfigKey, policyConfigKey, snapshotRecord) {
   const strategyCatalog = buildStrategyCatalogFromSnapshot(snapshotRecord);
   const strategyKeys = Object.keys(strategyCatalog);
-  const defaultStrategyKey = strategyKeys[0] || 'rank1';
+  const rollingRouter = snapshotRecord?.content?.rollingRouter && typeof snapshotRecord.content.rollingRouter === 'object'
+    ? snapshotRecord.content.rollingRouter
+    : null;
+  const defaultStrategyKey = strategyCatalog[rollingRouter?.defaultStrategyKey]
+    ? rollingRouter.defaultStrategyKey
+    : (strategyKeys[0] || 'rank1');
   const symbol = String(trainingRecord.symbol || trainingRecord.content?.market?.symbol || 'BTCJPY').toUpperCase();
   const trainingYear = String(trainingRecord.trainingYear || '').trim() || 'run';
 
@@ -135,7 +165,7 @@ function buildDefaultRouterContent(trainingRecord, routerConfigKey, policyConfig
       }
     },
     strategyCatalog,
-    rules: []
+    rules: Array.isArray(rollingRouter?.rules) ? rollingRouter.rules : []
   };
 }
 
@@ -399,7 +429,10 @@ router.get('/', async (req, res) => {
 router.get('/training-guide/bootstrap', async (req, res) => {
   try {
     const trainManagement = loadTrainingManagementService();
-    const data = trainManagement.buildTrainingGuideBootstrap(new Date());
+    const symbol = String(trainManagement.DEFAULT_TRAINING_SYMBOL || 'BTCJPY').toUpperCase();
+    const intervalType = '1min';
+    const coverage = await loadTrainingGuideCoverage(symbol, intervalType);
+    const data = trainManagement.buildTrainingGuideBootstrap(new Date(), coverage);
 
     res.json({
       success: true,
@@ -433,9 +466,15 @@ router.post('/training-guide/preview', async (req, res) => {
   try {
     const trainManagement = loadTrainingManagementService();
     const body = req.body || {};
+    const draft = body.draft && typeof body.draft === 'object' ? body.draft : {};
+    const symbol = String(draft.symbol || trainManagement.DEFAULT_TRAINING_SYMBOL || 'BTCJPY').toUpperCase();
+    const intervalType = String(draft.intervalType || '1min');
+    const coverage = await loadTrainingGuideCoverage(symbol, intervalType);
     const data = trainManagement.buildTrainingConfigFromGuide(
-      body.draft && typeof body.draft === 'object' ? body.draft : {},
-      body.baseConfig && typeof body.baseConfig === 'object' ? body.baseConfig : trainManagement.buildDefaultTrainingTemplate(new Date()),
+      draft,
+      body.baseConfig && typeof body.baseConfig === 'object'
+        ? body.baseConfig
+        : trainManagement.buildDefaultTrainingTemplate(new Date(), coverage),
       new Date()
     );
 

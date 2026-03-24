@@ -39,6 +39,7 @@ const BACKTEST_RESULTS_DDL = `
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_result_group (result_group),
     INDEX idx_result_group_run_id (result_group, run_id),
+    INDEX idx_result_group_run_rank (result_group, run_id, score, return_pct, total_pnl, strategy_name),
     INDEX idx_train_id (train_id),
     INDEX idx_symbol_mode (symbol, mode),
     INDEX idx_strategy_name (strategy_name),

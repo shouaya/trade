@@ -11,11 +11,20 @@ const {
 
 test('training management bootstrap returns API-ready default guide state', () => {
   const now = new Date('2026-03-24T00:00:00.000Z');
-  const bootstrap = buildTrainingGuideBootstrap(now);
+  const bootstrap = buildTrainingGuideBootstrap(now, {
+    symbol: 'BTCJPY',
+    intervalType: '1min',
+    minOpenTime: Date.parse('2024-01-15T00:00:00.000Z'),
+    maxOpenTime: Date.parse('2026-03-19T23:59:00.000Z'),
+  });
 
-  assert.equal(bootstrap.configKey, 'configs/training/2026_btcjpy_v7_hf_rsi_macd_tp_atr.json');
-  assert.equal(bootstrap.draft.year, '2026');
+  assert.equal(bootstrap.configKey, 'configs/training/2024_btcjpy_v7_hf_rsi_macd_tp_atr.json');
+  assert.equal(bootstrap.draft.year, '2024');
   assert.equal(bootstrap.draft.symbol, 'BTCJPY');
+  assert.equal(bootstrap.draft.startDate, '2024-04-01');
+  assert.equal(bootstrap.draft.endDate, '2026-03-19');
+  assert.equal(bootstrap.draft.validationStartDate, '2024-04-01');
+  assert.equal(bootstrap.draft.validationEndDate, '2026-03-19');
   assert.equal(bootstrap.draft.validationProfile, 'rolling-window');
   assert.ok(Array.isArray(bootstrap.recommendations));
   assert.ok(bootstrap.recommendations.length > 0);

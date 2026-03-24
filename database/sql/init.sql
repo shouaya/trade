@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS backtest_results (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_result_group (result_group),
     INDEX idx_result_group_run_id (result_group, run_id),
+    INDEX idx_result_group_run_rank (result_group, run_id, score, return_pct, total_pnl, strategy_name),
     INDEX idx_symbol_mode (symbol, mode),
     INDEX idx_strategy_name (strategy_name),
     INDEX idx_total_pnl (total_pnl),
@@ -234,6 +235,41 @@ CREATE TABLE IF NOT EXISTS snapshot_config_details (
     raw_json JSON NOT NULL,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_snapshot_config_details_config_id FOREIGN KEY (config_id) REFERENCES train_configs(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS rolling_pool_details (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    config_id INT NOT NULL,
+    month_key VARCHAR(20) NOT NULL,
+    feature_bucket VARCHAR(100) NULL,
+    selected_strategy_name VARCHAR(255) NULL,
+    action_type VARCHAR(20) NULL,
+    risk_cap DECIMAL(10, 4) NULL,
+    top_strategies_json JSON NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_config_month (config_id, month_key),
+    INDEX idx_month_key (month_key),
+    CONSTRAINT fk_rolling_pool_details_config_id FOREIGN KEY (config_id) REFERENCES train_configs(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS rolling_rule_details (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    config_id INT NOT NULL,
+    layer_key VARCHAR(40) NOT NULL,
+    rule_id VARCHAR(255) NOT NULL,
+    priority_no INT NOT NULL DEFAULT 1,
+    feature_bucket VARCHAR(100) NULL,
+    strategy_key VARCHAR(100) NULL,
+    strategy_name VARCHAR(255) NULL,
+    action_type VARCHAR(20) NULL,
+    risk_cap DECIMAL(10, 4) NULL,
+    risk_multiplier DECIMAL(10, 4) NULL,
+    rationale TEXT NULL,
+    rule_json JSON NOT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_config_layer_rule (config_id, layer_key, rule_id),
+    INDEX idx_layer_key (layer_key),
+    CONSTRAINT fk_rolling_rule_details_config_id FOREIGN KEY (config_id) REFERENCES train_configs(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS router_config_details (

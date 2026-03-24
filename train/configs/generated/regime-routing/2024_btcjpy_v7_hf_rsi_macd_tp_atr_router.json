@@ -1,0 +1,1177 @@
+{
+  "symbol": "BTCJPY",
+  "trainId": "train-2026-03-24-17ce02fe",
+  "trainingMeta": {
+    "trainId": "train-2026-03-24-17ce02fe",
+    "trainingConfigKey": "configs/training/2024_btcjpy_v7_hf_rsi_macd_tp_atr.json",
+    "source": "rolling-window"
+  },
+  "routerVersion": "btcjpy_v7_hf_rsi_macd_tp_atr_train_2026_03_24_17ce02fe",
+  "policyCatalogPath": "2024_btcjpy_v7_hf_rsi_macd_tp_atr_router.policy.json",
+  "executionModel": {
+    "precedence": [
+      "monthly_guard",
+      "weekly_guard",
+      "daily_router",
+      "loss_recheck"
+    ],
+    "defaultFallback": {
+      "action": "trade",
+      "riskMultiplier": 1,
+      "strategyKey": "rank1"
+    }
+  },
+  "strategyCatalog": {
+    "rank1": {
+      "role": "default-fallback",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank2": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank3": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank4": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank5": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank6": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank7": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank8": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank9": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank10": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank11": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank12": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank13": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF6-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank14": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank15": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank16": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF6-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank17": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF6-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank18": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank19": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank20": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank21": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank22": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank23": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank24": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank25": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF6-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank26": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank27": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank28": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank29": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank30": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank31": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank32": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank33": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank34": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank35": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank36": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank37": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank38": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF6-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank39": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank40": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank41": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank42": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank43": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank44": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank45": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank46": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF6-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank47": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF6-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank48": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank49": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB68-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank50": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank51": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank52": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF6-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank53": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank54": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF6-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank55": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank56": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank57": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank58": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank59": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank60": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank61": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank62": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank63": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank64": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank65": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank66": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank67": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank68": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank69": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank70": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank71": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank72": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank73": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank74": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank75": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank76": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank77": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank78": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank79": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank80": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank81": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB68-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank82": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank83": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank84": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB68-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank85": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank86": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank87": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank88": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank89": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank90": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank91": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank92": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF6-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank93": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank94": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank95": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank96": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank97": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank98": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank99": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank100": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank101": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank102": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank103": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank104": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank105": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank106": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank107": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF6-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank108": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank109": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank110": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank111": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank112": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank113": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank114": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank115": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank116": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank117": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank118": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank119": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank120": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank121": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank122": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB68-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank123": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank124": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank125": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank126": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank127": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank128": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank129": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank130": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank131": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank132": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank133": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank134": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank135": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank136": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank137": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank138": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank139": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank140": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank141": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank142": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank143": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank144": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank145": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB68-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1.5"
+    },
+    "rank146": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank147": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank148": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank149": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank150": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1"
+    },
+    "rank151": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB65-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank152": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF6-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank153": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank154": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank155": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank156": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB68-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank157": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB68-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank158": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB68-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank159": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF4-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank160": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB68-MF4-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank161": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB68-MF6-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank162": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB68-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank163": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF6-MS9-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank164": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank165": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank166": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank167": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H6-ATRSL1.5-ATRTP1"
+    },
+    "rank168": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank169": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL1.5/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1"
+    },
+    "rank170": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank171": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank172": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank173": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    },
+    "rank174": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS35-OB68-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank175": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank176": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank177": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank178": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank179": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB68/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB68-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank180": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank181": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL1.5/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS32-OB65-MF6-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL1.5-ATRTP1.5"
+    },
+    "rank182": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank183": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB68/H6/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB68-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H6-ATRSL2-ATRTP1.5"
+    },
+    "rank184": {
+      "role": "candidate",
+      "shortLabel": "OS35/OB65/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP5-OS35-OB65-MF4-MS9-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank185": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF4-MS12-MSG4-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank186": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL2/TP1.5",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1.5"
+    },
+    "rank187": {
+      "role": "candidate",
+      "shortLabel": "OS32/OB65/H8/SL2/TP1",
+      "strategyName": "GMOCOIN-RSIMACD-RP7-OS32-OB65-MF6-MS12-MSG3-HT0-MP1-LOT0.008-H8-ATRSL2-ATRTP1"
+    }
+  },
+  "rules": [
+    {
+      "id": "monthly_guard_crash_trend",
+      "when": {
+        "featureBucket": [
+          "crash-trend"
+        ]
+      },
+      "layer": "monthly_guard",
+      "action": {
+        "type": "trade",
+        "riskCap": 0.75,
+        "strategyKey": "rank175"
+      },
+      "priority": 1,
+      "rationale": "monthly_guard learned from 6 rolling samples"
+    },
+    {
+      "id": "monthly_guard_mixed_trend",
+      "when": {
+        "featureBucket": [
+          "mixed-trend"
+        ]
+      },
+      "layer": "monthly_guard",
+      "action": {
+        "type": "trade",
+        "riskCap": 1,
+        "strategyKey": "rank90"
+      },
+      "priority": 2,
+      "rationale": "monthly_guard learned from 5 rolling samples"
+    },
+    {
+      "id": "monthly_guard_range_mid_vol",
+      "when": {
+        "featureBucket": [
+          "range-mid-vol"
+        ]
+      },
+      "layer": "monthly_guard",
+      "action": {
+        "type": "trade",
+        "riskCap": 0.9375,
+        "strategyKey": "rank36"
+      },
+      "priority": 3,
+      "rationale": "monthly_guard learned from 8 rolling samples"
+    },
+    {
+      "id": "monthly_guard_strong_trend",
+      "when": {
+        "featureBucket": [
+          "strong-trend"
+        ]
+      },
+      "layer": "monthly_guard",
+      "action": {
+        "type": "trade",
+        "riskCap": 1,
+        "strategyKey": "rank1"
+      },
+      "priority": 4,
+      "rationale": "monthly_guard learned from 6 rolling samples"
+    },
+    {
+      "id": "weekly_guard_crash_trend",
+      "when": {
+        "featureBucket": [
+          "crash-trend"
+        ]
+      },
+      "layer": "weekly_guard",
+      "action": {
+        "type": "stop",
+        "riskCap": 0
+      },
+      "priority": 1,
+      "rationale": "weekly_guard learned from 20 rolling samples"
+    },
+    {
+      "id": "weekly_guard_mixed_trend",
+      "when": {
+        "featureBucket": [
+          "mixed-trend"
+        ]
+      },
+      "layer": "weekly_guard",
+      "action": {
+        "type": "stop",
+        "riskCap": 0
+      },
+      "priority": 2,
+      "rationale": "weekly_guard learned from 17 rolling samples"
+    },
+    {
+      "id": "weekly_guard_range_low_vol",
+      "when": {
+        "featureBucket": [
+          "range-low-vol"
+        ]
+      },
+      "layer": "weekly_guard",
+      "action": {
+        "type": "stop",
+        "riskCap": 0
+      },
+      "priority": 3,
+      "rationale": "weekly_guard learned from 2 rolling samples"
+    },
+    {
+      "id": "weekly_guard_range_mid_vol",
+      "when": {
+        "featureBucket": [
+          "range-mid-vol"
+        ]
+      },
+      "layer": "weekly_guard",
+      "action": {
+        "type": "stop",
+        "riskCap": 0
+      },
+      "priority": 4,
+      "rationale": "weekly_guard learned from 51 rolling samples"
+    },
+    {
+      "id": "weekly_guard_strong_trend",
+      "when": {
+        "featureBucket": [
+          "strong-trend"
+        ]
+      },
+      "layer": "weekly_guard",
+      "action": {
+        "type": "stop",
+        "riskCap": 0
+      },
+      "priority": 5,
+      "rationale": "weekly_guard learned from 18 rolling samples"
+    },
+    {
+      "id": "daily_router_crash_trend",
+      "when": {
+        "featureBucket": [
+          "crash-trend"
+        ]
+      },
+      "layer": "daily_router",
+      "action": {
+        "type": "trade",
+        "strategyKey": "rank6"
+      },
+      "priority": 1,
+      "rationale": "daily_router learned from 59 rolling samples"
+    },
+    {
+      "id": "daily_router_mixed_trend",
+      "when": {
+        "featureBucket": [
+          "mixed-trend"
+        ]
+      },
+      "layer": "daily_router",
+      "action": {
+        "type": "trade",
+        "strategyKey": "rank85"
+      },
+      "priority": 2,
+      "rationale": "daily_router learned from 229 rolling samples"
+    },
+    {
+      "id": "daily_router_range_low_vol",
+      "when": {
+        "featureBucket": [
+          "range-low-vol"
+        ]
+      },
+      "layer": "daily_router",
+      "action": {
+        "type": "trade",
+        "strategyKey": "rank149"
+      },
+      "priority": 3,
+      "rationale": "daily_router learned from 178 rolling samples"
+    },
+    {
+      "id": "daily_router_range_mid_vol",
+      "when": {
+        "featureBucket": [
+          "range-mid-vol"
+        ]
+      },
+      "layer": "daily_router",
+      "action": {
+        "type": "trade",
+        "strategyKey": "rank6"
+      },
+      "priority": 4,
+      "rationale": "daily_router learned from 238 rolling samples"
+    },
+    {
+      "id": "daily_router_strong_trend",
+      "when": {
+        "featureBucket": [
+          "strong-trend"
+        ]
+      },
+      "layer": "daily_router",
+      "action": {
+        "type": "trade",
+        "strategyKey": "rank74"
+      },
+      "priority": 5,
+      "rationale": "daily_router learned from 46 rolling samples"
+    }
+  ]
+}

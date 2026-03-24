@@ -430,7 +430,7 @@ async function saveStrategyResult(
       win_rate, gross_pnl, total_commission, total_pnl, return_pct, avg_pnl, sharpe_ratio, profit_factor, max_drawdown, max_drawdown_pct,
      gross_profit, gross_loss, avg_win, avg_loss, score, parameters,
       executor_version, executor_options)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        strategy_type = VALUES(strategy_type),
        total_trades = VALUES(total_trades),

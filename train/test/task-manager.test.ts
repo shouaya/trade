@@ -114,8 +114,9 @@ test('createTaskManager builds mysql connection from env defaults and overrides'
       host: 'localhost',
       port: 3306,
       user: 'root',
-      password: '',
-      database: 'trading'
+      password: 'traderpass',
+      database: 'trading',
+      charset: 'utf8mb4'
     });
     assert.ok(manager);
 
@@ -132,7 +133,8 @@ test('createTaskManager builds mysql connection from env defaults and overrides'
       port: 3307,
       user: 'trader',
       password: 'secret',
-      database: 'trade_test'
+      database: 'trade_test',
+      charset: 'utf8mb4'
     });
     assert.ok(manager);
   } finally {

@@ -169,6 +169,8 @@ async function main(): Promise<void> {
       'training_config_details',
       'validation_config_details',
       'snapshot_config_details',
+      'rolling_pool_details',
+      'rolling_rule_details',
       'router_config_details',
       'policy_config_details',
       'generic_config_details',

@@ -270,7 +270,7 @@ async function resolveCommand(
     return {
       command: 'node',
       args: [
-        'scripts/generate-top3-validation-configs.js',
+        'dist/scripts/generate-validation-artifacts.js',
         `--trainConfig=${exportPath}`,
         `--trainConfigRef=${configKey}`,
         `--symbol=${symbol}`,

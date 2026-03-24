@@ -15,6 +15,8 @@ const configTypeOptions = [
 
 const DEFAULT_TRAINING_RUN_TAG = 'V7_HF_RSI_MACD_TP_ATR';
 const DEFAULT_VALIDATION_PROFILE = 'rolling-window';
+const ROUTER_LAYER_KEYS = ['monthly_guard', 'weekly_guard', 'daily_router', 'loss_recheck'];
+const ROUTER_ACTION_TYPES = ['trade', 'reduce', 'stop'];
 
 const EMPTY_TRAINING_GUIDE_META = {
   recommendations: [],
@@ -91,6 +93,14 @@ function safeParseJsonText(value) {
   }
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function stringifyPrettyJson(value) {
+  return JSON.stringify(value, null, 2);
+}
+
 function formatDateTime(value) {
   if (!value) {
     return 'n/a';
@@ -117,6 +127,424 @@ function formatCompactNumber(value, digits = 2) {
   }
 
   return numeric.toFixed(digits);
+}
+
+function summarizeRuleBuckets(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return '未生成';
+  }
+
+  return items
+    .slice(0, 4)
+    .map((item) => item?.featureBucket || item?.rule?.when?.featureBucket?.[0] || item?.ruleId || 'rule')
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function getLayerLabel(layerKey) {
+  switch (String(layerKey || '')) {
+    case 'monthly_guard':
+      return 'Monthly';
+    case 'weekly_guard':
+      return 'Weekly';
+    case 'daily_router':
+      return 'Daily';
+    case 'loss_recheck':
+      return 'Loss';
+    default:
+      return layerKey || 'Layer';
+  }
+}
+
+function normalizeStrategyCatalog(strategyCatalog) {
+  return isPlainObject(strategyCatalog) ? strategyCatalog : {};
+}
+
+function normalizeRouterLayer(layerKey) {
+  return ROUTER_LAYER_KEYS.includes(String(layerKey || ''))
+    ? String(layerKey)
+    : 'monthly_guard';
+}
+
+function getRouterRuleFeatureBucket(rule) {
+  const when = isPlainObject(rule?.when) ? rule.when : {};
+  const featureBucket = Array.isArray(when.featureBucket)
+    ? when.featureBucket[0]
+    : when.featureBucket;
+  const previousDayFeatureBucket = Array.isArray(when.previousDayFeatureBucket)
+    ? when.previousDayFeatureBucket[0]
+    : when.previousDayFeatureBucket;
+
+  return String(featureBucket || previousDayFeatureBucket || '').trim();
+}
+
+function setRouterRuleFeatureBucket(whenValue, featureBucket) {
+  const nextWhen = isPlainObject(whenValue) ? { ...whenValue } : {};
+  delete nextWhen.featureBucket;
+  delete nextWhen.previousDayFeatureBucket;
+
+  const normalized = String(featureBucket || '').trim();
+  if (normalized) {
+    nextWhen.featureBucket = [normalized];
+  }
+
+  return Object.keys(nextWhen).length > 0 ? nextWhen : undefined;
+}
+
+function normalizeNumericValue(value) {
+  if (value === '' || value == null) {
+    return undefined;
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function createRouterRuleId(layerKey) {
+  return `${normalizeRouterLayer(layerKey)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeRouterRule(rule, index) {
+  const baseRule = isPlainObject(rule) ? rule : {};
+  const layer = normalizeRouterLayer(baseRule.layer);
+  const action = isPlainObject(baseRule.action) ? baseRule.action : {};
+  const actionType = ROUTER_ACTION_TYPES.includes(String(action.type || ''))
+    ? String(action.type)
+    : 'trade';
+  const strategyKey = String(action.strategyKey || '').trim();
+  const riskCap = normalizeNumericValue(action.riskCap);
+  const riskMultiplier = normalizeNumericValue(action.riskMultiplier);
+  const nextWhen = setRouterRuleFeatureBucket(baseRule.when, getRouterRuleFeatureBucket(baseRule));
+
+  return {
+    ...baseRule,
+    id: String(baseRule.id || createRouterRuleId(layer)),
+    layer,
+    priority: index + 1,
+    ...(nextWhen ? { when: nextWhen } : {}),
+    ...(!nextWhen && 'when' in baseRule ? { when: undefined } : {}),
+    action: {
+      type: actionType,
+      ...(actionType !== 'stop' && strategyKey ? { strategyKey } : {}),
+      ...(actionType !== 'stop' && riskCap != null ? { riskCap } : {}),
+      ...(actionType !== 'stop' && riskMultiplier != null ? { riskMultiplier } : {})
+    },
+    ...(baseRule.rationale ? { rationale: String(baseRule.rationale) } : {})
+  };
+}
+
+function normalizeRouterContent(routerContent) {
+  const content = isPlainObject(routerContent) ? routerContent : {};
+  const executionModel = isPlainObject(content.executionModel) ? content.executionModel : {};
+  const defaultFallbackSource = isPlainObject(executionModel.defaultFallback) ? executionModel.defaultFallback : {};
+  const defaultFallback = {
+    action: defaultFallbackSource.action === 'reduce' ? 'reduce' : 'trade',
+    riskMultiplier: normalizeNumericValue(defaultFallbackSource.riskMultiplier) ?? 1,
+    ...(String(defaultFallbackSource.strategyKey || '').trim()
+      ? { strategyKey: String(defaultFallbackSource.strategyKey).trim() }
+      : {})
+  };
+
+  return {
+    ...content,
+    strategyCatalog: normalizeStrategyCatalog(content.strategyCatalog),
+    executionModel: {
+      ...executionModel,
+      precedence: Array.isArray(executionModel.precedence) && executionModel.precedence.length > 0
+        ? executionModel.precedence
+        : ROUTER_LAYER_KEYS,
+      defaultFallback
+    },
+    rules: Array.isArray(content.rules)
+      ? content.rules.map((rule, index) => normalizeRouterRule(rule, index))
+      : []
+  };
+}
+
+function summarizeConditionValue(value) {
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value.join('/') : null;
+  }
+
+  if (isPlainObject(value)) {
+    const entries = Object.entries(value)
+      .filter(([, entryValue]) => entryValue != null)
+      .map(([key, entryValue]) => `${key}:${entryValue}`);
+    return entries.length > 0 ? entries.join(', ') : null;
+  }
+
+  return value == null || value === '' ? null : String(value);
+}
+
+function buildRouterPolicyFeatureSummary(whenValue) {
+  if (!isPlainObject(whenValue)) {
+    return 'fallback';
+  }
+
+  const segments = Object.entries(whenValue)
+    .map(([key, value]) => {
+      const summary = summarizeConditionValue(value);
+      return summary ? `${key}=${summary}` : null;
+    })
+    .filter(Boolean);
+
+  return segments.length > 0 ? segments.join(' | ') : 'fallback';
+}
+
+function buildRouterPolicyEventSegment(rule) {
+  const when = isPlainObject(rule?.when) ? rule.when : {};
+  const featureBucket = Array.isArray(when.featureBucket) && when.featureBucket.length > 0
+    ? when.featureBucket.join('/')
+    : Array.isArray(when.previousDayFeatureBucket) && when.previousDayFeatureBucket.length > 0
+      ? `prev:${when.previousDayFeatureBucket.join('/')}`
+      : null;
+
+  if (featureBucket) {
+    return featureBucket;
+  }
+
+  return rule?.layer === 'loss_recheck'
+    ? 'loss-feedback'
+    : normalizeRouterLayer(rule?.layer);
+}
+
+function buildPolicyContentFromRouter(routerContent, routerConfigKey) {
+  const normalizedRouter = normalizeRouterContent(routerContent);
+  const strategyCatalog = normalizedRouter.strategyCatalog;
+  const defaultFallback = normalizedRouter.executionModel?.defaultFallback;
+  const defaultStrategy = defaultFallback?.strategyKey
+    ? strategyCatalog[defaultFallback.strategyKey]
+    : null;
+
+  const entries = normalizedRouter.rules.map((rule) => {
+    const strategyKey = String(rule?.action?.strategyKey || '').trim();
+    const strategyRef = strategyKey ? strategyCatalog[strategyKey] : null;
+    return {
+      eventSegment: buildRouterPolicyEventSegment(rule),
+      layer: normalizeRouterLayer(rule.layer),
+      ruleId: String(rule.id || ''),
+      featureSummary: buildRouterPolicyFeatureSummary(rule.when),
+      actionType: rule.action?.type || 'trade',
+      ...(rule.action?.riskCap != null ? { riskCap: Number(rule.action.riskCap) } : {}),
+      ...(rule.action?.riskMultiplier != null ? { riskMultiplier: Number(rule.action.riskMultiplier) } : {}),
+      ...(strategyRef && strategyKey
+        ? {
+            strategy: {
+              strategyKey,
+              strategyLabel: strategyRef.shortLabel,
+              strategyName: strategyRef.strategyName
+            }
+          }
+        : {}),
+      ...(rule.rationale ? { rationale: String(rule.rationale) } : {})
+    };
+  });
+
+  return {
+    symbol: String(normalizedRouter.symbol || 'BTCJPY').toUpperCase(),
+    routerVersion: String(normalizedRouter.routerVersion || 'router_v1'),
+    catalogVersion: `${String(normalizedRouter.routerVersion || 'router_v1')}_policy_v1`,
+    generatedDate: new Date().toISOString(),
+    source: {
+      routerConfigPath: String(routerConfigKey || 'router.json').split('/').pop(),
+      notes: ['Synced from Router Studio form editor']
+    },
+    ...(defaultFallback && defaultStrategy
+      ? {
+          defaultFallback: {
+            action: defaultFallback.action,
+            riskMultiplier: Number(defaultFallback.riskMultiplier ?? 1),
+            strategy: {
+              strategyKey: defaultFallback.strategyKey,
+              strategyLabel: defaultStrategy.shortLabel,
+              strategyName: defaultStrategy.strategyName
+            }
+          }
+        }
+      : {}),
+    eventSegments: entries.filter((entry) => entry.layer === 'monthly_guard' || entry.layer === 'weekly_guard'),
+    dailyGuards: entries.filter((entry) => entry.layer === 'daily_router' || entry.layer === 'loss_recheck')
+  };
+}
+
+function updateRouterRules(routerContent, updater) {
+  const normalizedRouter = normalizeRouterContent(routerContent);
+  const nextRules = updater(normalizedRouter.rules.map((rule) => ({ ...rule })));
+  return {
+    ...normalizedRouter,
+    rules: (Array.isArray(nextRules) ? nextRules : normalizedRouter.rules)
+      .map((rule, index) => normalizeRouterRule(rule, index))
+  };
+}
+
+function buildLayerEditorGroups(rules) {
+  const entries = (Array.isArray(rules) ? rules : []).map((rule, index) => ({
+    index,
+    rule,
+    layerKey: normalizeRouterLayer(rule?.layer)
+  }));
+
+  return ROUTER_LAYER_KEYS.map((layerKey) => ({
+    layerKey,
+    label: getLayerLabel(layerKey),
+    items: entries.filter((entry) => entry.layerKey === layerKey)
+  }));
+}
+
+function createEmptyRouterRule(layerKey) {
+  return normalizeRouterRule({
+    id: createRouterRuleId(layerKey),
+    layer: normalizeRouterLayer(layerKey),
+    when: {
+      featureBucket: ['neutral']
+    },
+    action: {
+      type: layerKey === 'loss_recheck' ? 'reduce' : 'trade',
+      riskMultiplier: layerKey === 'monthly_guard' || layerKey === 'weekly_guard' ? 1 : 0.5
+    },
+    rationale: ''
+  }, 0);
+}
+
+function buildLayerRuleGroups(items) {
+  const groups = new Map();
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const layerKey = String(item?.layerKey || item?.layer || '');
+    const bucket = groups.get(layerKey) || [];
+    bucket.push(item);
+    groups.set(layerKey, bucket);
+  });
+
+  return ['monthly_guard', 'weekly_guard', 'daily_router', 'loss_recheck']
+    .filter((layerKey) => groups.has(layerKey))
+    .map((layerKey) => ({
+      layerKey,
+      label: getLayerLabel(layerKey),
+      items: groups.get(layerKey) || []
+    }));
+}
+
+function RollingPackagePanel({ snapshot }) {
+  const [expandedMonths, setExpandedMonths] = useState({});
+  const monthlyPools = snapshot?.rollingPlan?.monthlyPools || [];
+  const normalizedRules = snapshot?.rollingPlan?.normalizedRules || [];
+  const monthlyRuleCount = normalizedRules.filter((item) => item.layerKey === 'monthly_guard').length;
+  const weeklyRuleCount = normalizedRules.filter((item) => item.layerKey === 'weekly_guard').length;
+  const dailyRuleCount = normalizedRules.filter((item) => item.layerKey === 'daily_router').length;
+  const lossRuleCount = normalizedRules.filter((item) => item.layerKey === 'loss_recheck').length;
+
+  if (!snapshot) {
+    return (
+      <div className="results-panel-card">
+        <span>Rolling Package</span>
+        <strong>尚未生成</strong>
+        <em>等待 generate-validation 完成后再查看月线 / 周线 / 日线细节。</em>
+      </div>
+    );
+  }
+
+  return (
+    <div className="results-panel-card">
+      <span>Rolling Package</span>
+      <strong>{monthlyPools.length} 个月度池</strong>
+      <em>{snapshot.path || 'n/a'}</em>
+      <div className="results-inline-list">
+        <div className="results-inline-item">
+          <span>Monthly</span>
+          <strong>{monthlyRuleCount} rules</strong>
+          <em>{summarizeRuleBuckets(normalizedRules.filter((item) => item.layerKey === 'monthly_guard'))}</em>
+        </div>
+        <div className="results-inline-item">
+          <span>Weekly</span>
+          <strong>{weeklyRuleCount} rules</strong>
+          <em>{summarizeRuleBuckets(normalizedRules.filter((item) => item.layerKey === 'weekly_guard'))}</em>
+        </div>
+        <div className="results-inline-item">
+          <span>Daily</span>
+          <strong>{dailyRuleCount} rules</strong>
+          <em>{summarizeRuleBuckets(normalizedRules.filter((item) => item.layerKey === 'daily_router'))}</em>
+        </div>
+        <div className="results-inline-item">
+          <span>Loss</span>
+          <strong>{lossRuleCount} rules</strong>
+          <em>{summarizeRuleBuckets(normalizedRules.filter((item) => item.layerKey === 'loss_recheck'))}</em>
+        </div>
+      </div>
+      <div className="results-report-list">
+        {monthlyPools.slice(0, 6).map((item) => (
+          <div key={item.month} className="results-report-row done">
+            <span>{item.month}</span>
+            <strong>{item.selectedStrategyName || 'stop / reduce'}</strong>
+            <em>
+              {item.featureBucket || 'n/a'}
+              {' · '}
+              {item.actionType || 'trade'}
+              {' · '}
+              risk {item.riskCap == null ? 'n/a' : formatCompactNumber(item.riskCap, 2)}
+            </em>
+            <button
+              type="button"
+              className="results-inline-toggle"
+              onClick={() => setExpandedMonths((current) => ({
+                ...current,
+                [item.month]: !current[item.month]
+              }))}
+            >
+              {expandedMonths[item.month] ? '收起 Top Strategies' : '展开 Top Strategies'}
+            </button>
+            {expandedMonths[item.month] && (
+              <div className="results-detail-list">
+                {(item.topStrategies || []).map((strategy) => (
+                  <div key={`${item.month}-${strategy.strategyName}-${strategy.rank}`} className="results-detail-row">
+                    <strong>#{strategy.rank || 'n/a'} {strategy.strategyName || 'strategy'}</strong>
+                    <em>
+                      pnl {strategy.totalPnl == null ? 'n/a' : formatCompactNumber(strategy.totalPnl, 2)}
+                      {' · '}
+                      score {strategy.score == null ? 'n/a' : formatCompactNumber(strategy.score, 2)}
+                    </em>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        {monthlyPools.length === 0 && (
+          <div className="results-report-row todo">
+            <span>Monthly Pools</span>
+            <strong>未落库</strong>
+            <em>当前 snapshot 里还没有月度候选池细节。</em>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RouterLayerPreview({ title, rules }) {
+  const groups = buildLayerRuleGroups(rules);
+
+  return (
+    <div className="router-layer-preview">
+      <div className="section-title">{title}</div>
+      {groups.length === 0 ? (
+        <div className="results-report-row todo">
+          <span>Rules</span>
+          <strong>未生成</strong>
+          <em>当前没有可读的 layer 规则。</em>
+        </div>
+      ) : (
+        <div className="router-layer-grid">
+          {groups.map((group) => (
+            <div key={group.layerKey} className="results-report-row done">
+              <span>{group.label}</span>
+              <strong>{group.items.length} rules</strong>
+              <em>{summarizeRuleBuckets(group.items)}</em>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function formatRange(timeRange) {
@@ -399,7 +827,7 @@ function getNextActionButtonLabel(nextActionKey) {
 function getFinalConfigState(pipeline) {
   return pipeline?.finalConfigState || {
     title: '尚未生成',
-    detail: '先完成训练候选池，再生成最终策略 config。',
+    detail: '先完成训练候选池，再生成 rolling package。',
     status: 'todo',
     canExport: false,
     requestId: null
@@ -577,7 +1005,7 @@ function PipelineResultsPanel({ pipeline, onViewRequest, onOpenRouterStudio }) {
         <strong>{pipeline.router?.routerPath ? 'Router 已接入' : '等待 Router'}</strong>
         <div className="results-report-list">
           <div className={`results-report-row ${pipeline.topStrategySnapshot ? 'done' : 'todo'}`}>
-            <span>Final Config</span>
+            <span>Rolling Package</span>
             <strong>{pipeline.topStrategySnapshot ? '已生成' : '未生成'}</strong>
             <em>{pipeline.topStrategySnapshot?.path || '等待 generate-validation'}</em>
           </div>
@@ -596,6 +1024,8 @@ function PipelineResultsPanel({ pipeline, onViewRequest, onOpenRouterStudio }) {
           {pipeline.router?.routerPath ? '编辑 Router' : '配置 Router'}
         </button>
       </div>
+
+      <RollingPackagePanel snapshot={pipeline.topStrategySnapshot} />
     </div>
   );
 }
@@ -610,11 +1040,46 @@ function RouterStudioPanel({
   onClose,
   onRouterTextChange,
   onPolicyTextChange,
+  onSyncPolicyFromRouter,
+  onDefaultFallbackChange,
+  onRuleChange,
+  onAddRule,
+  onRemoveRule,
   onSave
 }) {
   if (!open) {
     return null;
   }
+
+  const parsedRouter = safeParseJsonText(routerText);
+  const parsedPolicy = safeParseJsonText(policyText);
+  const routerContent = isPlainObject(parsedRouter) ? normalizeRouterContent(parsedRouter) : null;
+  const routerRules = Array.isArray(routerContent?.rules) ? routerContent.rules : [];
+  const strategyCatalog = normalizeStrategyCatalog(routerContent?.strategyCatalog);
+  const strategyOptions = Object.entries(strategyCatalog).map(([strategyKey, strategy]) => ({
+    strategyKey,
+    label: `${strategy?.shortLabel || strategyKey} · ${strategy?.strategyName || 'strategy'}`
+  }));
+  const defaultFallback = routerContent?.executionModel?.defaultFallback || {
+    action: 'trade',
+    riskMultiplier: 1,
+    strategyKey: ''
+  };
+  const layerEditorGroups = buildLayerEditorGroups(routerRules);
+  const policyEventSegments = Array.isArray(parsedPolicy?.eventSegments) ? parsedPolicy.eventSegments : [];
+  const policyDailyGuards = Array.isArray(parsedPolicy?.dailyGuards) ? parsedPolicy.dailyGuards : [];
+  const policyRules = [
+    ...policyEventSegments.map((item) => ({
+      layerKey: item?.layer || 'monthly_guard',
+      featureBucket: item?.eventSegment || item?.featureSummary || null,
+      ruleId: item?.ruleId || null
+    })),
+    ...policyDailyGuards.map((item) => ({
+      layerKey: item?.layer || 'daily_router',
+      featureBucket: item?.eventSegment || item?.featureSummary || null,
+      ruleId: item?.ruleId || null
+    }))
+  ];
 
   return (
     <section className="editor-panel">
@@ -631,7 +1096,7 @@ function RouterStudioPanel({
         <div className="summary-box">
           <span>Training Config</span>
           <strong>{data?.trainingConfigKey || 'n/a'}</strong>
-          <em>{data?.snapshotReady ? `snapshot ${data.snapshotConfigKey}` : '还没有 top-strategies snapshot'}</em>
+          <em>{data?.snapshotReady ? `rolling package ${data.snapshotConfigKey}` : '还没有 rolling package snapshot'}</em>
         </div>
         <div className="summary-box">
           <span>Router Config</span>
@@ -648,6 +1113,171 @@ function RouterStudioPanel({
       {error && <div className="pipeline-error">{error}</div>}
 
       <div className="router-studio-grid">
+        <RouterLayerPreview title="Router Layers" rules={routerRules} />
+        <RouterLayerPreview title="Policy Layers" rules={policyRules} />
+      </div>
+
+      {!routerContent && (
+        <div className="pipeline-warning">
+          Router JSON 当前不是合法对象，分层表单暂时不可用。先修复 JSON，或者重新载入当前 pipeline 的 Router Studio。
+        </div>
+      )}
+
+      {routerContent && (
+        <div className="router-editor-stack">
+          <div className="router-fallback-card">
+            <div className="section-title">Execution Fallback</div>
+            <div className="router-rule-grid compact">
+              <label className="router-rule-field">
+                <span>Action</span>
+                <select
+                  value={defaultFallback.action || 'trade'}
+                  onChange={(event) => onDefaultFallbackChange('action', event.target.value)}
+                >
+                  <option value="trade">trade</option>
+                  <option value="reduce">reduce</option>
+                </select>
+              </label>
+              <label className="router-rule-field">
+                <span>Risk Multiplier</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={defaultFallback.riskMultiplier ?? 1}
+                  onChange={(event) => onDefaultFallbackChange('riskMultiplier', event.target.value)}
+                />
+              </label>
+              <label className="router-rule-field">
+                <span>Strategy</span>
+                <select
+                  value={defaultFallback.strategyKey || ''}
+                  onChange={(event) => onDefaultFallbackChange('strategyKey', event.target.value)}
+                >
+                  <option value="">未指定</option>
+                  {strategyOptions.map((item) => (
+                    <option key={item.strategyKey} value={item.strategyKey}>{item.label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+
+          {layerEditorGroups.map((group) => (
+            <div key={group.layerKey} className="router-rule-layer-card">
+              <div className="router-rule-layer-head">
+                <div>
+                  <div className="section-title">{group.label}</div>
+                  <strong>{group.items.length} rules</strong>
+                </div>
+                <button type="button" className="summary-box-action" onClick={() => onAddRule(group.layerKey)}>
+                  新增 {group.label} Rule
+                </button>
+              </div>
+
+              {group.items.length === 0 ? (
+                <div className="results-report-row todo">
+                  <span>{group.label}</span>
+                  <strong>暂无规则</strong>
+                  <em>可以直接新增一条，或者在下方 JSON 区手工补充。</em>
+                </div>
+              ) : (
+                <div className="router-rule-list">
+                  {group.items.map(({ index, rule }) => (
+                    <div key={`${group.layerKey}-${rule.id}-${index}`} className="router-rule-card">
+                      <div className="router-rule-card-head">
+                        <strong>{rule.id || `rule-${index + 1}`}</strong>
+                        <button type="button" className="router-rule-remove" onClick={() => onRemoveRule(index)}>
+                          删除
+                        </button>
+                      </div>
+                      <div className="router-rule-grid">
+                        <label className="router-rule-field">
+                          <span>Rule ID</span>
+                          <input
+                            value={rule.id || ''}
+                            onChange={(event) => onRuleChange(index, 'id', event.target.value)}
+                          />
+                        </label>
+                        <label className="router-rule-field">
+                          <span>Layer</span>
+                          <select
+                            value={normalizeRouterLayer(rule.layer)}
+                            onChange={(event) => onRuleChange(index, 'layer', event.target.value)}
+                          >
+                            {ROUTER_LAYER_KEYS.map((layerKey) => (
+                              <option key={layerKey} value={layerKey}>{getLayerLabel(layerKey)}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="router-rule-field">
+                          <span>Feature Bucket</span>
+                          <input
+                            value={getRouterRuleFeatureBucket(rule)}
+                            onChange={(event) => onRuleChange(index, 'featureBucket', event.target.value)}
+                          />
+                        </label>
+                        <label className="router-rule-field">
+                          <span>Action</span>
+                          <select
+                            value={rule.action?.type || 'trade'}
+                            onChange={(event) => onRuleChange(index, 'actionType', event.target.value)}
+                          >
+                            {ROUTER_ACTION_TYPES.map((actionType) => (
+                              <option key={actionType} value={actionType}>{actionType}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="router-rule-field">
+                          <span>Risk Cap</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={rule.action?.riskCap ?? ''}
+                            disabled={rule.action?.type === 'stop'}
+                            onChange={(event) => onRuleChange(index, 'riskCap', event.target.value)}
+                          />
+                        </label>
+                        <label className="router-rule-field">
+                          <span>Risk Multiplier</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={rule.action?.riskMultiplier ?? ''}
+                            disabled={rule.action?.type === 'stop'}
+                            onChange={(event) => onRuleChange(index, 'riskMultiplier', event.target.value)}
+                          />
+                        </label>
+                        <label className="router-rule-field">
+                          <span>Strategy</span>
+                          <select
+                            value={rule.action?.strategyKey || ''}
+                            disabled={rule.action?.type === 'stop'}
+                            onChange={(event) => onRuleChange(index, 'strategyKey', event.target.value)}
+                          >
+                            <option value="">未指定</option>
+                            {strategyOptions.map((item) => (
+                              <option key={item.strategyKey} value={item.strategyKey}>{item.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="router-rule-field router-rule-field-wide">
+                          <span>Rationale</span>
+                          <input
+                            value={rule.rationale || ''}
+                            onChange={(event) => onRuleChange(index, 'rationale', event.target.value)}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="router-studio-grid">
         <label className="editor-textarea-wrap">
           <span>Router JSON</span>
           <textarea value={routerText} onChange={(event) => onRouterTextChange(event.target.value)} spellCheck="false" />
@@ -659,6 +1289,9 @@ function RouterStudioPanel({
       </div>
 
       <div className="editor-actions">
+        <button type="button" className="summary-box-action" onClick={onSyncPolicyFromRouter} disabled={saving}>
+          从 Router 重建 Policy
+        </button>
         <button type="button" className="pipeline-refresh-button" onClick={onSave} disabled={saving}>
           {saving ? '保存中...' : '保存 Router Artifacts'}
         </button>
@@ -802,7 +1435,7 @@ function ConfigStudio({
         <div>
           <div className="hero-kicker">Config Studio</div>
           <h2>配置库</h2>
-          <p>这里只维护单一主配置 `training config`。训练完成后会派生最终策略 config，validation 也从它继续生成。</p>
+          <p>这里只维护单一主配置 `training config`。训练完成后会派生 rolling candidate/mapping package，validation 也从它继续生成。</p>
         </div>
         <div className="config-studio-actions">
           <select value={filterType} onChange={(event) => onFilterChange(event.target.value)}>
@@ -1137,7 +1770,7 @@ function TrainingGuidePanel({
           </select>
         </label>
         <label>
-          <span>Validation 起点</span>
+          <span>{usesCustomValidationRange ? 'Validation 起点' : 'Rolling 起点'}</span>
           <input
             type="date"
             value={draft.validationStartDate}
@@ -1146,12 +1779,12 @@ function TrainingGuidePanel({
           />
         </label>
         <label>
-          <span>Validation 终点</span>
+          <span>{usesCustomValidationRange ? 'Validation 终点' : 'Rolling 终点'}</span>
           <input
             type="date"
             value={draft.validationEndDate}
             onChange={(event) => onChange('validationEndDate', event.target.value)}
-            disabled={false}
+            disabled={!usesCustomValidationRange}
           />
         </label>
         <label className="training-guide-span-2">
@@ -1180,10 +1813,10 @@ function TrainingGuidePanel({
           <strong>{getValidationProfileLabel(draft.validationProfile)}</strong>
           <em>
             {draft.validationProfile === 'rolling-window'
-              ? `把 ${draft.validationStartDate} -> ${draft.validationEndDate} 拆成月度 rolling 验证窗口`
+              ? `把训练区间 ${draft.startDate} -> ${draft.endDate} 拆成月度 rolling 验证窗口`
               : draft.validationProfile === 'custom-range'
                 ? `${draft.validationStartDate} -> ${draft.validationEndDate}`
-                : `把 ${draft.validationStartDate} -> ${draft.validationEndDate} 拆成月度 rolling 验证窗口`}
+                : `把训练区间 ${draft.startDate} -> ${draft.endDate} 拆成月度 rolling 验证窗口`}
           </em>
         </div>
       </div>
@@ -1210,9 +1843,11 @@ function TrainingGuidePanel({
             </div>
             <div className="validation-path">{computed.configKey}</div>
             <div className="validation-meta">
-              保存时不会单独创建 validation 草稿。
+              {draft.validationProfile === 'rolling-window'
+                ? `保存时不会单独创建 validation 草稿，训练启动后会按训练区间 ${draft.startDate} -> ${draft.endDate} 自动拆成月度 rolling 验证窗口。`
+                : '保存时不会单独创建 validation 草稿。'}
               {' · '}
-              训练启动后会自动串行完成最终策略 config、validation 与后续报告任务。
+              训练启动后会自动串行完成 rolling package、validation 与后续报告任务。
             </div>
           </div>
         </div>
@@ -1629,6 +2264,15 @@ function TrainPipelinePage() {
         }
       }
     } catch (apiError) {
+      if (apiError?.response?.status === 404) {
+        setSelectedRequest(null);
+        updateHashQuery({ requestId: null });
+        if (!silent) {
+          setActionMessage({ text: '该运行请求已不存在，已从当前页面清除。' });
+        }
+        return;
+      }
+
       console.error('加载运行详情失败:', apiError);
       if (!silent) {
         setActionMessage({ text: `加载详情失败: ${apiError.response?.data?.message || apiError.message}` });
@@ -1688,6 +2332,155 @@ function TrainPipelinePage() {
     } finally {
       setRouterStudioSaving(false);
     }
+  };
+
+  const applyRouterStudioStructuredUpdate = (updater) => {
+    const parsedRouter = safeParseJsonText(routerStudioRouterText);
+    if (!isPlainObject(parsedRouter)) {
+      setRouterStudioError('Router JSON 不是合法对象，请先修复 JSON 后再使用表单编辑。');
+      return;
+    }
+
+    const nextRouter = normalizeRouterContent(updater(parsedRouter));
+    const nextPolicy = buildPolicyContentFromRouter(nextRouter, routerStudioData?.routerConfigKey);
+    setRouterStudioRouterText(stringifyPrettyJson(nextRouter));
+    setRouterStudioPolicyText(stringifyPrettyJson(nextPolicy));
+    setRouterStudioError('');
+  };
+
+  const handleRouterStudioSyncPolicy = () => {
+    const parsedRouter = safeParseJsonText(routerStudioRouterText);
+    if (!isPlainObject(parsedRouter)) {
+      setRouterStudioError('Router JSON 不是合法对象，无法自动重建 Policy。');
+      return;
+    }
+
+    const nextRouter = normalizeRouterContent(parsedRouter);
+    const nextPolicy = buildPolicyContentFromRouter(nextRouter, routerStudioData?.routerConfigKey);
+    setRouterStudioRouterText(stringifyPrettyJson(nextRouter));
+    setRouterStudioPolicyText(stringifyPrettyJson(nextPolicy));
+    setRouterStudioError('');
+  };
+
+  const handleRouterStudioDefaultFallbackChange = (field, value) => {
+    applyRouterStudioStructuredUpdate((currentRouter) => {
+      const nextRouter = normalizeRouterContent(currentRouter);
+      const currentFallback = isPlainObject(nextRouter.executionModel?.defaultFallback)
+        ? nextRouter.executionModel.defaultFallback
+        : { action: 'trade', riskMultiplier: 1 };
+      const nextFallback = {
+        ...currentFallback,
+        ...(field === 'action'
+          ? { action: value === 'reduce' ? 'reduce' : 'trade' }
+          : {}),
+        ...(field === 'riskMultiplier'
+          ? { riskMultiplier: normalizeNumericValue(value) ?? 1 }
+          : {}),
+        ...(field === 'strategyKey'
+          ? (String(value || '').trim()
+            ? { strategyKey: String(value).trim() }
+            : { strategyKey: undefined })
+          : {})
+      };
+
+      return {
+        ...nextRouter,
+        executionModel: {
+          ...(isPlainObject(nextRouter.executionModel) ? nextRouter.executionModel : {}),
+          precedence: Array.isArray(nextRouter.executionModel?.precedence) && nextRouter.executionModel.precedence.length > 0
+            ? nextRouter.executionModel.precedence
+            : ROUTER_LAYER_KEYS,
+          defaultFallback: {
+            action: nextFallback.action === 'reduce' ? 'reduce' : 'trade',
+            riskMultiplier: normalizeNumericValue(nextFallback.riskMultiplier) ?? 1,
+            ...(String(nextFallback.strategyKey || '').trim()
+              ? { strategyKey: String(nextFallback.strategyKey).trim() }
+              : {})
+          }
+        }
+      };
+    });
+  };
+
+  const handleRouterStudioRuleChange = (index, field, value) => {
+    applyRouterStudioStructuredUpdate((currentRouter) => updateRouterRules(currentRouter, (rules) => rules.map((rule, ruleIndex) => {
+      if (ruleIndex !== index) {
+        return rule;
+      }
+
+      const nextRule = {
+        ...rule,
+        action: isPlainObject(rule.action) ? { ...rule.action } : { type: 'trade' }
+      };
+
+      if (field === 'id') {
+        nextRule.id = String(value || '').trim() || rule.id;
+      } else if (field === 'layer') {
+        nextRule.layer = normalizeRouterLayer(value);
+      } else if (field === 'featureBucket') {
+        const nextWhen = setRouterRuleFeatureBucket(rule.when, value);
+        if (nextWhen) {
+          nextRule.when = nextWhen;
+        } else {
+          delete nextRule.when;
+        }
+      } else if (field === 'actionType') {
+        nextRule.action.type = ROUTER_ACTION_TYPES.includes(String(value || '')) ? String(value) : 'trade';
+        if (nextRule.action.type === 'stop') {
+          delete nextRule.action.strategyKey;
+          delete nextRule.action.riskCap;
+          delete nextRule.action.riskMultiplier;
+        }
+      } else if (field === 'riskCap') {
+        const nextValue = normalizeNumericValue(value);
+        if (nextValue == null) {
+          delete nextRule.action.riskCap;
+        } else {
+          nextRule.action.riskCap = nextValue;
+        }
+      } else if (field === 'riskMultiplier') {
+        const nextValue = normalizeNumericValue(value);
+        if (nextValue == null) {
+          delete nextRule.action.riskMultiplier;
+        } else {
+          nextRule.action.riskMultiplier = nextValue;
+        }
+      } else if (field === 'strategyKey') {
+        const nextStrategyKey = String(value || '').trim();
+        if (!nextStrategyKey) {
+          delete nextRule.action.strategyKey;
+        } else {
+          nextRule.action.strategyKey = nextStrategyKey;
+        }
+      } else if (field === 'rationale') {
+        nextRule.rationale = String(value || '');
+      }
+
+      return nextRule;
+    })));
+  };
+
+  const handleRouterStudioAddRule = (layerKey) => {
+    applyRouterStudioStructuredUpdate((currentRouter) => updateRouterRules(currentRouter, (rules) => {
+      const nextRule = createEmptyRouterRule(layerKey);
+      const insertIndex = rules.reduce((accumulator, item, itemIndex) => (
+        normalizeRouterLayer(item.layer) === normalizeRouterLayer(layerKey)
+          ? itemIndex + 1
+          : accumulator
+      ), rules.length);
+
+      return [
+        ...rules.slice(0, insertIndex),
+        nextRule,
+        ...rules.slice(insertIndex)
+      ];
+    }));
+  };
+
+  const handleRouterStudioRemoveRule = (index) => {
+    applyRouterStudioStructuredUpdate((currentRouter) => updateRouterRules(currentRouter, (rules) => (
+      rules.filter((_, ruleIndex) => ruleIndex !== index)
+    )));
   };
 
   useEffect(() => {
@@ -1775,10 +2568,23 @@ function TrainPipelinePage() {
   };
 
   const handleGuideChange = async (field, value) => {
+    const normalizedValue = field === 'validationProfile'
+      ? normalizeValidationProfile(value)
+      : value;
     const nextDraft = {
       ...editorGuideDraft,
-      [field]: value
+      [field]: normalizedValue
     };
+
+    if (field === 'startDate' || field === 'endDate') {
+      if (nextDraft.validationProfile !== 'custom-range') {
+        nextDraft.validationStartDate = nextDraft.startDate;
+        nextDraft.validationEndDate = nextDraft.endDate;
+      }
+    } else if (field === 'validationProfile' && normalizedValue !== 'custom-range') {
+      nextDraft.validationStartDate = nextDraft.startDate;
+      nextDraft.validationEndDate = nextDraft.endDate;
+    }
 
     setEditorGuideDraft(nextDraft);
 
@@ -2145,6 +2951,11 @@ function TrainPipelinePage() {
         onClose={() => setRouterStudioOpen(false)}
         onRouterTextChange={setRouterStudioRouterText}
         onPolicyTextChange={setRouterStudioPolicyText}
+        onSyncPolicyFromRouter={handleRouterStudioSyncPolicy}
+        onDefaultFallbackChange={handleRouterStudioDefaultFallbackChange}
+        onRuleChange={handleRouterStudioRuleChange}
+        onAddRule={handleRouterStudioAddRule}
+        onRemoveRule={handleRouterStudioRemoveRule}
         onSave={handleSaveRouterArtifacts}
       />
 

@@ -1,6 +1,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
+  ROLLING_POOL_DETAILS_TABLE,
+  ROLLING_RULE_DETAILS_TABLE
+} from '@money/database';
+import {
   buildTrainConfigContentSelectSql,
   buildTrainConfigDetailJoinsSql
 } from './train-config-registry';
@@ -627,8 +631,8 @@ function buildNextAction(training: any, validationRecords: readonly any[], repor
   if (!training.topStrategySnapshot && hasActiveGenerateValidationRequest) {
     return {
       key: 'waiting-generate-validation',
-      title: '等待最终策略 config 生成',
-      reason: 'worker 正在根据训练结果生成最终策略 config 和 validation 配置。',
+      title: '等待 rolling package 生成',
+      reason: 'worker 正在根据训练结果生成 rolling 候选池 / mapping package 和 validation 配置。',
       commands: []
     };
   }
@@ -636,10 +640,10 @@ function buildNextAction(training: any, validationRecords: readonly any[], repor
   if (!training.topStrategySnapshot) {
     return {
       key: 'generate-validation',
-      title: '生成最终策略 config 和 rolling validation 配置',
-      reason: '训练结果已经存在，但数据库里还没有看到对应的最终策略 config。',
+      title: '生成 rolling package 和 validation 配置',
+      reason: '训练结果已经存在，但数据库里还没有看到对应的 rolling 候选池 / mapping package。',
       commands: [
-        '优先直接在 UI 中点击“下一步”，系统会把最终策略 config 与 validation config 直接写入数据库；只有需要离线保存时再手动导出。'
+        '优先直接在 UI 中点击“下一步”，系统会把 rolling package 与 validation config 直接写入数据库；只有需要离线保存时再手动导出。'
       ]
     };
   }
@@ -650,7 +654,7 @@ function buildNextAction(training: any, validationRecords: readonly any[], repor
       title: '补生成 validation 配置',
       reason: '已经有训练结果，但数据库里还没有找到匹配的 validation 配置记录。',
       commands: [
-        '重新触发一次“生成 Validation”，系统会把 validation config 和最终策略 config 一起写入数据库。'
+        '重新触发一次“生成 Validation”，系统会把 validation config 和 rolling package 一起写入数据库。'
       ]
     };
   }
@@ -876,6 +880,7 @@ async function loadDbSummary(db: Queryable): Promise<any> {
     if (tables.has('train_configs')) {
       const [rows] = await db.query(`
         SELECT
+          tc.id,
           tc.config_key,
           tc.config_type,
           tc.config_name,
@@ -893,8 +898,62 @@ async function loadDbSummary(db: Queryable): Promise<any> {
         ORDER BY tc.config_key ASC
       `);
 
+      const rollingPoolMap = new Map<number, any[]>();
+      const rollingRuleMap = new Map<number, any[]>();
+
+      if (tables.has(ROLLING_POOL_DETAILS_TABLE)) {
+        const [poolRows] = await db.query(`
+          SELECT config_id, month_key, feature_bucket, selected_strategy_name, action_type, risk_cap, top_strategies_json
+          FROM ${ROLLING_POOL_DETAILS_TABLE}
+          ORDER BY month_key ASC, id ASC
+        `);
+
+        for (const poolRow of poolRows) {
+          const configId = Number(poolRow.config_id || 0);
+          const items = rollingPoolMap.get(configId) || [];
+          items.push({
+            month: String(poolRow.month_key || ''),
+            featureBucket: poolRow.feature_bucket ? String(poolRow.feature_bucket) : null,
+            selectedStrategyName: poolRow.selected_strategy_name ? String(poolRow.selected_strategy_name) : null,
+            actionType: poolRow.action_type ? String(poolRow.action_type) : null,
+            riskCap: poolRow.risk_cap == null ? null : Number(poolRow.risk_cap),
+            topStrategies: parseMaybeJson(poolRow.top_strategies_json) || []
+          });
+          rollingPoolMap.set(configId, items);
+        }
+      }
+
+      if (tables.has(ROLLING_RULE_DETAILS_TABLE)) {
+        const [ruleRows] = await db.query(`
+          SELECT config_id, layer_key, rule_id, priority_no, feature_bucket, strategy_key, strategy_name, action_type, risk_cap, risk_multiplier, rationale, rule_json
+          FROM ${ROLLING_RULE_DETAILS_TABLE}
+          ORDER BY layer_key ASC, priority_no ASC, id ASC
+        `);
+
+        for (const ruleRow of ruleRows) {
+          const configId = Number(ruleRow.config_id || 0);
+          const items = rollingRuleMap.get(configId) || [];
+          items.push({
+            layerKey: String(ruleRow.layer_key || ''),
+            ruleId: String(ruleRow.rule_id || ''),
+            priority: Number(ruleRow.priority_no || 0),
+            featureBucket: ruleRow.feature_bucket ? String(ruleRow.feature_bucket) : null,
+            strategyKey: ruleRow.strategy_key ? String(ruleRow.strategy_key) : null,
+            strategyName: ruleRow.strategy_name ? String(ruleRow.strategy_name) : null,
+            actionType: ruleRow.action_type ? String(ruleRow.action_type) : null,
+            riskCap: ruleRow.risk_cap == null ? null : Number(ruleRow.risk_cap),
+            riskMultiplier: ruleRow.risk_multiplier == null ? null : Number(ruleRow.risk_multiplier),
+            rationale: ruleRow.rationale ? String(ruleRow.rationale) : null,
+            rule: parseMaybeJson(ruleRow.rule_json)
+          });
+          rollingRuleMap.set(configId, items);
+        }
+      }
+
       for (const row of rows) {
+        const configId = Number(row.id || 0);
         const entry = {
+          id: configId,
           configKey: String(row.config_key || ''),
           fileName: path.basename(String(row.config_key || '')),
           configType: String(row.config_type || ''),
@@ -906,7 +965,11 @@ async function loadDbSummary(db: Queryable): Promise<any> {
           trainConfigRef: row.train_config_ref ? String(row.train_config_ref) : null,
           trainingYear: row.training_year ? String(row.training_year) : null,
           updatedAt: formatIso(row.updated_at),
-          content: parseMaybeJson(row.content)
+          content: parseMaybeJson(row.content),
+          rollingDetails: {
+            monthlyPools: rollingPoolMap.get(configId) || [],
+            rules: rollingRuleMap.get(configId) || []
+          }
         };
 
         if (entry.configType === 'training') {
@@ -955,7 +1018,10 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
     .map((entry: any) => ({
       fullPath: entry.configKey,
       fileName: entry.fileName,
-      data: entry.content,
+      data: {
+        ...(entry.content || {}),
+        rollingDetails: entry.rollingDetails || null
+      },
       stat: {
         mtime: entry.updatedAt,
         mtimeMs: new Date(entry.updatedAt || 0).getTime()
@@ -1090,7 +1156,7 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
       },
       {
         key: 'top-strategies',
-        title: 'Final Strategy Config',
+        title: 'Rolling Package',
         status: generateValidationRunning ? 'running' : buildStatus(Boolean(snapshotMatch)),
         detail: snapshotMatch
           ? (String(snapshotMatch.fullPath).startsWith('/')
@@ -1161,7 +1227,16 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
       generatedAt: snapshotMatch.data.generatedAt || formatIso(snapshotMatch.stat?.mtime),
       sourceRunId: snapshotMatch.data.sourceRunId || null,
       limit: snapshotMatch.data.limit || null,
-      exact: Boolean(snapshotMatch.data.exact)
+      exact: Boolean(snapshotMatch.data.exact),
+      rollingPlan: {
+        monthlyPools: Array.isArray(snapshotMatch.data?.rollingPlan?.monthlyPools)
+          ? snapshotMatch.data.rollingPlan.monthlyPools
+          : Array.isArray(snapshotMatch.data?.rollingDetails?.monthlyPools)
+            ? snapshotMatch.data.rollingDetails.monthlyPools
+          : [],
+        rules: snapshotMatch.data?.rollingPlan?.rules || {},
+        normalizedRules: snapshotMatch.data?.rollingDetails?.rules || []
+      }
     } : null;
 
     const reports = {

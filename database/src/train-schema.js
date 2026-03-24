@@ -2,6 +2,8 @@ const { BACKTEST_RESULTS_DDL } = require('./backtest-results.schema');
 const {
   GENERIC_CONFIG_DETAILS_DDL,
   POLICY_CONFIG_DETAILS_DDL,
+  ROLLING_POOL_DETAILS_DDL,
+  ROLLING_RULE_DETAILS_DDL,
   ROUTER_CONFIG_DETAILS_DDL,
   SNAPSHOT_CONFIG_DETAILS_DDL,
   TRAIN_CONFIGS_DDL,
@@ -20,6 +22,8 @@ const {
   BACKTEST_RESULTS_TABLE,
   GENERIC_CONFIG_DETAILS_TABLE,
   POLICY_CONFIG_DETAILS_TABLE,
+  ROLLING_POOL_DETAILS_TABLE,
+  ROLLING_RULE_DETAILS_TABLE,
   ROUTER_CONFIG_DETAILS_TABLE,
   SNAPSHOT_CONFIG_DETAILS_TABLE,
   TABLES,
@@ -66,6 +70,12 @@ async function ensureBacktestResultsSchema(db, tableName = BACKTEST_RESULTS_TABL
 
   await ensureIndex(db, tableName, 'idx_result_group', 'INDEX idx_result_group (result_group)');
   await ensureIndex(db, tableName, 'idx_result_group_run_id', 'INDEX idx_result_group_run_id (result_group, run_id)');
+  await ensureIndex(
+    db,
+    tableName,
+    'idx_result_group_run_rank',
+    'INDEX idx_result_group_run_rank (result_group, run_id, score, return_pct, total_pnl, strategy_name)'
+  );
   await ensureIndex(db, tableName, 'idx_train_id', 'INDEX idx_train_id (train_id)');
   await ensureIndex(db, tableName, 'idx_symbol_mode', 'INDEX idx_symbol_mode (symbol, mode)');
   await ensureIndex(db, tableName, 'uniq_result_group_run_strategy', 'UNIQUE INDEX uniq_result_group_run_strategy (result_group, run_id, strategy_name)');
@@ -76,6 +86,8 @@ async function ensureTrainConfigsSchema(db) {
   await db.query(TRAINING_CONFIG_DETAILS_DDL);
   await db.query(VALIDATION_CONFIG_DETAILS_DDL);
   await db.query(SNAPSHOT_CONFIG_DETAILS_DDL);
+  await db.query(ROLLING_POOL_DETAILS_DDL);
+  await db.query(ROLLING_RULE_DETAILS_DDL);
   await db.query(ROUTER_CONFIG_DETAILS_DDL);
   await db.query(POLICY_CONFIG_DETAILS_DDL);
   await db.query(GENERIC_CONFIG_DETAILS_DDL);
@@ -95,6 +107,11 @@ async function ensureTrainConfigsSchema(db) {
   await dropColumnIfExists(db, TRAIN_CONFIGS_TABLE, 'file_path');
   await dropColumnIfExists(db, TRAIN_CONFIGS_TABLE, 'file_name');
   await dropColumnIfExists(db, TRAIN_CONFIGS_TABLE, 'content');
+
+  await ensureIndex(db, ROLLING_POOL_DETAILS_TABLE, 'uniq_config_month', 'UNIQUE INDEX uniq_config_month (config_id, month_key)');
+  await ensureIndex(db, ROLLING_POOL_DETAILS_TABLE, 'idx_month_key', 'INDEX idx_month_key (month_key)');
+  await ensureIndex(db, ROLLING_RULE_DETAILS_TABLE, 'uniq_config_layer_rule', 'UNIQUE INDEX uniq_config_layer_rule (config_id, layer_key, rule_id)');
+  await ensureIndex(db, ROLLING_RULE_DETAILS_TABLE, 'idx_layer_key', 'INDEX idx_layer_key (layer_key)');
 }
 
 async function ensureTrainRunRequestsSchema(db) {

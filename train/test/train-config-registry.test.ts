@@ -4,6 +4,7 @@ const { test } = require('./harness.ts');
 const {
   normalizeTrainConfigKey,
   buildTrainConfigMetadata,
+  upsertTrainConfig,
 } = require('../dist/services/train-config-registry.js');
 
 test('train config registry normalizes config key and rejects invalid paths', () => {
@@ -72,4 +73,79 @@ test('train config registry requires explicit fee model for runnable config', ()
     ),
     /feeModel 为必填/
   );
+});
+
+test('train config registry persists rolling package child rows for top-strategies config', async () => {
+  const queries = [];
+  const db = {
+    query: async (sql, params = []) => {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('SELECT id, version_no')) {
+        return [[]];
+      }
+      if (String(sql).includes('INSERT INTO train_configs')) {
+        return [{ insertId: 12 }];
+      }
+      return [{}];
+    }
+  };
+
+  await upsertTrainConfig(
+    db,
+    'configs/top-strategies/rolling_alpha.generated.json',
+    {
+      artifactType: 'rolling-strategy-package',
+      generatedAt: '2026-03-24T00:00:00.000Z',
+      market: {
+        symbol: 'BTCJPY',
+        intervalType: '1min',
+      },
+      trainingContext: {
+        trainId: 'train-abc',
+      },
+      rollingPlan: {
+        monthlyPools: [
+          {
+            month: '2025-01',
+            featureBucket: 'range-mid-vol',
+            selectedStrategyName: 'alpha',
+            actionType: 'trade',
+            riskCap: 1,
+            topStrategies: [{ strategyName: 'alpha', rank: 1 }]
+          }
+        ],
+        rules: {
+          monthlyGuard: [
+            {
+              id: 'monthly_guard_range_mid_vol',
+              priority: 1,
+              when: { featureBucket: ['range-mid-vol'] },
+              action: { type: 'trade', riskCap: 1, strategyKey: 'rank1' },
+              rationale: 'month rule'
+            }
+          ],
+          weeklyGuard: [],
+          dailyRouter: [],
+          lossRecheck: []
+        }
+      },
+      rollingRouter: {
+        defaultStrategyKey: 'rank1',
+        strategyCatalog: {
+          rank1: {
+            strategyName: 'alpha',
+            shortLabel: 'TOP1'
+          }
+        },
+        rules: []
+      }
+    },
+    {
+      explicitType: 'top-strategies'
+    }
+  );
+
+  assert.ok(queries.some((entry) => entry.sql.includes('INSERT INTO snapshot_config_details')));
+  assert.ok(queries.some((entry) => entry.sql.includes('INSERT INTO rolling_pool_details')));
+  assert.ok(queries.some((entry) => entry.sql.includes('INSERT INTO rolling_rule_details')));
 });

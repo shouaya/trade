@@ -97,6 +97,11 @@ export function resolveRelativeConfigRef(baseConfigKey: string, targetRef: strin
 }
 
 export function buildStrategyCatalogFromSnapshot(snapshotContent: JsonObject | null | undefined): Record<string, RouterStrategyRef> {
+  const rollingRouter = snapshotContent?.['rollingRouter'] as JsonObject | undefined;
+  if (rollingRouter?.['strategyCatalog'] && typeof rollingRouter['strategyCatalog'] === 'object') {
+    return rollingRouter['strategyCatalog'] as Record<string, RouterStrategyRef>;
+  }
+
   const strategyBlock = snapshotContent?.['strategy'] as JsonObject | undefined;
   const explicitStrategies = Array.isArray(strategyBlock?.['explicitStrategies'])
     ? strategyBlock?.['explicitStrategies']
@@ -303,9 +308,18 @@ export function buildRollingRouterArtifacts(options: {
     || ''
   ).trim();
   const strategyCatalog = buildStrategyCatalogFromSnapshot(snapshotContent);
+  const rollingRouter = snapshotContent?.['rollingRouter'] && typeof snapshotContent['rollingRouter'] === 'object'
+    ? snapshotContent['rollingRouter'] as JsonObject
+    : null;
+  const rollingRules = Array.isArray(rollingRouter?.['rules'])
+    ? rollingRouter?.['rules'] as readonly RouterRule[]
+    : [];
+  const rollingDefaultStrategyKey = String(rollingRouter?.['defaultStrategyKey'] || '').trim();
   const strategyKeys = Object.keys(strategyCatalog);
   const previousFallback = previousRouter?.executionModel?.defaultFallback;
-  const defaultStrategyKey = previousFallback?.strategyKey && strategyCatalog[previousFallback.strategyKey]
+  const defaultStrategyKey = rollingDefaultStrategyKey && strategyCatalog[rollingDefaultStrategyKey]
+    ? rollingDefaultStrategyKey
+    : previousFallback?.strategyKey && strategyCatalog[previousFallback.strategyKey]
     ? previousFallback.strategyKey
     : (strategyKeys[0] || 'rank1');
 
@@ -328,12 +342,16 @@ export function buildRollingRouterArtifacts(options: {
       }
     },
     strategyCatalog,
-    rules: pruneRules(previousRouter?.rules, strategyCatalog)
+    rules: rollingRules.length > 0
+      ? pruneRules(rollingRules, strategyCatalog)
+      : pruneRules(previousRouter?.rules, strategyCatalog)
   };
 
   const policyContent = buildPolicyContent(routerContent, routerConfigKey, previousRouter
     ? ['Compatible rules were carried forward from the previous rolling router']
-    : ['Initialized from current Top-N snapshot']);
+    : rollingRules.length > 0
+      ? ['Initialized from rolling month/week/day mapping package']
+      : ['Initialized from current Top-N snapshot']);
 
   return {
     routerConfigKey,

@@ -14,6 +14,7 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       - ./database/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./database/mysql/conf.d/zzz-performance.cnf:/etc/mysql/conf.d/zzz-performance.cnf:ro
     networks:
       - trading-network
     healthcheck:

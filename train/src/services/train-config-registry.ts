@@ -5,6 +5,8 @@ import {
   ensureTrainConfigsSchema,
   GENERIC_CONFIG_DETAILS_TABLE,
   POLICY_CONFIG_DETAILS_TABLE,
+  ROLLING_POOL_DETAILS_TABLE,
+  ROLLING_RULE_DETAILS_TABLE,
   ROUTER_CONFIG_DETAILS_TABLE,
   SNAPSHOT_CONFIG_DETAILS_TABLE,
   TRAIN_CONFIGS_TABLE,
@@ -67,6 +69,27 @@ export interface RegistryConfigPayload {
   readonly source?: {
     readonly routerConfigPath?: string;
     readonly trainingConfigPath?: string;
+  };
+  readonly rollingPlan?: {
+    readonly monthlyPools?: readonly {
+      readonly month?: string;
+      readonly featureBucket?: string;
+      readonly selectedStrategyName?: string | null;
+      readonly actionType?: string;
+      readonly riskCap?: number | null;
+      readonly topStrategies?: readonly unknown[];
+    }[];
+    readonly rules?: {
+      readonly monthlyGuard?: readonly unknown[];
+      readonly weeklyGuard?: readonly unknown[];
+      readonly dailyRouter?: readonly unknown[];
+      readonly lossRecheck?: readonly unknown[];
+    };
+  };
+  readonly rollingRouter?: {
+    readonly defaultStrategyKey?: string;
+    readonly strategyCatalog?: Record<string, unknown>;
+    readonly rules?: readonly unknown[];
   };
 }
 
@@ -166,6 +189,10 @@ function asJsonSqlValue(value: unknown): string | null {
     return null;
   }
   return JSON.stringify(value ?? null);
+}
+
+function asArray<T = unknown>(value: unknown): readonly T[] {
+  return Array.isArray(value) ? value as readonly T[] : [];
 }
 
 export function normalizeTrainConfigKey(value: unknown): string {
@@ -544,6 +571,82 @@ async function deleteOtherDetailRows(
   }
 }
 
+async function clearRollingSnapshotChildRows(
+  db: mysql.Pool | mysql.Connection,
+  configId: number
+): Promise<void> {
+  await db.query(`DELETE FROM ${ROLLING_POOL_DETAILS_TABLE} WHERE config_id = ?`, [configId]);
+  await db.query(`DELETE FROM ${ROLLING_RULE_DETAILS_TABLE} WHERE config_id = ?`, [configId]);
+}
+
+async function syncRollingSnapshotChildRows(
+  db: mysql.Pool | mysql.Connection,
+  configId: number,
+  payload: RegistryConfigPayload
+): Promise<void> {
+  await clearRollingSnapshotChildRows(db, configId);
+
+  const monthlyPools = asArray<Record<string, unknown>>(payload.rollingPlan?.monthlyPools);
+  for (const item of monthlyPools) {
+    await db.query(
+      `INSERT INTO ${ROLLING_POOL_DETAILS_TABLE}
+        (config_id, month_key, feature_bucket, selected_strategy_name, action_type, risk_cap, top_strategies_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        configId,
+        String(item['month'] || '').trim(),
+        item['featureBucket'] ?? null,
+        item['selectedStrategyName'] ?? null,
+        item['actionType'] ?? null,
+        item['riskCap'] ?? null,
+        asJsonSqlValue(item['topStrategies'])
+      ]
+    );
+  }
+
+  const ruleGroups: ReadonlyArray<readonly [string, readonly Record<string, unknown>[]]> = [
+    ['monthly_guard', asArray<Record<string, unknown>>(payload.rollingPlan?.rules?.monthlyGuard)],
+    ['weekly_guard', asArray<Record<string, unknown>>(payload.rollingPlan?.rules?.weeklyGuard)],
+    ['daily_router', asArray<Record<string, unknown>>(payload.rollingPlan?.rules?.dailyRouter)],
+    ['loss_recheck', asArray<Record<string, unknown>>(payload.rollingPlan?.rules?.lossRecheck)]
+  ];
+
+  for (const [layerKey, rules] of ruleGroups) {
+    for (const rule of rules) {
+      const when = toJsonObject(rule['when']);
+      const action = toJsonObject(rule['action']);
+      const strategyKey = String(action?.['strategyKey'] || '').trim() || null;
+      const strategyCatalog = payload.rollingRouter?.strategyCatalog ?? {};
+      const strategyRef = strategyKey && typeof strategyCatalog === 'object'
+        ? toJsonObject((strategyCatalog as Record<string, unknown>)[strategyKey])
+        : null;
+      const featureBucket = Array.isArray(when?.['featureBucket']) && when?.['featureBucket']?.[0]
+        ? String(when['featureBucket'][0])
+        : null;
+
+      await db.query(
+        `INSERT INTO ${ROLLING_RULE_DETAILS_TABLE}
+          (config_id, layer_key, rule_id, priority_no, feature_bucket, strategy_key, strategy_name, action_type, risk_cap, risk_multiplier, rationale, rule_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          configId,
+          layerKey,
+          String(rule['id'] || '').trim(),
+          Number(rule['priority'] || 0),
+          featureBucket,
+          strategyKey,
+          strategyRef?.['strategyName'] ?? null,
+          action?.['type'] ?? null,
+          action?.['riskCap'] ?? null,
+          action?.['riskMultiplier'] ?? null,
+          rule['rationale'] ?? null,
+          asJsonSqlValue(rule)
+        ]
+      );
+    }
+  }
+}
+
 export async function upsertTrainConfig(
   db: mysql.Pool | mysql.Connection,
   configKeyInput: unknown,
@@ -641,6 +744,12 @@ export async function upsertTrainConfig(
   );
 
   await deleteOtherDetailRows(db, configId, detailRecord.tableName);
+
+  if (metadata.configType === 'top-strategies') {
+    await syncRollingSnapshotChildRows(db, configId, payload);
+  } else {
+    await clearRollingSnapshotChildRows(db, configId);
+  }
 
   return {
     ...metadata,
