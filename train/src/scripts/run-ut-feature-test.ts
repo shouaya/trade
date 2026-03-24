@@ -107,20 +107,20 @@ async function main(): Promise<void> {
       types: ['rsi_macd'],
       parameters: {
         rsi: {
-          period: [14],
-          oversold: [30, 35],
-          overbought: [65]
+          period: [6],
+          oversold: [30, 40],
+          overbought: [60, 65]
         },
         macd: {
-          fastPeriod: [6],
-          slowPeriod: [13],
-          signalPeriod: [4],
+          fastPeriod: [4],
+          slowPeriod: [9],
+          signalPeriod: [3],
           histogramThreshold: [0]
         },
         risk: {
           maxPositions: [1],
           lotSize: [0.01],
-          maxHoldMinutes: [4, 8]
+          maxHoldMinutes: [4, 8, 12]
         },
         atr: {
           slMultiplier: [1.5],
@@ -222,7 +222,13 @@ async function main(): Promise<void> {
     });
 
     let selectedValidation: typeof artifacts.validationConfigs[number] | null = null;
-    let selectedValidationPath = '';
+    let selectedRouterReport: any = null;
+    let bestFallbackCandidate: {
+      readonly configKey: string;
+      readonly tradeStrategyCount: number;
+      readonly routerTradedDays: number;
+      readonly routerTotalPnl: number;
+    } | null = null;
 
     for (const validationConfig of artifacts.validationConfigs) {
       const validationPath = path.resolve(trainRoot, validationConfig.configKey);
@@ -236,21 +242,48 @@ async function main(): Promise<void> {
         [validationConfig.content.database.tableName]
       );
       const tradeStrategyCount = Number(rows[0]?.['trade_strategy_count'] || 0);
-      if (tradeStrategyCount > 0) {
+      if (tradeStrategyCount <= 0) {
+        continue;
+      }
+
+      const routerReport = await runRouterValidation({
+        validationConfigPath: validationPath,
+        routerConfigPath: path.resolve(trainRoot, routerResult.routerConfigKey)
+      });
+      const routerTradedDays = Number(routerReport.comparison?.router?.tradedDays || 0);
+      const routerTotalPnl = Number(routerReport.comparison?.router?.totalPnl || 0);
+
+      if (
+        !bestFallbackCandidate
+        || routerTradedDays > bestFallbackCandidate.routerTradedDays
+        || (
+          routerTradedDays === bestFallbackCandidate.routerTradedDays
+          && Math.abs(routerTotalPnl) > Math.abs(bestFallbackCandidate.routerTotalPnl)
+        )
+      ) {
+        bestFallbackCandidate = {
+          configKey: validationConfig.configKey,
+          tradeStrategyCount,
+          routerTradedDays,
+          routerTotalPnl
+        };
+      }
+
+      if (routerTradedDays > 0 && routerTotalPnl !== 0) {
         selectedValidation = validationConfig;
-        selectedValidationPath = validationPath;
+        selectedRouterReport = routerReport;
         break;
       }
     }
 
     if (!selectedValidation) {
-      throw new Error('no validation config generated for UT flow');
+      const detail = bestFallbackCandidate
+        ? `best candidate=${bestFallbackCandidate.configKey}, tradeStrategies=${bestFallbackCandidate.tradeStrategyCount}, routerTradedDays=${bestFallbackCandidate.routerTradedDays}, routerTotalPnl=${bestFallbackCandidate.routerTotalPnl}`
+        : 'no validation window produced tradable strategies';
+      throw new Error(`no validation config generated for UT flow: ${detail}`);
     }
 
-    const routerReport = await runRouterValidation({
-      validationConfigPath: selectedValidationPath,
-      routerConfigPath: path.resolve(trainRoot, routerResult.routerConfigKey)
-    });
+    const routerReport = selectedRouterReport;
 
     const summary = await buildTrainingPipelineSummary({
       db,

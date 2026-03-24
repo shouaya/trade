@@ -155,7 +155,7 @@ test('rolling artifact builder respects routerSplit featureEngineering defaults'
   assert.ok(splitDisabled.routerRules.every((rule) => !(rule.when && rule.when.positiveStrategyRatio)));
 });
 
-test('rolling artifact builder downgrades weekly all-stop summary to reduce so router does not flatline by default', () => {
+test('rolling artifact builder downgrades non-loss stop summaries to reduce so router does not flatline by default', () => {
   const weeklySummary = normalizeLayerSummary('weekly_guard', {
     actionType: 'stop',
     averageRisk: 0,
@@ -174,6 +174,26 @@ test('rolling artifact builder downgrades weekly all-stop summary to reduce so r
     sampleCount: 5,
   });
 
-  assert.equal(monthlySummary.actionType, 'stop');
-  assert.equal(monthlySummary.averageRisk, 0);
+  assert.equal(monthlySummary.actionType, 'reduce');
+  assert.equal(monthlySummary.averageRisk, 0.5);
+
+  const dailySummary = normalizeLayerSummary('daily_router', {
+    actionType: 'stop',
+    averageRisk: 0,
+    dominantStrategy: 'alpha',
+    sampleCount: 5,
+  });
+
+  assert.equal(dailySummary.actionType, 'reduce');
+  assert.equal(dailySummary.averageRisk, 0.5);
+
+  const lossSummary = normalizeLayerSummary('loss_recheck', {
+    actionType: 'stop',
+    averageRisk: 0,
+    dominantStrategy: 'alpha',
+    sampleCount: 5,
+  });
+
+  assert.equal(lossSummary.actionType, 'stop');
+  assert.equal(lossSummary.averageRisk, 0);
 });

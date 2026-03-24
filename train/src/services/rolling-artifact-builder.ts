@@ -261,7 +261,7 @@ export function normalizeLayerSummary(
   layer: RollingRouterLayer,
   summary: SampleSummary
 ): SampleSummary {
-  if (layer !== 'weekly_guard' || summary.actionType !== 'stop') {
+  if (layer === 'loss_recheck' || summary.actionType !== 'stop') {
     return summary;
   }
 
