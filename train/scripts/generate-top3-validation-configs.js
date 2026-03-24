@@ -5,12 +5,17 @@ const path = require('path');
 const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
 const crypto = require('crypto');
+const {
+  BACKTEST_RESULTS_TABLE,
+  createMysqlConnectionWithFallback,
+  loadEnvFiles
+} = require('@money/database');
 
-const BACKTEST_RESULTS_TABLE = 'backtest_results';
-
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
-dotenv.config({ path: path.resolve(__dirname, '../../backend/.env') });
-dotenv.config();
+loadEnvFiles(dotenv, [
+  path.resolve(__dirname, '../.env'),
+  path.resolve(__dirname, '../../backend/.env'),
+  path.resolve(__dirname, '../../.env')
+]);
 
 function parseArgs(argv) {
   const args = {};
@@ -421,25 +426,10 @@ async function main() {
     throw new Error(`invalid --limit=${args.limit}`);
   }
 
-  const connection = await mysql.createConnection({
-    host: process.env.DB_HOST || '127.0.0.1',
-    port: Number(process.env.DB_PORT || '3306'),
-    user: process.env.DB_USER || 'trader',
-    password: process.env.DB_PASSWORD || 'traderpass',
-    database: process.env.DB_NAME || 'trading',
-    charset: 'utf8mb4'
-  }).catch(async (error) => {
-    if ((process.env.DB_HOST || '127.0.0.1') !== '127.0.0.1') {
-      return mysql.createConnection({
-        host: '127.0.0.1',
-        port: Number(process.env.DB_PORT || '3306'),
-        user: process.env.DB_USER || 'trader',
-        password: process.env.DB_PASSWORD || 'traderpass',
-        database: process.env.DB_NAME || 'trading',
-        charset: 'utf8mb4'
-      });
+  const connection = await createMysqlConnectionWithFallback(mysql, {
+    defaults: {
+      host: '127.0.0.1'
     }
-    throw error;
   });
 
   try {

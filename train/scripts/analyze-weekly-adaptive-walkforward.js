@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
+const { loadEnvFiles } = require('@money/database');
 const {
   ROOT_DIR,
   round,
@@ -26,9 +27,11 @@ const {
   summarizeValidation
 } = require('./lib/weekly-feature-combo-common');
 
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
-dotenv.config({ path: path.resolve(__dirname, '../../backend/.env') });
-dotenv.config();
+loadEnvFiles(dotenv, [
+  path.resolve(__dirname, '../.env'),
+  path.resolve(__dirname, '../../backend/.env'),
+  path.resolve(__dirname, '../../.env')
+]);
 
 const GENERATED_DIR = path.join(ROOT_DIR, 'configs', 'generated', 'weekly-adaptive');
 const REPORT_DIR = path.join(ROOT_DIR, 'reports', 'weekly-adaptive');

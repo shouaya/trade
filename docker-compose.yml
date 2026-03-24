@@ -13,7 +13,7 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./backend/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./database/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - trading-network
     healthcheck:

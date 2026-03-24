@@ -160,7 +160,7 @@ money/
 
 ## 🗄️ 数据库设计
 
-### 表结构（[backend/sql/init.sql](backend/sql/init.sql)）
+### 表结构（[database/sql/init.sql](database/sql/init.sql)）
 
 #### 1. `klines` - K 线数据表
 
@@ -1412,7 +1412,7 @@ docker-compose logs train
    ```
 
 3. **阅读核心代码**（30 分钟）
-   - [backend/sql/init.sql](backend/sql/init.sql) - 数据库设计
+   - [database/sql/init.sql](database/sql/init.sql) - 数据库设计
    - [frontend/src/utils/indicators.js](frontend/src/utils/indicators.js) - 指标计算
    - [train/backtest-training-service.js](train/backtest-training-service.js) - 回测逻辑
 

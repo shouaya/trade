@@ -1,0 +1,14 @@
+{
+  "name": "@money/database",
+  "private": true,
+  "version": "1.0.0",
+  "type": "commonjs",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "generate:init-sql": "node scripts/generate-init-sql.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

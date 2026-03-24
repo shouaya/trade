@@ -24,6 +24,7 @@
     "audit:causal-features": "node dist/scripts/feature-causality-audit.js"
   },
   "dependencies": {
+    "@money/database": "file:../database",
     "@money/simulator": "file:../simulator",
     "dotenv": "^16.3.1",
     "mysql2": "^3.6.5",

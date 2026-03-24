@@ -1,19 +1,14 @@
-/**
- * Backtest Results Table Schema
- * 回测结果表结构定义
- */
-
-export const BACKTEST_RESULTS_DDL = `
+const BACKTEST_RESULTS_DDL = `
   CREATE TABLE IF NOT EXISTS backtest_results (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    result_group VARCHAR(255) NOT NULL COMMENT '逻辑结果分组，兼容旧 tableName 配置',
-    run_id VARCHAR(64) NOT NULL COMMENT '单次训练/验证运行批次ID',
-    config_name VARCHAR(255) NULL COMMENT '配置名',
+    result_group VARCHAR(255) NOT NULL COMMENT 'logical result group',
+    run_id VARCHAR(64) NOT NULL COMMENT 'single training or validation run id',
+    config_name VARCHAR(255) NULL COMMENT 'config name',
     mode VARCHAR(20) NULL COMMENT 'training / validation',
-    symbol VARCHAR(20) NULL COMMENT '交易品种',
-    interval_type VARCHAR(20) NULL COMMENT 'K线周期',
-    period_start_ms BIGINT NULL COMMENT '训练/验证起始时间',
-    period_end_ms BIGINT NULL COMMENT '训练/验证结束时间',
+    symbol VARCHAR(20) NULL COMMENT 'market symbol',
+    interval_type VARCHAR(20) NULL COMMENT 'kline interval',
+    period_start_ms BIGINT NULL COMMENT 'period start timestamp in ms',
+    period_end_ms BIGINT NULL COMMENT 'period end timestamp in ms',
     strategy_name VARCHAR(255) NOT NULL,
     strategy_type VARCHAR(50),
     parameters JSON,
@@ -28,6 +23,8 @@ export const BACKTEST_RESULTS_DDL = `
     avg_pnl DECIMAL(15, 2) DEFAULT 0,
     max_drawdown DECIMAL(15, 2) DEFAULT 0,
     max_drawdown_pct DECIMAL(10, 4) DEFAULT 0,
+    gross_profit DECIMAL(15, 2) DEFAULT 0,
+    gross_loss DECIMAL(15, 2) DEFAULT 0,
     sharpe_ratio DECIMAL(10, 4) DEFAULT 0,
     profit_factor DECIMAL(10, 4) DEFAULT 0,
     avg_win DECIMAL(15, 2) DEFAULT 0,
@@ -50,3 +47,7 @@ export const BACKTEST_RESULTS_DDL = `
     UNIQUE KEY uniq_result_group_run_strategy (result_group, run_id, strategy_name)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
+
+module.exports = {
+  BACKTEST_RESULTS_DDL
+};

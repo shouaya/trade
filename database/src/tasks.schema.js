@@ -1,9 +1,4 @@
-/**
- * Tasks Table Schema
- * 任务管理表结构定义
- */
-
-export const TASKS_DDL = `
+const TASKS_DDL = `
   CREATE TABLE IF NOT EXISTS tasks (
     id INT AUTO_INCREMENT PRIMARY KEY,
     task_id VARCHAR(100) NOT NULL UNIQUE,
@@ -20,3 +15,7 @@ export const TASKS_DDL = `
     INDEX idx_pid (pid)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
+
+module.exports = {
+  TASKS_DDL
+};

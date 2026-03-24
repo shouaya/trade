@@ -2,12 +2,17 @@ const express = require('express');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const {
+  TRAIN_CONFIGS_TABLE,
+  TRAIN_RUN_REQUESTS_TABLE,
+  allTablesExist
+} = require('@money/database');
 const db = require('../config/database');
 
 const router = express.Router();
 
-const REQUEST_TABLE = 'train_run_requests';
-const CONFIG_TABLE = 'train_configs';
+const REQUEST_TABLE = TRAIN_RUN_REQUESTS_TABLE;
+const CONFIG_TABLE = TRAIN_CONFIGS_TABLE;
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const TRAIN_ROOT = process.env.TRAIN_ROOT
   ? path.resolve(process.env.TRAIN_ROOT)
@@ -64,9 +69,7 @@ function toRecord(row) {
 }
 
 async function ensureTablesReady() {
-  const [requestRows] = await db.query('SHOW TABLES LIKE ?', [REQUEST_TABLE]);
-  const [configRows] = await db.query('SHOW TABLES LIKE ?', [CONFIG_TABLE]);
-  return requestRows.length > 0 && configRows.length > 0;
+  return allTablesExist(db, [REQUEST_TABLE, CONFIG_TABLE]);
 }
 
 async function loadConfigById(configId) {

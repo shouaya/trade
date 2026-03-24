@@ -4,6 +4,7 @@
  */
 
 import mysql from 'mysql2/promise';
+import { getMysqlConnectionOptions } from '@money/database';
 import type { Task, TaskManagerResult, DatabaseConfig } from '../types';
 
 export class TaskManager {
@@ -139,13 +140,15 @@ export class TaskManager {
  * 创建TaskManager实例
  */
 export async function createTaskManager(): Promise<TaskManager> {
-  const config: DatabaseConfig = {
-    host: process.env['DB_HOST'] ?? 'localhost',
-    port: parseInt(process.env['DB_PORT'] ?? '3306', 10),
-    user: process.env['DB_USER'] ?? 'root',
-    password: process.env['DB_PASSWORD'] ?? '',
-    database: process.env['DB_NAME'] ?? 'trading'
-  };
+  const config: DatabaseConfig = getMysqlConnectionOptions({
+    defaults: {
+      host: 'localhost',
+      port: 3306,
+      user: 'root',
+      password: '',
+      database: 'trading'
+    }
+  });
 
   const db = await mysql.createConnection(config);
   return new TaskManager(db);

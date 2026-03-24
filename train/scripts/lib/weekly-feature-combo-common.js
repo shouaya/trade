@@ -1,9 +1,12 @@
 const { execFileSync } = require('child_process');
 const path = require('path');
 const mysql = require('mysql2/promise');
+const {
+  BACKTEST_RESULTS_TABLE,
+  createMysqlConnectionWithFallback
+} = require('@money/database');
 
 const ROOT_DIR = path.resolve(__dirname, '../..');
-const BACKTEST_RESULTS_TABLE = 'backtest_results';
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
@@ -260,21 +263,11 @@ function runTrainConfig(configPath) {
 }
 
 async function connect() {
-  return mysql.createConnection({
-    host: process.env.DB_HOST || '127.0.0.1',
-    port: Number(process.env.DB_PORT || '3306'),
-    user: process.env.DB_USER || 'trader',
-    password: process.env.DB_PASSWORD || 'traderpass',
-    database: process.env.DB_NAME || 'trading',
-    charset: 'utf8mb4'
-  }).catch(async () => mysql.createConnection({
-    host: '127.0.0.1',
-    port: Number(process.env.DB_PORT || '3306'),
-    user: process.env.DB_USER || 'trader',
-    password: process.env.DB_PASSWORD || 'traderpass',
-    database: process.env.DB_NAME || 'trading',
-    charset: 'utf8mb4'
-  }));
+  return createMysqlConnectionWithFallback(mysql, {
+    defaults: {
+      host: '127.0.0.1'
+    }
+  });
 }
 
 async function queryRows(connection, sql, params = []) {

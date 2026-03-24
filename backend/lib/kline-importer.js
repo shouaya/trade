@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { ensureKlineSchema: ensureSharedKlineSchema } = require('@money/database');
 const db = require('../config/database');
 
 const MARKET_CONFIG = {
@@ -42,6 +43,10 @@ function sanitizeDate(dateStr, fieldName) {
     throw new Error(`${fieldName} must be in YYYYMMDD format`);
   }
   return value;
+}
+
+async function ensureKlineSchema() {
+  await ensureSharedKlineSchema(db);
 }
 
 function validateImportOptions(options) {
@@ -517,29 +522,6 @@ function parseNullableNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-async function ensureKlineSchema() {
-  const requiredColumns = [
-    ['bid_open', 'DECIMAL(20, 8) NULL AFTER open_time'],
-    ['bid_high', 'DECIMAL(20, 8) NULL AFTER bid_open'],
-    ['bid_low', 'DECIMAL(20, 8) NULL AFTER bid_high'],
-    ['bid_close', 'DECIMAL(20, 8) NULL AFTER bid_low'],
-    ['ask_open', 'DECIMAL(20, 8) NULL AFTER bid_close'],
-    ['ask_high', 'DECIMAL(20, 8) NULL AFTER ask_open'],
-    ['ask_low', 'DECIMAL(20, 8) NULL AFTER ask_high'],
-    ['ask_close', 'DECIMAL(20, 8) NULL AFTER ask_low']
-  ];
-
-  for (const [name, ddl] of requiredColumns) {
-    const [rows] = await db.query('SHOW COLUMNS FROM klines LIKE ?', [name]);
-    if (rows.length === 0) {
-      await db.query(`ALTER TABLE klines ADD COLUMN ${name} ${ddl}`);
-      continue;
-    }
-
-    await db.query(`ALTER TABLE klines MODIFY COLUMN ${name} DECIMAL(20, 8) NULL`);
-  }
-}
-
 function formatApiError(payload) {
   if (!payload) {
     return 'Empty response from GMO API';
@@ -565,5 +547,5 @@ module.exports = {
   clearKlineData,
   validateImportOptions,
   normalizeMarketType,
-  ensureKlineSchema
+  ensureKlineSchema: () => ensureKlineSchema(db)
 };

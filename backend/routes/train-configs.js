@@ -1,6 +1,11 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const {
+  BACKTEST_RESULTS_TABLE,
+  TRAIN_CONFIGS_TABLE,
+  tableExists
+} = require('@money/database');
 const db = require('../config/database');
 
 const router = express.Router();
@@ -9,8 +14,6 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const TRAIN_ROOT = process.env.TRAIN_ROOT
   ? path.resolve(process.env.TRAIN_ROOT)
   : path.join(REPO_ROOT, 'train');
-const TRAIN_CONFIGS_TABLE = 'train_configs';
-const BACKTEST_RESULTS_TABLE = 'backtest_results';
 const TRAIN_MANAGEMENT_SERVICE_PATH = path.join(TRAIN_ROOT, 'dist', 'services', 'training-management.js');
 const TRAIN_CONFIG_REGISTRY_SERVICE_PATH = path.join(TRAIN_ROOT, 'dist', 'services', 'train-config-registry.js');
 const TRAIN_ORCHESTRATION_SERVICE_PATH = path.join(TRAIN_ROOT, 'dist', 'services', 'train-orchestration.js');
@@ -91,8 +94,7 @@ function toConfigRecord(row, includeContent = false) {
 }
 
 async function ensureRegistryTableExists() {
-  const [rows] = await db.query('SHOW TABLES LIKE ?', [TRAIN_CONFIGS_TABLE]);
-  return rows.length > 0;
+  return tableExists(db, TRAIN_CONFIGS_TABLE);
 }
 
 function sendRegistryNotReady(res) {

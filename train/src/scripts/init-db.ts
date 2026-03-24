@@ -3,16 +3,17 @@
  * 创建除 klines 外的所有必要表
  */
 
+import {
+  BACKTEST_RESULTS_TABLE,
+  STRATEGIES_DDL,
+  TASKS_DDL,
+  TRADES_DDL,
+  ensureBacktestResultsSchema,
+  ensureTrainConfigsSchema,
+  ensureTrainRunRequestsSchema
+} from '@money/database';
 import db from '../configs/database';
 import type * as mysql from 'mysql2/promise';
-import {
-  BACKTEST_RESULTS_DDL,
-  STRATEGIES_DDL,
-  TRADES_DDL,
-  TASKS_DDL,
-  TRAIN_CONFIGS_DDL,
-  TRAIN_RUN_REQUESTS_DDL
-} from '../database';
 
 interface TableCheckResult {
   readonly tableName: string;
@@ -43,30 +44,6 @@ async function indexExists(tableName: string, indexName: string): Promise<boolea
   return indexes.length > 0;
 }
 
-async function ensureColumn(tableName: string, columnName: string, ddl: string): Promise<void> {
-  if (!await columnExists(tableName, columnName)) {
-    await db.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${ddl}`);
-  }
-}
-
-async function ensureIndex(tableName: string, indexName: string, ddl: string): Promise<void> {
-  if (!await indexExists(tableName, indexName)) {
-    await db.query(`ALTER TABLE ${tableName} ADD ${ddl}`);
-  }
-}
-
-async function dropColumnIfExists(tableName: string, columnName: string): Promise<void> {
-  if (await columnExists(tableName, columnName)) {
-    await db.query(`ALTER TABLE ${tableName} DROP COLUMN ${columnName}`);
-  }
-}
-
-async function dropIndexIfExists(tableName: string, indexName: string): Promise<void> {
-  if (await indexExists(tableName, indexName)) {
-    await db.query(`ALTER TABLE ${tableName} DROP INDEX ${indexName}`);
-  }
-}
-
 async function tableExists(tableName: string): Promise<boolean> {
   const [tables] = await db.query<mysql.RowDataPacket[]>(
     `SHOW TABLES LIKE ?`,
@@ -77,26 +54,7 @@ async function tableExists(tableName: string): Promise<boolean> {
 
 async function createBacktestResultsTable(): Promise<void> {
   console.log('📊 创建 backtest_results 表...');
-  await db.query(BACKTEST_RESULTS_DDL);
-
-  await ensureColumn('backtest_results', 'result_group', `VARCHAR(255) NOT NULL DEFAULT '' COMMENT '逻辑结果分组，兼容旧 tableName 配置' AFTER id`);
-  await ensureColumn('backtest_results', 'run_id', `VARCHAR(64) NOT NULL DEFAULT '' COMMENT '单次训练/验证运行批次ID' AFTER result_group`);
-  await ensureColumn('backtest_results', 'config_name', `VARCHAR(255) NULL COMMENT '配置名' AFTER run_id`);
-  await ensureColumn('backtest_results', 'mode', `VARCHAR(20) NULL COMMENT 'training / validation' AFTER config_name`);
-  await ensureColumn('backtest_results', 'symbol', `VARCHAR(20) NULL COMMENT '交易品种' AFTER mode`);
-  await ensureColumn('backtest_results', 'interval_type', `VARCHAR(20) NULL COMMENT 'K线周期' AFTER symbol`);
-  await ensureColumn('backtest_results', 'period_start_ms', `BIGINT NULL COMMENT '训练/验证起始时间' AFTER interval_type`);
-  await ensureColumn('backtest_results', 'period_end_ms', `BIGINT NULL COMMENT '训练/验证结束时间' AFTER period_start_ms`);
-  await ensureColumn('backtest_results', 'gross_profit', `DECIMAL(15, 2) DEFAULT 0 AFTER max_drawdown_pct`);
-  await ensureColumn('backtest_results', 'gross_loss', `DECIMAL(15, 2) DEFAULT 0 AFTER gross_profit`);
-  await ensureColumn('backtest_results', 'executor_version', `VARCHAR(20) NULL AFTER score`);
-  await ensureColumn('backtest_results', 'executor_options', `JSON NULL AFTER executor_version`);
-  await ensureColumn('backtest_results', 'updated_at', `TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at`);
-
-  await ensureIndex('backtest_results', 'idx_result_group', 'INDEX idx_result_group (result_group)');
-  await ensureIndex('backtest_results', 'idx_result_group_run_id', 'INDEX idx_result_group_run_id (result_group, run_id)');
-  await ensureIndex('backtest_results', 'idx_symbol_mode', 'INDEX idx_symbol_mode (symbol, mode)');
-  await ensureIndex('backtest_results', 'uniq_result_group_run_strategy', 'UNIQUE INDEX uniq_result_group_run_strategy (result_group, run_id, strategy_name)');
+  await ensureBacktestResultsSchema(db, BACKTEST_RESULTS_TABLE);
 
   console.log('✅ backtest_results 表创建成功');
 }
@@ -153,20 +111,13 @@ async function createTasksTable(): Promise<void> {
 
 async function createTrainConfigsTable(): Promise<void> {
   console.log('📊 创建 train_configs 表...');
-  await db.query(TRAIN_CONFIGS_DDL);
-  await dropIndexIfExists('train_configs', 'idx_synced_at');
-  await dropColumnIfExists('train_configs', 'file_mtime');
-  await dropColumnIfExists('train_configs', 'synced_at');
-  await dropColumnIfExists('train_configs', 'file_path');
-  await dropColumnIfExists('train_configs', 'file_name');
+  await ensureTrainConfigsSchema(db);
   console.log('✅ train_configs 表创建成功');
 }
 
 async function createTrainRunRequestsTable(): Promise<void> {
   console.log('📊 创建 train_run_requests 表...');
-  await db.query(TRAIN_RUN_REQUESTS_DDL);
-  await ensureColumn('train_run_requests', 'execution_pid', `INT NULL AFTER worker_pid`);
-  await ensureColumn('train_run_requests', 'cancel_requested', `TINYINT(1) NOT NULL DEFAULT 0 AFTER execution_pid`);
+  await ensureTrainRunRequestsSchema(db);
   console.log('✅ train_run_requests 表创建成功');
 }
 

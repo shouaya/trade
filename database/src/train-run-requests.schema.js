@@ -1,9 +1,4 @@
-/**
- * Train Run Request Queue Schema
- * 训练/验证请求队列表
- */
-
-export const TRAIN_RUN_REQUESTS_DDL = `
+const TRAIN_RUN_REQUESTS_DDL = `
   CREATE TABLE IF NOT EXISTS train_run_requests (
     id INT AUTO_INCREMENT PRIMARY KEY,
     request_id VARCHAR(100) NOT NULL,
@@ -34,3 +29,7 @@ export const TRAIN_RUN_REQUESTS_DDL = `
     INDEX idx_action_status (action, status)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
+
+module.exports = {
+  TRAIN_RUN_REQUESTS_DDL
+};

@@ -12,10 +12,13 @@ const fs = require('fs');
 const path = require('path');
 const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
+const { createMysqlConnectionWithFallback, loadEnvFiles } = require('@money/database');
 
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
-dotenv.config({ path: path.resolve(__dirname, '../../backend/.env') });
-dotenv.config();
+loadEnvFiles(dotenv, [
+  path.resolve(__dirname, '../.env'),
+  path.resolve(__dirname, '../../backend/.env'),
+  path.resolve(__dirname, '../../.env')
+]);
 
 const DEFAULT_SYMBOL = 'ETHJPY';
 const INTERVAL = '1min';
@@ -765,28 +768,11 @@ async function main() {
   const baseName = options.symbol.toLowerCase();
   ensureDir(REPORT_DIR);
 
-  const connectionOptions = {
-    host: process.env.DB_HOST || '127.0.0.1',
-    port: Number(process.env.DB_PORT || '3306'),
-    user: process.env.DB_USER || 'trader',
-    password: process.env.DB_PASSWORD || 'traderpass',
-    database: process.env.DB_NAME || 'trading',
-    charset: 'utf8mb4'
-  };
-
-  let connection;
-  try {
-    connection = await mysql.createConnection(connectionOptions);
-  } catch (error) {
-    if (connectionOptions.host !== '127.0.0.1') {
-      connection = await mysql.createConnection({
-        ...connectionOptions,
-        host: '127.0.0.1'
-      });
-    } else {
-      throw error;
+  const connection = await createMysqlConnectionWithFallback(mysql, {
+    defaults: {
+      host: '127.0.0.1'
     }
-  }
+  });
 
   try {
     const rows = await fetchRows(connection, options.symbol);

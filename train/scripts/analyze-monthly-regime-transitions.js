@@ -5,10 +5,13 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
+const { createMysqlConnectionWithFallback, loadEnvFiles } = require('@money/database');
 
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
-dotenv.config({ path: path.resolve(__dirname, '../../backend/.env') });
-dotenv.config();
+loadEnvFiles(dotenv, [
+  path.resolve(__dirname, '../.env'),
+  path.resolve(__dirname, '../../backend/.env'),
+  path.resolve(__dirname, '../../.env')
+]);
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const GENERATED_DIR = path.join(ROOT_DIR, 'configs', 'generated', 'monthly-regime');
@@ -138,21 +141,11 @@ function runTrainConfig(configPath) {
 }
 
 async function connect() {
-  return mysql.createConnection({
-    host: process.env.DB_HOST || '127.0.0.1',
-    port: Number(process.env.DB_PORT || '3306'),
-    user: process.env.DB_USER || 'trader',
-    password: process.env.DB_PASSWORD || 'traderpass',
-    database: process.env.DB_NAME || 'trading',
-    charset: 'utf8mb4'
-  }).catch(async () => mysql.createConnection({
-    host: '127.0.0.1',
-    port: Number(process.env.DB_PORT || '3306'),
-    user: process.env.DB_USER || 'trader',
-    password: process.env.DB_PASSWORD || 'traderpass',
-    database: process.env.DB_NAME || 'trading',
-    charset: 'utf8mb4'
-  }));
+  return createMysqlConnectionWithFallback(mysql, {
+    defaults: {
+      host: '127.0.0.1'
+    }
+  });
 }
 
 async function queryRows(connection, sql, params = []) {

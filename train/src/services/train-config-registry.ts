@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
+import { TRAIN_CONFIGS_TABLE, ensureTrainConfigsSchema } from '@money/database';
 import type * as mysql from 'mysql2/promise';
-import { TRAIN_CONFIGS_DDL } from '../database';
 import type { FeeModelConfig } from '../types';
 
 export interface RegistryConfigPayload {
@@ -48,7 +48,6 @@ export interface SyncTrainConfigsResult {
   readonly synced: number;
 }
 
-const TRAIN_CONFIGS_TABLE = 'train_configs';
 const TRAIN_ROOT = path.resolve(__dirname, '..', '..');
 const CONFIGS_ROOT = path.join(TRAIN_ROOT, 'configs');
 
@@ -251,7 +250,7 @@ export function buildTrainConfigMetadata(
 }
 
 export async function ensureTrainConfigRegistryTable(db: mysql.Pool | mysql.Connection): Promise<void> {
-  await db.query(TRAIN_CONFIGS_DDL);
+  await ensureTrainConfigsSchema(db);
 }
 
 export async function upsertTrainConfigFromFile(

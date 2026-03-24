@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 
+import { BACKTEST_RESULTS_TABLE } from '@money/database';
 import db from '../configs/database';
 import type * as mysql from 'mysql2/promise';
-
-const BACKTEST_RESULTS_TABLE = 'backtest_results';
 
 interface LegacyTableRow extends mysql.RowDataPacket {
   readonly table_name: string;
@@ -37,8 +36,8 @@ async function listLegacyTables(): Promise<readonly string[]> {
   );
 
   return rows
-    .map((row) => String(row.table_name))
-    .sort((left, right) => left.localeCompare(right));
+    .map((row: LegacyTableRow) => String(row.table_name))
+    .sort((left: string, right: string) => left.localeCompare(right));
 }
 
 async function migrateTable(tableName: string): Promise<void> {

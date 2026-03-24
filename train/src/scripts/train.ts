@@ -16,6 +16,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { randomBytes } from 'crypto';
+import { BACKTEST_RESULTS_TABLE, ensureBacktestResultsSchema } from '@money/database';
 import db from '../configs/database';
 import { TaskManager } from '../services/task-manager';
 import { StrategyExecutor } from '../services/strategy-executor';
@@ -46,7 +47,6 @@ async function createTaskManager(): Promise<TaskManager> {
 // 常量
 const PROGRESS_INTERVAL_MS = 10000;
 const TRADE_BATCH_SIZE = 1000;
-const BACKTEST_RESULTS_TABLE = 'backtest_results';
 const TRAIN_ROOT = path.resolve(__dirname, '..', '..');
 const CONFIGS_ROOT = path.join(TRAIN_ROOT, 'configs');
 
@@ -92,40 +92,6 @@ interface TrainingConfig {
     readonly persistTopStrategies?: boolean;
     readonly persistTrades?: boolean;
   };
-}
-
-async function resultColumnExists(tableName: string, columnName: string): Promise<boolean> {
-  const [columns] = await db.query<mysql.RowDataPacket[]>(
-    `SHOW COLUMNS FROM ${tableName} LIKE ?`,
-    [columnName]
-  );
-  return columns.length > 0;
-}
-
-async function resultIndexExists(tableName: string, indexName: string): Promise<boolean> {
-  const [indexes] = await db.query<mysql.RowDataPacket[]>(
-    `SHOW INDEX FROM ${tableName} WHERE Key_name = ?`,
-    [indexName]
-  );
-  return indexes.length > 0;
-}
-
-async function modifyColumnIfExists(tableName: string, columnName: string, ddl: string): Promise<void> {
-  if (await resultColumnExists(tableName, columnName)) {
-    await db.query(`ALTER TABLE ${tableName} MODIFY COLUMN ${columnName} ${ddl}`);
-  }
-}
-
-async function ensureColumn(tableName: string, columnName: string, ddl: string): Promise<void> {
-  if (!await resultColumnExists(tableName, columnName)) {
-    await db.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${ddl}`);
-  }
-}
-
-async function ensureIndex(tableName: string, indexName: string, ddl: string): Promise<void> {
-  if (!await resultIndexExists(tableName, indexName)) {
-    await db.query(`ALTER TABLE ${tableName} ADD ${ddl}`);
-  }
 }
 
 interface StrategyResult {
@@ -273,75 +239,7 @@ function createRunId(config: TrainingConfig): string {
 
 async function ensureBacktestTable(): Promise<void> {
   console.log(`\n📋 创建/检查结果表: ${BACKTEST_RESULTS_TABLE}`);
-
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS ${BACKTEST_RESULTS_TABLE} (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      result_group VARCHAR(255) NOT NULL,
-      run_id VARCHAR(64) NOT NULL,
-      config_name VARCHAR(255) NULL,
-      mode VARCHAR(20) NULL,
-      symbol VARCHAR(20) NULL,
-      interval_type VARCHAR(20) NULL,
-      period_start_ms BIGINT NULL,
-      period_end_ms BIGINT NULL,
-      strategy_name VARCHAR(255),
-      strategy_type VARCHAR(50),
-      total_trades INT,
-      winning_trades INT,
-      losing_trades INT,
-      win_rate DECIMAL(5,4),
-      gross_pnl DECIMAL(12,2),
-      total_commission DECIMAL(12,4),
-      total_pnl DECIMAL(12,2),
-      return_pct DECIMAL(12,4),
-      avg_pnl DECIMAL(12,2),
-      sharpe_ratio DECIMAL(10,4),
-      profit_factor DECIMAL(10,4),
-      max_drawdown DECIMAL(15,2),
-      max_drawdown_pct DECIMAL(10,4),
-      gross_profit DECIMAL(12,2),
-      gross_loss DECIMAL(12,2),
-      avg_win DECIMAL(12,2),
-      avg_loss DECIMAL(12,2),
-      score DECIMAL(12,4),
-      parameters JSON,
-      executor_version VARCHAR(20),
-      executor_options JSON,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      INDEX idx_result_group (result_group),
-      INDEX idx_result_group_run_id (result_group, run_id),
-      INDEX idx_symbol_mode (symbol, mode),
-      INDEX idx_strategy_type (strategy_type),
-      INDEX idx_total_pnl (total_pnl),
-      INDEX idx_score (score),
-      INDEX idx_created_at (created_at),
-      UNIQUE KEY uniq_result_group_run_strategy (result_group, run_id, strategy_name)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-  `);
-
-  await ensureColumn(BACKTEST_RESULTS_TABLE, 'result_group', `VARCHAR(255) NOT NULL DEFAULT '' AFTER id`);
-  await ensureColumn(BACKTEST_RESULTS_TABLE, 'run_id', `VARCHAR(64) NOT NULL DEFAULT '' AFTER result_group`);
-  await ensureColumn(BACKTEST_RESULTS_TABLE, 'config_name', `VARCHAR(255) NULL AFTER run_id`);
-  await ensureColumn(BACKTEST_RESULTS_TABLE, 'mode', `VARCHAR(20) NULL AFTER config_name`);
-  await ensureColumn(BACKTEST_RESULTS_TABLE, 'symbol', `VARCHAR(20) NULL AFTER mode`);
-  await ensureColumn(BACKTEST_RESULTS_TABLE, 'interval_type', `VARCHAR(20) NULL AFTER symbol`);
-  await ensureColumn(BACKTEST_RESULTS_TABLE, 'period_start_ms', `BIGINT NULL AFTER interval_type`);
-  await ensureColumn(BACKTEST_RESULTS_TABLE, 'period_end_ms', `BIGINT NULL AFTER period_start_ms`);
-  await ensureColumn(BACKTEST_RESULTS_TABLE, 'gross_pnl', `DECIMAL(12,2) NULL AFTER win_rate`);
-  await ensureColumn(BACKTEST_RESULTS_TABLE, 'total_commission', `DECIMAL(12,4) NULL AFTER gross_pnl`);
-  await ensureColumn(BACKTEST_RESULTS_TABLE, 'return_pct', `DECIMAL(12,4) NULL AFTER total_pnl`);
-  await ensureColumn(BACKTEST_RESULTS_TABLE, 'max_drawdown_pct', `DECIMAL(10,4) NULL AFTER max_drawdown`);
-  await ensureColumn(BACKTEST_RESULTS_TABLE, 'updated_at', `TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at`);
-
-  await modifyColumnIfExists(BACKTEST_RESULTS_TABLE, 'max_drawdown', 'DECIMAL(15,2) NULL');
-  await modifyColumnIfExists(BACKTEST_RESULTS_TABLE, 'return_pct', 'DECIMAL(12,4) NULL');
-  await modifyColumnIfExists(BACKTEST_RESULTS_TABLE, 'max_drawdown_pct', 'DECIMAL(10,4) NULL');
-  await ensureIndex(BACKTEST_RESULTS_TABLE, 'idx_result_group', 'INDEX idx_result_group (result_group)');
-  await ensureIndex(BACKTEST_RESULTS_TABLE, 'idx_result_group_run_id', 'INDEX idx_result_group_run_id (result_group, run_id)');
-  await ensureIndex(BACKTEST_RESULTS_TABLE, 'idx_symbol_mode', 'INDEX idx_symbol_mode (symbol, mode)');
-  await ensureIndex(BACKTEST_RESULTS_TABLE, 'uniq_result_group_run_strategy', 'UNIQUE INDEX uniq_result_group_run_strategy (result_group, run_id, strategy_name)');
+  await ensureBacktestResultsSchema(db, BACKTEST_RESULTS_TABLE);
 
   console.log('✅ 结果表准备完成');
 }
@@ -718,7 +616,7 @@ async function queryTopStrategies(resultGroup: string, topN: number, runId?: str
   console.log('│ 排名 │ 策略名称                      │ 类型   │ 交易数  │ 胜率     │ 总盈亏    │ 评分     │');
   console.log('├─────┼──────────────────────────────┼────────┼─────────┼──────────┼───────────┼──────────┤');
 
-  results.forEach((row, i) => {
+  results.forEach((row: mysql.RowDataPacket, i: number) => {
     const rank = String(i + 1).padStart(4);
     const name = String(row['strategy_name']).substring(0, 28).padEnd(28);
     const type = String(row['strategy_type'] ?? '').padEnd(6);

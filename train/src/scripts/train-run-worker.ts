@@ -3,8 +3,12 @@ import * as os from 'os';
 import * as path from 'path';
 import { spawn, type ChildProcess } from 'child_process';
 import { createHash, randomBytes } from 'crypto';
+import {
+  TRAIN_CONFIGS_TABLE,
+  TRAIN_RUN_REQUESTS_TABLE,
+  ensureTrainRunRequestsSchema
+} from '@money/database';
 import db from '../configs/database';
-import { TRAIN_RUN_REQUESTS_DDL } from '../database';
 import { ensureTrainConfigRegistryTable } from '../services/train-config-registry';
 import type * as mysql from 'mysql2/promise';
 
@@ -22,8 +26,7 @@ interface QueueRow extends mysql.RowDataPacket {
 
 const POLL_INTERVAL_MS = Number(process.env['TRAIN_QUEUE_POLL_MS'] ?? '5000');
 const TRAIN_ROOT = path.resolve(__dirname, '..', '..');
-const QUEUE_TABLE = 'train_run_requests';
-const TRAIN_CONFIGS_TABLE = 'train_configs';
+const QUEUE_TABLE = TRAIN_RUN_REQUESTS_TABLE;
 const MAX_LOG_CHARS = 50000;
 const CANCEL_CHECK_INTERVAL_MS = 1000;
 const CANCEL_GRACE_MS = 5000;
@@ -240,9 +243,7 @@ function resolveCommand(
 }
 
 async function ensureQueueTable(): Promise<void> {
-  await db.query(TRAIN_RUN_REQUESTS_DDL);
-  await db.query(`ALTER TABLE ${QUEUE_TABLE} ADD COLUMN execution_pid INT NULL AFTER worker_pid`).catch(() => {});
-  await db.query(`ALTER TABLE ${QUEUE_TABLE} ADD COLUMN cancel_requested TINYINT(1) NOT NULL DEFAULT 0 AFTER execution_pid`).catch(() => {});
+  await ensureTrainRunRequestsSchema(db);
 }
 
 async function claimNextRequest(): Promise<QueueRow | null> {
