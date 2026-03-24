@@ -18,7 +18,6 @@ import {
 } from '../services/train-config-registry';
 
 type JsonObject = Record<string, any>;
-
 interface Args {
   readonly trainConfigPath: string;
   readonly trainConfigRef: string;
@@ -68,8 +67,8 @@ function readJson(filePath: string): JsonObject {
   return JSON.parse(fs.readFileSync(filePath, 'utf8')) as JsonObject;
 }
 
-function writeJson(configKey: string, payload: JsonObject): void {
-  const absolutePath = path.resolve(TRAIN_ROOT, configKey);
+function writeJson(trainRoot: string, configKey: string, payload: JsonObject): void {
+  const absolutePath = path.resolve(trainRoot, configKey);
   fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
   fs.writeFileSync(absolutePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }
@@ -96,14 +95,14 @@ async function loadLatestSnapshot(connection: mysql.Pool | mysql.Connection, tra
     : row['content'] as JsonObject;
 }
 
-function loadJsonByRelativeRef(trainingConfigKey: string, relativeRef: unknown): JsonObject | null {
+function loadJsonByRelativeRef(trainRoot: string, trainingConfigKey: string, relativeRef: unknown): JsonObject | null {
   const normalizedRef = String(relativeRef || '').trim();
   if (!normalizedRef) {
     return null;
   }
 
   const configKey = resolveRelativeConfigRef(trainingConfigKey, normalizedRef);
-  const absolutePath = path.resolve(TRAIN_ROOT, configKey);
+  const absolutePath = path.resolve(trainRoot, configKey);
   if (!fs.existsSync(absolutePath)) {
     return null;
   }
@@ -111,11 +110,22 @@ function loadJsonByRelativeRef(trainingConfigKey: string, relativeRef: unknown):
   return readJson(absolutePath);
 }
 
-async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
-  await ensureTrainConfigsSchema(db);
+export async function runBuildRouterArtifacts(
+  args: Args,
+  options: {
+    readonly db?: mysql.Pool | mysql.Connection;
+    readonly trainRoot?: string;
+    readonly trainingConfig?: JsonObject;
+    readonly skipEnsureSchema?: boolean;
+  } = {}
+): Promise<JsonObject> {
+  const connection = options.db ?? db;
+  const trainRoot = options.trainRoot ?? TRAIN_ROOT;
+  if (!options.skipEnsureSchema) {
+    await ensureTrainConfigsSchema(connection as mysql.Pool | mysql.Connection);
+  }
 
-  const trainingConfig = readJson(args.trainConfigPath);
+  const trainingConfig = options.trainingConfig ?? readJson(args.trainConfigPath);
   const trainId = String(
     trainingConfig['trainId']
     || (trainingConfig['trainingMeta'] as JsonObject | undefined)?.['trainId']
@@ -125,8 +135,9 @@ async function main(): Promise<void> {
     throw new Error('trainId is required before building router artifacts');
   }
 
-  const snapshotContent = await loadLatestSnapshot(db, trainId);
+  const snapshotContent = await loadLatestSnapshot(connection, trainId);
   const previousRouter = loadJsonByRelativeRef(
+    trainRoot,
     args.trainConfigRef,
     (trainingConfig['regimeRouting'] as JsonObject | undefined)?.['routerConfigPath']
   );
@@ -137,8 +148,8 @@ async function main(): Promise<void> {
     previousRouter
   });
 
-  writeJson(artifacts.routerConfigKey, artifacts.routerContent);
-  writeJson(artifacts.policyConfigKey, artifacts.policyContent);
+  writeJson(trainRoot, artifacts.routerConfigKey, artifacts.routerContent);
+  writeJson(trainRoot, artifacts.policyConfigKey, artifacts.policyContent);
 
   const nextTrainingContent = {
     ...trainingConfig,
@@ -158,10 +169,10 @@ async function main(): Promise<void> {
     }
   };
 
-  await upsertTrainConfig(db, artifacts.routerConfigKey, artifacts.routerContent, {
+  await upsertTrainConfig(connection as mysql.Pool | mysql.Connection, artifacts.routerConfigKey, artifacts.routerContent, {
     explicitType: 'router'
   });
-  await upsertTrainConfig(db, artifacts.policyConfigKey, {
+  await upsertTrainConfig(connection as mysql.Pool | mysql.Connection, artifacts.policyConfigKey, {
     ...artifacts.policyContent,
     source: {
       ...((artifacts.policyContent['source'] && typeof artifacts.policyContent['source'] === 'object')
@@ -181,11 +192,11 @@ async function main(): Promise<void> {
   }, {
     explicitType: 'policy'
   });
-  await upsertTrainConfig(db, args.trainConfigRef, nextTrainingContent, {
+  await upsertTrainConfig(connection as mysql.Pool | mysql.Connection, args.trainConfigRef, nextTrainingContent, {
     explicitType: 'training'
   });
 
-  process.stdout.write(JSON.stringify({
+  return {
     trainId,
     trainingConfigKey: args.trainConfigRef,
     routerConfigKey: artifacts.routerConfigKey,
@@ -194,7 +205,13 @@ async function main(): Promise<void> {
     policyRelativeRef: artifacts.policyRelativeRef,
     strategyCatalogCount: Object.keys((artifacts.routerContent['strategyCatalog'] as JsonObject | undefined) || {}).length,
     carriedRuleCount: Array.isArray(artifacts.routerContent['rules']) ? artifacts.routerContent['rules'].length : 0
-  }, null, 2));
+  };
+}
+
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+  const result = await runBuildRouterArtifacts(args);
+  process.stdout.write(JSON.stringify(result, null, 2));
 }
 
 if (require.main === module) {

@@ -325,9 +325,11 @@ async function resolveCommand(
     const config = parseConfigContent(configRow);
     const market = config['market'] as Record<string, any> | undefined;
     const timeRange = config['timeRange'] as Record<string, any> | undefined;
+    const featureEngineering = config['featureEngineering'] as Record<string, any> | undefined;
     const symbol = String(market?.['symbol'] || '').trim().toUpperCase();
     const intervalType = String(market?.['intervalType'] || '1min').trim();
     const trainId = String(configRow['train_id'] || config['trainId'] || '').trim();
+    const openingMinutes = Math.max(1, Number(featureEngineering?.['openingWindowMinutes'] || 60));
 
     if (!symbol) {
       throw new Error('market.symbol is missing');
@@ -346,7 +348,7 @@ async function resolveCommand(
         '--end',
         resolveTimeArg(timeRange, 'end'),
         '--openingMinutes',
-        '60',
+        String(openingMinutes),
         ...(trainId ? ['--trainId', trainId] : [])
       ]
     };

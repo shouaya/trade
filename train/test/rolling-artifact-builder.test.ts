@@ -66,3 +66,88 @@ test('rolling artifact builder creates month week day mapping package from train
   assert.ok(result.routerRules.length >= result.monthlyRules.length);
   assert.equal(typeof result.defaultStrategyKey, 'string');
 });
+
+test('rolling artifact builder respects routerSplit featureEngineering defaults', () => {
+  const strategyRows = [
+    {
+      strategy_name: 'alpha',
+      strategy_type: 'rsi_macd',
+      total_trades: 20,
+      win_rate: 0.6,
+      total_pnl: 5000,
+      score: 90,
+      parameters: {
+        rsi: { oversold: 30, overbought: 70 },
+        risk: { maxHoldMinutes: 6 },
+        atr: { slMultiplier: 1.5, tpMultiplier: 1.2 }
+      }
+    },
+    {
+      strategy_name: 'beta',
+      strategy_type: 'rsi_macd',
+      total_trades: 20,
+      win_rate: 0.55,
+      total_pnl: 4200,
+      score: 80,
+      parameters: {
+        rsi: { oversold: 35, overbought: 65 },
+        risk: { maxHoldMinutes: 8 },
+        atr: { slMultiplier: 2, tpMultiplier: 1.5 }
+      }
+    }
+  ];
+
+  const trades = [
+    { strategy_name: 'alpha', exit_time: Date.parse('2025-01-03T03:00:00.000Z'), pnl: 1000 },
+    { strategy_name: 'beta', exit_time: Date.parse('2025-01-03T03:00:00.000Z'), pnl: -100 },
+    { strategy_name: 'alpha', exit_time: Date.parse('2025-01-04T03:00:00.000Z'), pnl: 800 },
+    { strategy_name: 'beta', exit_time: Date.parse('2025-01-04T03:00:00.000Z'), pnl: -50 },
+    { strategy_name: 'alpha', exit_time: Date.parse('2025-01-05T03:00:00.000Z'), pnl: 50 },
+    { strategy_name: 'beta', exit_time: Date.parse('2025-01-05T03:00:00.000Z'), pnl: 900 },
+    { strategy_name: 'alpha', exit_time: Date.parse('2025-01-06T03:00:00.000Z'), pnl: 100 },
+    { strategy_name: 'beta', exit_time: Date.parse('2025-01-06T03:00:00.000Z'), pnl: 1000 }
+  ];
+
+  const klines = [
+    { open_time: Date.parse('2025-01-03T00:00:00.000Z'), open: 100, high: 101.5, low: 99.8, close: 101 },
+    { open_time: Date.parse('2025-01-03T00:01:00.000Z'), open: 101, high: 101.6, low: 100.8, close: 101.2 },
+    { open_time: Date.parse('2025-01-04T00:00:00.000Z'), open: 100, high: 101.3, low: 99.9, close: 100.9 },
+    { open_time: Date.parse('2025-01-04T00:01:00.000Z'), open: 100.9, high: 101.4, low: 100.7, close: 101.1 },
+    { open_time: Date.parse('2025-01-05T00:00:00.000Z'), open: 100, high: 100.7, low: 99.7, close: 100.2 },
+    { open_time: Date.parse('2025-01-05T00:01:00.000Z'), open: 100.2, high: 101.2, low: 100.1, close: 101.1 },
+    { open_time: Date.parse('2025-01-06T00:00:00.000Z'), open: 100, high: 100.6, low: 99.8, close: 100.1 },
+    { open_time: Date.parse('2025-01-06T00:01:00.000Z'), open: 100.1, high: 101.3, low: 100, close: 101.2 }
+  ];
+
+  const splitEnabled = buildRollingArtifactPackage({
+    topN: 2,
+    strategyRows,
+    trades,
+    klines,
+    featureEngineering: {
+      openingWindowMinutes: 1,
+      volBaselineLookbackPeriods: 1,
+      routerSplit: {
+        enabled: true,
+        minSamplesPerBranch: 2,
+        metrics: ['positiveStrategyRatio']
+      }
+    }
+  });
+
+  assert.ok(splitEnabled.dailyRules.some((rule) => rule.when && rule.when.positiveStrategyRatio));
+
+  const splitDisabled = buildRollingArtifactPackage({
+    topN: 2,
+    strategyRows,
+    trades,
+    klines,
+    featureEngineering: {
+      routerSplit: {
+        enabled: false
+      }
+    }
+  });
+
+  assert.ok(splitDisabled.routerRules.every((rule) => !(rule.when && rule.when.positiveStrategyRatio)));
+});

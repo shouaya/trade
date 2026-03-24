@@ -108,6 +108,26 @@ interface WeeklyRouteSummary {
   readonly actionSwitches: number;
 }
 
+interface RuleHitSummary {
+  readonly ruleId: string;
+  readonly hits: number;
+  readonly totalPnl: number;
+}
+
+interface ActionFeatureSummary {
+  readonly action: RoutingAction;
+  readonly days: number;
+  readonly totalPnl: number;
+  readonly avgPnl: number;
+  readonly avgTrendEfficiency: number;
+  readonly avgVolExpansionRatio: number;
+  readonly avgOpeningImpulseAbs: number;
+  readonly avgReversalStrength: number;
+  readonly avgPositiveStrategyRatio: number;
+  readonly avgBestVsMedianGap: number;
+  readonly avgWeeklyDailyAlignment: number;
+}
+
 function deriveAction(effectiveRiskMultiplier: number): RoutingAction {
   if (effectiveRiskMultiplier === 0) return 'stop';
   if (effectiveRiskMultiplier < 1) return 'reduce';
@@ -207,6 +227,69 @@ function buildRedlineNotes(report: RouterValidationReport, weeklySummary: readon
   ];
 }
 
+function round(value: number, digits = 2): number {
+  if (!Number.isFinite(value)) return 0;
+  return Number(value.toFixed(digits));
+}
+
+function buildRuleHitSummary(ruleIds: readonly (string | null | undefined)[], report: RouterValidationReport): RuleHitSummary[] {
+  const ruleMap = new Map<string, { hits: number; totalPnl: number }>();
+
+  for (const [index, ruleId] of ruleIds.entries()) {
+    const normalized = String(ruleId || '').trim();
+    if (!normalized) continue;
+    const current = ruleMap.get(normalized) ?? { hits: 0, totalPnl: 0 };
+    ruleMap.set(normalized, {
+      hits: current.hits + 1,
+      totalPnl: round(current.totalPnl + Number(report.dailyRoutes[index]?.routedPnl ?? 0), 2)
+    });
+  }
+
+  return [...ruleMap.entries()]
+    .map(([ruleId, value]) => ({
+      ruleId,
+      hits: value.hits,
+      totalPnl: value.totalPnl
+    }))
+    .sort((left, right) => {
+      if (right.hits !== left.hits) return right.hits - left.hits;
+      if (right.totalPnl !== left.totalPnl) return right.totalPnl - left.totalPnl;
+      return left.ruleId.localeCompare(right.ruleId);
+    });
+}
+
+function average(values: readonly number[]): number {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function buildActionFeatureSummaries(report: RouterValidationReport): ActionFeatureSummary[] {
+  const groups = new Map<RoutingAction, typeof report.dailyRoutes>();
+  for (const row of report.dailyRoutes) {
+    const action = deriveAction(row.effectiveRiskMultiplier);
+    const current = groups.get(action) ?? [];
+    groups.set(action, [...current, row]);
+  }
+
+  return (['trade', 'reduce', 'stop'] as const).map((action) => {
+    const rows = groups.get(action) ?? [];
+    const totalPnl = round(rows.reduce((sum, row) => sum + Number(row.routedPnl || 0), 0), 2);
+    return {
+      action,
+      days: rows.length,
+      totalPnl,
+      avgPnl: round(rows.length > 0 ? totalPnl / rows.length : 0, 2),
+      avgTrendEfficiency: round(average(rows.map((row) => Number(row.trendEfficiency || 0))), 4),
+      avgVolExpansionRatio: round(average(rows.map((row) => Number(row.volExpansionRatio || 0))), 4),
+      avgOpeningImpulseAbs: round(average(rows.map((row) => Math.abs(Number(row.openingImpulse || 0)))), 4),
+      avgReversalStrength: round(average(rows.map((row) => Number(row.reversalStrength || 0))), 4),
+      avgPositiveStrategyRatio: round(average(rows.map((row) => Number(row.positiveStrategyRatio || 0))), 4),
+      avgBestVsMedianGap: round(average(rows.map((row) => Number(row.bestVsMedianGap || 0))), 4),
+      avgWeeklyDailyAlignment: round(average(rows.map((row) => Number(row.weeklyDailyAlignment || 0))), 4)
+    };
+  });
+}
+
 function renderMarkdown(report: RouterValidationReport): string {
   const { comparison } = report;
   const stopDays = report.dailyRoutes.filter((row) => row.effectiveRiskMultiplier === 0).length;
@@ -224,6 +307,11 @@ function renderMarkdown(report: RouterValidationReport): string {
   const topNegative = [...report.dailyRoutes]
     .sort((left, right) => left.routedPnl - right.routedPnl)
     .slice(0, 10);
+  const monthlyRuleHits = buildRuleHitSummary(report.dailyRoutes.map((row) => row.monthRuleId), report).slice(0, 8);
+  const weeklyRuleHits = buildRuleHitSummary(report.dailyRoutes.map((row) => row.weekRuleId), report).slice(0, 8);
+  const dailyRuleHits = buildRuleHitSummary(report.dailyRoutes.map((row) => row.dayRuleId), report).slice(0, 8);
+  const lossRuleHits = buildRuleHitSummary(report.dailyRoutes.map((row) => row.lossRuleId), report).slice(0, 8);
+  const actionFeatureSummaries = buildActionFeatureSummaries(report);
   const bestWeeks = [...weeklySummary]
     .sort((left, right) => right.pnl - left.pnl)
     .slice(0, 5);
@@ -287,6 +375,30 @@ ${redlineNotes.join('\n')}
 - Action switches: \`${actionSwitches}\`
 - High-churn weeks (>= 3 combined switches): \`${highChurnWeeks}\`
 
+## Rule Hits
+
+### Monthly Guard
+
+${monthlyRuleHits.length > 0 ? monthlyRuleHits.map((row) => `- \`${row.ruleId}\` | hits=\`${row.hits}\` | pnl=\`${row.totalPnl}\``).join('\n') : '- 无命中记录'}
+
+### Weekly Guard
+
+${weeklyRuleHits.length > 0 ? weeklyRuleHits.map((row) => `- \`${row.ruleId}\` | hits=\`${row.hits}\` | pnl=\`${row.totalPnl}\``).join('\n') : '- 无命中记录'}
+
+### Daily Router
+
+${dailyRuleHits.length > 0 ? dailyRuleHits.map((row) => `- \`${row.ruleId}\` | hits=\`${row.hits}\` | pnl=\`${row.totalPnl}\``).join('\n') : '- 无命中记录'}
+
+### Loss Recheck
+
+${lossRuleHits.length > 0 ? lossRuleHits.map((row) => `- \`${row.ruleId}\` | hits=\`${row.hits}\` | pnl=\`${row.totalPnl}\``).join('\n') : '- 无命中记录'}
+
+## Feature Diagnostics By Action
+
+| Action | Days | Total PnL | Avg PnL | Avg Trend Eff | Avg Vol Expansion | Avg |Opening Impulse| Avg Reversal | Avg Positive Ratio | Avg Best-Median Gap | Avg Week-Day Align |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+${actionFeatureSummaries.map((row) => `| ${row.action} | ${row.days} | ${row.totalPnl} | ${row.avgPnl} | ${row.avgTrendEfficiency} | ${row.avgVolExpansionRatio} | ${row.avgOpeningImpulseAbs} | ${row.avgReversalStrength} | ${row.avgPositiveStrategyRatio} | ${row.avgBestVsMedianGap} | ${row.avgWeeklyDailyAlignment} |`).join('\n')}
+
 ## Weekly Summary
 
 | Week | PnL | Stop Days | Reduce Days | Full-size Days | Strategy Switches | Action Switches |
@@ -303,11 +415,11 @@ ${worstWeeks.map((row) => `- \`${row.week}\` | pnl=\`${row.pnl}\` | stop=\`${row
 
 ${policyCatalogSection}## Best Routed Days
 
-${topPositive.map((row) => `- \`${row.day}\` | risk=\`${row.effectiveRiskMultiplier}\` | strategy=\`${row.selectedStrategyLabel ?? '-'}\` | routedPnL=\`${row.routedPnl}\``).join('\n')}
+${topPositive.map((row) => `- \`${row.day}\` | risk=\`${row.effectiveRiskMultiplier}\` | strategy=\`${row.selectedStrategyLabel ?? '-'}\` | pnl=\`${row.routedPnl}\` | trendEff=\`${row.trendEfficiency}\` | volExp=\`${row.volExpansionRatio}\` | align=\`${row.weeklyDailyAlignment}\``).join('\n')}
 
 ## Worst Routed Days
 
-${topNegative.map((row) => `- \`${row.day}\` | risk=\`${row.effectiveRiskMultiplier}\` | strategy=\`${row.selectedStrategyLabel ?? '-'}\` | routedPnL=\`${row.routedPnl}\``).join('\n')}
+${topNegative.map((row) => `- \`${row.day}\` | risk=\`${row.effectiveRiskMultiplier}\` | strategy=\`${row.selectedStrategyLabel ?? '-'}\` | pnl=\`${row.routedPnl}\` | trendEff=\`${row.trendEfficiency}\` | volExp=\`${row.volExpansionRatio}\` | align=\`${row.weeklyDailyAlignment}\``).join('\n')}
 `;
 }
 

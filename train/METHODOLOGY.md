@@ -379,6 +379,10 @@
 
 如果目标从“研究解释”推进到“可执行验证”或“实盘前验证”，必须明确完成下面的改造。
 
+下一阶段围绕 BTCJPY rolling 特征增强、候选池健康度、跨层一致性与规则生成升级的详细要求，见：
+
+- [docs/rolling-feature-prd.md](/Users/ts-changchang.zhuang/git/money/docs/rolling-feature-prd.md)
+
 ### 1. 先定义决策时点
 
 任何特征都必须先回答：

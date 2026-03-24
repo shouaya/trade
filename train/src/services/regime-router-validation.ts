@@ -3,6 +3,19 @@ import * as path from 'path';
 import type * as mysql from 'mysql2/promise';
 import db from '../configs/database';
 import { loadRouterPolicyCatalogByRouterConfig, type RouterPolicyCatalog } from './router-policy-catalog';
+import {
+  buildPeriodFeatures,
+  buildPoolHealthMetrics,
+  computeAlignmentScore,
+  detectDailyFeatureBucket,
+  detectMonthlyFeatureBucket,
+  detectWeeklyFeatureBucket,
+  getIsoWeekKey,
+  getJstDayKey,
+  getJstMonthKey,
+  round,
+  type PeriodFeature
+} from './rolling-features';
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const JPY_INITIAL_CAPITAL = 1_000_000;
@@ -26,6 +39,18 @@ interface ValidationConfig {
   };
   readonly strategy: {
     readonly explicitStrategies: readonly ValidationStrategy[];
+  };
+  readonly rollingPlan?: {
+    readonly monthlyPools?: readonly {
+      readonly month?: string;
+      readonly topStrategies?: readonly {
+        readonly strategyName?: string;
+      }[];
+    }[];
+  };
+  readonly featureEngineering?: {
+    readonly openingWindowMinutes?: number;
+    readonly volBaselineLookbackPeriods?: number;
   };
 }
 
@@ -83,6 +108,14 @@ interface RouterCondition {
   readonly absReturnPct?: NumericCondition;
   readonly avgRangePct?: NumericCondition;
   readonly upMinuteRatio?: NumericCondition;
+  readonly trendEfficiency?: NumericCondition;
+  readonly volExpansionRatio?: NumericCondition;
+  readonly openingImpulse?: NumericCondition;
+  readonly reversalStrength?: NumericCondition;
+  readonly positiveStrategyRatio?: NumericCondition;
+  readonly bestVsMedianGap?: NumericCondition;
+  readonly monthlyWeeklyAlignment?: NumericCondition;
+  readonly weeklyDailyAlignment?: NumericCondition;
   readonly previousDayFeatureBucket?: readonly string[];
   readonly previousDayRoutedPnl?: NumericCondition;
   readonly consecutiveLossDays?: NumericCondition;
@@ -125,32 +158,6 @@ interface KlineRow extends mysql.RowDataPacket {
   readonly ask_close?: number | string | null;
 }
 
-interface PeriodAccumulator {
-  key: string;
-  count: number;
-  firstOpen: number;
-  lastClose: number;
-  sumSquaredLogReturns: number;
-  sumAbsReturnPct: number;
-  sumRangePct: number;
-  maxAbsReturnPct: number;
-  maxRangePct: number;
-  upMinutes: number;
-}
-
-interface PeriodFeature {
-  readonly key: string;
-  readonly minutes: number;
-  readonly realizedVolPct: number;
-  readonly avgAbsReturnPct: number;
-  readonly avgRangePct: number;
-  readonly maxAbsReturnPct: number;
-  readonly maxRangePct: number;
-  readonly returnPct: number;
-  readonly upMinuteRatio: number;
-  readonly featureBucket: string;
-}
-
 interface RouterState {
   readonly previousDayFeature: PeriodFeature | null;
   readonly previousDayRoutedPnl: number;
@@ -189,6 +196,13 @@ interface DailyRouteRow {
   readonly realizedVolPct: number;
   readonly avgRangePct: number;
   readonly upMinuteRatio: number;
+  readonly trendEfficiency: number;
+  readonly volExpansionRatio: number;
+  readonly openingImpulse: number;
+  readonly reversalStrength: number;
+  readonly positiveStrategyRatio: number;
+  readonly bestVsMedianGap: number;
+  readonly weeklyDailyAlignment: number;
   readonly monthRuleId: string | null;
   readonly weekRuleId: string | null;
   readonly dayRuleId: string | null;
@@ -233,35 +247,6 @@ export interface RouterValidationReport {
   readonly dailyRoutes: readonly DailyRouteRow[];
 }
 
-function round(value: number, digits = 2): number {
-  if (!Number.isFinite(value)) return 0;
-  return Number(value.toFixed(digits));
-}
-
-function toJstDate(timestampMs: number): Date {
-  return new Date(timestampMs + JST_OFFSET_MS);
-}
-
-function getJstDayKey(timestampMs: number): string {
-  const date = toJstDate(timestampMs);
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
-}
-
-function getJstMonthKey(timestampMs: number): string {
-  const date = toJstDate(timestampMs);
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
-function getIsoWeekKey(timestampMs: number): string {
-  const date = toJstDate(timestampMs);
-  const utcDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  const day = utcDate.getUTCDay() || 7;
-  utcDate.setUTCDate(utcDate.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(utcDate.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil((((utcDate.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-  return `${utcDate.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
-}
-
 function loadJson<T>(filePath: string): T {
   return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
 }
@@ -271,123 +256,6 @@ function resolveConfigPath(filePath: string): string {
     return filePath;
   }
   return path.resolve(__dirname, '..', '..', filePath);
-}
-
-function detectMonthlyFeatureBucket(returnPct: number, realizedVolPct: number): string {
-  if (returnPct <= -8 && realizedVolPct >= 9) return 'crash-trend';
-  if (returnPct >= 8 && realizedVolPct >= 9) return 'strong-trend';
-  if (Math.abs(returnPct) <= 3 && realizedVolPct < 8) return 'range-low-vol';
-  if (Math.abs(returnPct) <= 6) return 'range-mid-vol';
-  return 'mixed-trend';
-}
-
-function detectWeeklyFeatureBucket(returnPct: number, realizedVolPct: number): string {
-  if (returnPct <= -4 && realizedVolPct >= 5) return 'crash-trend';
-  if (returnPct >= 4 && realizedVolPct >= 5) return 'strong-trend';
-  if (Math.abs(returnPct) <= 1.5 && realizedVolPct < 4) return 'range-low-vol';
-  if (Math.abs(returnPct) <= 3.5) return 'range-mid-vol';
-  return 'mixed-trend';
-}
-
-function detectDailyFeatureBucket(returnPct: number, realizedVolPct: number): string {
-  if (returnPct <= -2.5 && realizedVolPct >= 2.5) return 'crash-trend';
-  if (returnPct >= 2.5 && realizedVolPct >= 2.5) return 'strong-trend';
-  if (Math.abs(returnPct) <= 0.8 && realizedVolPct < 2.2) return 'range-low-vol';
-  if (Math.abs(returnPct) <= 1.5) return 'range-mid-vol';
-  return 'mixed-trend';
-}
-
-function extractPrice(value: unknown): number | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function choosePrice(row: KlineRow, field: 'open' | 'high' | 'low' | 'close'): number | null {
-  if (field === 'open') {
-    return extractPrice(row.open) ?? extractPrice(row.bid_open) ?? extractPrice(row.ask_open);
-  }
-  if (field === 'high') {
-    return extractPrice(row.high) ?? extractPrice(row.bid_high) ?? extractPrice(row.ask_high);
-  }
-  if (field === 'low') {
-    return extractPrice(row.low) ?? extractPrice(row.bid_low) ?? extractPrice(row.ask_low);
-  }
-  return extractPrice(row.close) ?? extractPrice(row.bid_close) ?? extractPrice(row.ask_close);
-}
-
-function buildPeriodFeatures(
-  klines: readonly KlineRow[],
-  getKey: (timestampMs: number) => string,
-  detectBucket: (returnPct: number, realizedVolPct: number) => string
-): readonly PeriodFeature[] {
-  const periods = new Map<string, PeriodAccumulator>();
-
-  for (const row of klines) {
-    const openTime = Number(row.open_time);
-    const open = choosePrice(row, 'open');
-    const high = choosePrice(row, 'high');
-    const low = choosePrice(row, 'low');
-    const close = choosePrice(row, 'close');
-
-    if (!Number.isFinite(openTime) || open === null || high === null || low === null || close === null || open <= 0 || close <= 0) {
-      continue;
-    }
-
-    const key = getKey(openTime);
-    let period = periods.get(key);
-    if (!period) {
-      period = {
-        key,
-        count: 0,
-        firstOpen: open,
-        lastClose: close,
-        sumSquaredLogReturns: 0,
-        sumAbsReturnPct: 0,
-        sumRangePct: 0,
-        maxAbsReturnPct: 0,
-        maxRangePct: 0,
-        upMinutes: 0
-      };
-      periods.set(key, period);
-    }
-
-    const logReturn = Math.log(close / open);
-    const absReturnPct = Math.abs(logReturn) * 100;
-    const rangePct = ((high - low) / open) * 100;
-
-    period.count += 1;
-    period.lastClose = close;
-    period.sumSquaredLogReturns += logReturn * logReturn;
-    period.sumAbsReturnPct += absReturnPct;
-    period.sumRangePct += rangePct;
-    period.maxAbsReturnPct = Math.max(period.maxAbsReturnPct, absReturnPct);
-    period.maxRangePct = Math.max(period.maxRangePct, rangePct);
-    if (close > open) {
-      period.upMinutes += 1;
-    }
-  }
-
-  return Array.from(periods.values())
-    .sort((left, right) => left.key.localeCompare(right.key))
-    .map((period) => {
-      const realizedVolPct = Math.sqrt(period.sumSquaredLogReturns) * 100;
-      const returnPct = ((period.lastClose / period.firstOpen) - 1) * 100;
-      return {
-        key: period.key,
-        minutes: period.count,
-        realizedVolPct: round(realizedVolPct, 2),
-        avgAbsReturnPct: round(period.sumAbsReturnPct / period.count, 4),
-        avgRangePct: round(period.sumRangePct / period.count, 4),
-        maxAbsReturnPct: round(period.maxAbsReturnPct, 4),
-        maxRangePct: round(period.maxRangePct, 4),
-        returnPct: round(returnPct, 2),
-        upMinuteRatio: round((period.upMinutes / period.count) * 100, 2),
-        featureBucket: detectBucket(returnPct, realizedVolPct)
-      };
-    });
 }
 
 function isNumericConditionMatched(condition: NumericCondition | undefined, value: number): boolean {
@@ -413,6 +281,30 @@ function isConditionMatched(condition: RouterCondition, feature: PeriodFeature, 
     return false;
   }
   if (!isNumericConditionMatched(condition.upMinuteRatio, feature.upMinuteRatio)) {
+    return false;
+  }
+  if (!isNumericConditionMatched(condition.trendEfficiency, feature.trendEfficiency)) {
+    return false;
+  }
+  if (!isNumericConditionMatched(condition.volExpansionRatio, feature.volExpansionRatio)) {
+    return false;
+  }
+  if (!isNumericConditionMatched(condition.openingImpulse, feature.openingImpulse)) {
+    return false;
+  }
+  if (!isNumericConditionMatched(condition.reversalStrength, feature.reversalStrength)) {
+    return false;
+  }
+  if (!isNumericConditionMatched(condition.positiveStrategyRatio, feature.positiveStrategyRatio ?? 0)) {
+    return false;
+  }
+  if (!isNumericConditionMatched(condition.bestVsMedianGap, feature.bestVsMedianGap ?? 0)) {
+    return false;
+  }
+  if (!isNumericConditionMatched(condition.monthlyWeeklyAlignment, feature.monthlyWeeklyAlignment ?? 0)) {
+    return false;
+  }
+  if (!isNumericConditionMatched(condition.weeklyDailyAlignment, feature.weeklyDailyAlignment ?? 0)) {
     return false;
   }
   if (condition.previousDayFeatureBucket) {
@@ -607,22 +499,25 @@ async function loadKlines(
   return rows;
 }
 
-function buildDailyStrategyPnlMap(trades: readonly TradeRow[]): Map<string, Map<string, number>> {
-  const byDay = new Map<string, Map<string, number>>();
+function buildPeriodStrategyPnlMap(
+  trades: readonly TradeRow[],
+  getKey: (timestampMs: number) => string
+): Map<string, Map<string, number>> {
+  const periodMap = new Map<string, Map<string, number>>();
 
   for (const row of trades) {
-    const day = getJstDayKey(Number(row.exit_time));
+    const day = getKey(Number(row.exit_time));
     const strategyName = String(row.strategy_name);
     const pnl = Number(row.pnl);
-    let strategyMap = byDay.get(day);
+    let strategyMap = periodMap.get(day);
     if (!strategyMap) {
       strategyMap = new Map<string, number>();
-      byDay.set(day, strategyMap);
+      periodMap.set(day, strategyMap);
     }
     strategyMap.set(strategyName, round((strategyMap.get(strategyName) ?? 0) + pnl, 2));
   }
 
-  return byDay;
+  return periodMap;
 }
 
 function toShortLabel(strategy: ValidationStrategy): string {
@@ -658,13 +553,29 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
     loadKlines(db, symbol, validationConfig.market.intervalType, startTimeMs, endTimeMs)
   ]);
 
-  const dailyFeatures = buildPeriodFeatures(klines, getJstDayKey, detectDailyFeatureBucket);
-  const weeklyFeatures = buildPeriodFeatures(klines, getIsoWeekKey, detectWeeklyFeatureBucket);
-  const monthlyFeatures = buildPeriodFeatures(klines, getJstMonthKey, detectMonthlyFeatureBucket);
+  const openingWindowCount = Math.max(1, Number(validationConfig.featureEngineering?.openingWindowMinutes || 60));
+  const volBaselineLookback = Math.max(1, Number(validationConfig.featureEngineering?.volBaselineLookbackPeriods || 8));
+  const periodFeatureOptions = {
+    openingWindowCount,
+    volBaselineLookback
+  };
+  const dailyFeatures = buildPeriodFeatures(klines, getJstDayKey, detectDailyFeatureBucket, periodFeatureOptions);
+  const weeklyFeatures = buildPeriodFeatures(klines, getIsoWeekKey, detectWeeklyFeatureBucket, periodFeatureOptions);
+  const monthlyFeatures = buildPeriodFeatures(klines, getJstMonthKey, detectMonthlyFeatureBucket, periodFeatureOptions);
 
   const weeklyMap = new Map(weeklyFeatures.map((item) => [item.key, item] as const));
   const monthlyMap = new Map(monthlyFeatures.map((item) => [item.key, item] as const));
-  const tradeMap = buildDailyStrategyPnlMap(trades);
+  const dailyTradeMap = buildPeriodStrategyPnlMap(trades, getJstDayKey);
+  const weeklyTradeMap = buildPeriodStrategyPnlMap(trades, getIsoWeekKey);
+  const monthlyTradeMap = buildPeriodStrategyPnlMap(trades, getJstMonthKey);
+  const monthlyPoolMap = new Map<string, readonly string[]>(
+    (validationConfig.rollingPlan?.monthlyPools ?? []).map((item) => [
+      String(item.month ?? ''),
+      (item.topStrategies ?? [])
+        .map((entry) => String(entry.strategyName ?? '').trim())
+        .filter((name) => name.length > 0)
+    ] as const)
+  );
 
   const defaultStrategyKey = routerConfig.executionModel.defaultFallback.strategyKey;
   const defaultStrategyRef = routerConfig.strategyCatalog[defaultStrategyKey];
@@ -694,13 +605,44 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
   for (const dayFeature of dailyFeatures) {
     const month = dayFeature.key.slice(0, 7);
     const week = getIsoWeekKey(Date.parse(`${dayFeature.key}T00:00:00.000Z`) - JST_OFFSET_MS);
-    const monthFeature = monthlyMap.get(month) ?? null;
-    const weekFeature = weeklyMap.get(week) ?? null;
+    const monthFeatureBase = monthlyMap.get(month) ?? null;
+    const weekFeatureBase = weeklyMap.get(week) ?? null;
+    const candidatePool = monthlyPoolMap.get(month) ?? validationConfig.strategy.explicitStrategies.map((strategy) => strategy.name);
+    const monthPoolHealth = buildPoolHealthMetrics(
+      candidatePool.map((name) => round(monthlyTradeMap.get(month)?.get(name) ?? 0, 2))
+    );
+    const weekPoolHealth = buildPoolHealthMetrics(
+      candidatePool.map((name) => round(weeklyTradeMap.get(week)?.get(name) ?? 0, 2))
+    );
+    const dayPoolHealth = buildPoolHealthMetrics(
+      candidatePool.map((name) => round(dailyTradeMap.get(dayFeature.key)?.get(name) ?? 0, 2))
+    );
+    const monthFeature: PeriodFeature | null = monthFeatureBase
+      ? {
+        ...monthFeatureBase,
+        positiveStrategyRatio: monthPoolHealth.positiveStrategyRatio,
+        bestVsMedianGap: monthPoolHealth.bestVsMedianGap
+      }
+      : null;
+    const weekFeature: PeriodFeature | null = weekFeatureBase
+      ? {
+        ...weekFeatureBase,
+        positiveStrategyRatio: weekPoolHealth.positiveStrategyRatio,
+        bestVsMedianGap: weekPoolHealth.bestVsMedianGap,
+        monthlyWeeklyAlignment: computeAlignmentScore(monthFeatureBase, weekFeatureBase)
+      }
+      : null;
+    const dayFeatureWithContext: PeriodFeature = {
+      ...dayFeature,
+      positiveStrategyRatio: dayPoolHealth.positiveStrategyRatio,
+      bestVsMedianGap: dayPoolHealth.bestVsMedianGap,
+      weeklyDailyAlignment: computeAlignmentScore(weekFeatureBase, dayFeature)
+    };
 
     const monthDecision = decideLayer(routerConfig, 'monthly_guard', monthFeature);
     const weekDecision = decideLayer(routerConfig, 'weekly_guard', weekFeature);
-    const dayDecision = decideLayer(routerConfig, 'daily_router', dayFeature);
-    const lossDecision = decideLayer(routerConfig, 'loss_recheck', dayFeature, {
+    const dayDecision = decideLayer(routerConfig, 'daily_router', dayFeatureWithContext);
+    const lossDecision = decideLayer(routerConfig, 'loss_recheck', dayFeatureWithContext, {
       previousDayFeature,
       previousDayRoutedPnl,
       consecutiveLossDays
@@ -736,7 +678,7 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
       ? 0
       : round(monthDecision.riskCap * weekDecision.riskCap * dayRiskMultiplier, 4);
 
-    const dailyStrategyPnl = tradeMap.get(dayFeature.key) ?? new Map<string, number>();
+    const dailyStrategyPnl = dailyTradeMap.get(dayFeature.key) ?? new Map<string, number>();
     const rawStrategyPnl = selectedStrategyRef ? (dailyStrategyPnl.get(selectedStrategyRef.strategyName) ?? 0) : 0;
     const routedPnl = round(rawStrategyPnl * effectiveRiskMultiplier, 2);
     const defaultPnl = round(dailyStrategyPnl.get(defaultStrategyRef.strategyName) ?? 0, 2);
@@ -761,6 +703,13 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
       realizedVolPct: dayFeature.realizedVolPct,
       avgRangePct: dayFeature.avgRangePct,
       upMinuteRatio: dayFeature.upMinuteRatio,
+      trendEfficiency: dayFeatureWithContext.trendEfficiency,
+      volExpansionRatio: dayFeatureWithContext.volExpansionRatio,
+      openingImpulse: dayFeatureWithContext.openingImpulse,
+      reversalStrength: dayFeatureWithContext.reversalStrength,
+      positiveStrategyRatio: dayFeatureWithContext.positiveStrategyRatio ?? 0,
+      bestVsMedianGap: dayFeatureWithContext.bestVsMedianGap ?? 0,
+      weeklyDailyAlignment: dayFeatureWithContext.weeklyDailyAlignment ?? 0,
       monthRuleId: monthDecision.ruleId,
       weekRuleId: weekDecision.ruleId,
       dayRuleId: dayDecision.ruleId,
@@ -779,7 +728,7 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
       oracleBestOfDayPnl: oracleBestPnl
     });
 
-    previousDayFeature = dayFeature;
+    previousDayFeature = dayFeatureWithContext;
     previousDayRoutedPnl = routedPnl;
     consecutiveLossDays = routedPnl < 0 ? consecutiveLossDays + 1 : 0;
   }

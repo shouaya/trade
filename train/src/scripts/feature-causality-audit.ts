@@ -5,8 +5,14 @@ import * as path from 'path';
 import type * as mysql from 'mysql2/promise';
 import db from '../configs/database';
 import type { KlineData } from '../types';
+import {
+  buildPeriodFeatures,
+  detectDailyFeatureBucket,
+  getJstDayKey,
+  round,
+  type PeriodFeature
+} from '../services/rolling-features';
 
-const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const DEFAULT_OPENING_MINUTES = 60;
 const DEFAULT_OUTPUT_DIR = path.resolve(__dirname, '../../reports/feature-causality');
 
@@ -18,16 +24,6 @@ interface CliArgs {
   readonly endTimeMs: number;
   readonly openingMinutes: number;
   readonly outputDir?: string;
-}
-
-interface PeriodFeature {
-  readonly key: string;
-  readonly minutes: number;
-  readonly returnPct: number;
-  readonly realizedVolPct: number;
-  readonly avgRangePct: number;
-  readonly upMinuteRatio: number;
-  readonly featureBucket: string;
 }
 
 interface DailyAuditRow {
@@ -152,28 +148,6 @@ function ensureDir(dirPath: string): void {
   fs.mkdirSync(dirPath, { recursive: true });
 }
 
-function round(value: number, digits = 2): number {
-  if (!Number.isFinite(value)) return 0;
-  return Number(value.toFixed(digits));
-}
-
-function toJstDate(timestampMs: number): Date {
-  return new Date(timestampMs + JST_OFFSET_MS);
-}
-
-function getJstDayKey(timestampMs: number): string {
-  const date = toJstDate(timestampMs);
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
-}
-
-function detectDailyFeatureBucket(returnPct: number, realizedVolPct: number): string {
-  if (returnPct <= -2.5 && realizedVolPct >= 2.5) return 'crash-trend';
-  if (returnPct >= 2.5 && realizedVolPct >= 2.5) return 'strong-trend';
-  if (Math.abs(returnPct) <= 0.8 && realizedVolPct < 2.2) return 'range-low-vol';
-  if (Math.abs(returnPct) <= 1.5) return 'range-mid-vol';
-  return 'mixed-trend';
-}
-
 function correlation(xs: readonly number[], ys: readonly number[]): number {
   if (xs.length !== ys.length || xs.length < 2) return 0;
   const xMean = xs.reduce((sum, value) => sum + value, 0) / xs.length;
@@ -194,47 +168,10 @@ function correlation(xs: readonly number[], ys: readonly number[]): number {
   return round(numerator / Math.sqrt(xVar * yVar), 4);
 }
 
-function computeFeature(key: string, klines: readonly KlineData[]): PeriodFeature | null {
-  if (!klines.length) return null;
-
-  const firstOpen = Number(klines[0]?.open);
-  const lastClose = Number(klines[klines.length - 1]?.close);
-  if (!Number.isFinite(firstOpen) || !Number.isFinite(lastClose) || firstOpen <= 0 || lastClose <= 0) {
-    return null;
-  }
-
-  let sumSquaredLogReturns = 0;
-  let sumRangePct = 0;
-  let upMinutes = 0;
-
-  for (const row of klines) {
-    const open = Number(row.open);
-    const high = Number(row.high);
-    const low = Number(row.low);
-    const close = Number(row.close);
-    if (!Number.isFinite(open) || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close) || open <= 0 || close <= 0) {
-      continue;
-    }
-
-    const logReturn = Math.log(close / open);
-    sumSquaredLogReturns += logReturn * logReturn;
-    sumRangePct += ((high - low) / open) * 100;
-    if (close > open) {
-      upMinutes += 1;
-    }
-  }
-
-  const realizedVolPct = Math.sqrt(sumSquaredLogReturns) * 100;
-  const returnPct = ((lastClose / firstOpen) - 1) * 100;
-  return {
-    key,
-    minutes: klines.length,
-    returnPct: round(returnPct, 4),
-    realizedVolPct: round(realizedVolPct, 4),
-    avgRangePct: round(sumRangePct / klines.length, 4),
-    upMinuteRatio: round((upMinutes / klines.length) * 100, 2),
-    featureBucket: detectDailyFeatureBucket(returnPct, realizedVolPct)
-  };
+function computeFeature(key: string, klines: readonly KlineData[], openingMinutes: number): PeriodFeature | null {
+  return buildPeriodFeatures(klines, () => key, detectDailyFeatureBucket, {
+    openingWindowCount: Math.min(openingMinutes, klines.length)
+  })[0] ?? null;
 }
 
 async function loadKlines(args: CliArgs): Promise<readonly KlineData[]> {
@@ -277,8 +214,8 @@ function buildDailyAuditRows(klines: readonly KlineData[], openingMinutes: numbe
   const rows: DailyAuditRow[] = [];
   for (const [day, dayRows] of [...byDay.entries()].sort((left, right) => left[0].localeCompare(right[0]))) {
     if (dayRows.length < openingMinutes) continue;
-    const fullDay = computeFeature(day, dayRows);
-    const openingWindow = computeFeature(day, dayRows.slice(0, openingMinutes));
+    const fullDay = computeFeature(day, dayRows, openingMinutes);
+    const openingWindow = computeFeature(day, dayRows.slice(0, openingMinutes), openingMinutes);
     if (!fullDay || !openingWindow) continue;
 
     rows.push({
@@ -314,6 +251,14 @@ function buildMarkdown(args: CliArgs, rows: readonly DailyAuditRow[]): string {
     rows.map((row) => row.openingWindow.avgRangePct),
     rows.map((row) => row.fullDay.avgRangePct)
   );
+  const trendEfficiencyCorrelation = correlation(
+    rows.map((row) => row.openingWindow.trendEfficiency),
+    rows.map((row) => row.fullDay.trendEfficiency)
+  );
+  const reversalStrengthCorrelation = correlation(
+    rows.map((row) => row.openingWindow.reversalStrength),
+    rows.map((row) => row.fullDay.reversalStrength)
+  );
   const largestGaps = [...rows]
     .sort((left, right) => (Math.abs(right.volDelta) + Math.abs(right.returnDelta)) - (Math.abs(left.volDelta) + Math.abs(left.returnDelta)))
     .slice(0, 10);
@@ -334,6 +279,8 @@ function buildMarkdown(args: CliArgs, rows: readonly DailyAuditRow[]): string {
   lines.push(`- Opening/full-day return correlation: \`${returnCorrelation}\``);
   lines.push(`- Opening/full-day vol correlation: \`${volCorrelation}\``);
   lines.push(`- Opening/full-day range correlation: \`${rangeCorrelation}\``);
+  lines.push(`- Opening/full-day trend efficiency correlation: \`${trendEfficiencyCorrelation}\``);
+  lines.push(`- Opening/full-day reversal strength correlation: \`${reversalStrengthCorrelation}\``);
   lines.push('');
   lines.push('## Interpretation');
   lines.push('');
@@ -343,10 +290,10 @@ function buildMarkdown(args: CliArgs, rows: readonly DailyAuditRow[]): string {
   lines.push('');
   lines.push('## Largest Divergence Days');
   lines.push('');
-  lines.push('| Day | Opening Bucket | Full Bucket | Opening Return % | Full Return % | Opening Vol % | Full Vol % |');
-  lines.push('| --- | --- | --- | ---: | ---: | ---: | ---: |');
+  lines.push('| Day | Opening Bucket | Full Bucket | Opening Return % | Full Return % | Opening Vol % | Full Vol % | Opening Trend Eff | Full Trend Eff |');
+  lines.push('| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |');
   for (const row of largestGaps) {
-    lines.push(`| ${row.day} | ${row.openingWindow.featureBucket} | ${row.fullDay.featureBucket} | ${row.openingWindow.returnPct} | ${row.fullDay.returnPct} | ${row.openingWindow.realizedVolPct} | ${row.fullDay.realizedVolPct} |`);
+    lines.push(`| ${row.day} | ${row.openingWindow.featureBucket} | ${row.fullDay.featureBucket} | ${row.openingWindow.returnPct} | ${row.fullDay.returnPct} | ${row.openingWindow.realizedVolPct} | ${row.fullDay.realizedVolPct} | ${row.openingWindow.trendEfficiency} | ${row.fullDay.trendEfficiency} |`);
   }
   lines.push('');
   return `${lines.join('\n')}\n`;

@@ -26,6 +26,19 @@ test('training management bootstrap returns API-ready default guide state', () =
   assert.equal(bootstrap.draft.validationStartDate, '2024-04-01');
   assert.equal(bootstrap.draft.validationEndDate, '2026-03-19');
   assert.equal(bootstrap.draft.validationProfile, 'rolling-window');
+  assert.equal(bootstrap.content.featureEngineering.openingWindowMinutes, 60);
+  assert.equal(bootstrap.content.featureEngineering.volBaselineLookbackPeriods, 8);
+  assert.equal(bootstrap.content.featureEngineering.routerSplit.enabled, true);
+  assert.deepEqual(bootstrap.content.featureEngineering.routerSplit.metrics, [
+    'trendEfficiency',
+    'volExpansionRatio',
+    'openingImpulse',
+    'reversalStrength',
+    'positiveStrategyRatio',
+    'bestVsMedianGap',
+    'monthlyWeeklyAlignment',
+    'weeklyDailyAlignment',
+  ]);
   assert.ok(Array.isArray(bootstrap.recommendations));
   assert.ok(bootstrap.recommendations.length > 0);
   assert.ok(Array.isArray(bootstrap.validationProfiles));

@@ -62,6 +62,13 @@ interface RouterDayRow {
   readonly selectedStrategyKey: string | null;
   readonly effectiveRiskMultiplier: number;
   readonly routedPnl: number;
+  readonly trendEfficiency?: number;
+  readonly volExpansionRatio?: number;
+  readonly openingImpulse?: number;
+  readonly reversalStrength?: number;
+  readonly positiveStrategyRatio?: number;
+  readonly bestVsMedianGap?: number;
+  readonly weeklyDailyAlignment?: number;
 }
 
 interface ValidationWindowSummary {
@@ -423,6 +430,10 @@ function renderMarkdown(report: JsonObject): string {
 - Positive window ratio: \`${router?.positiveWindowRatio ?? 0}\`
 - Beat baseline ratio: \`${router?.beatBaselineRatio ?? 0}\`
 - Avg strategy switches / week: \`${router?.avgStrategySwitchesPerWeek ?? 0}\`
+- Avg week-day alignment: \`${router?.avgWeeklyDailyAlignment ?? 0}\`
+- Avg positive strategy ratio: \`${router?.avgPositiveStrategyRatio ?? 0}\`
+- Avg best-vs-median gap: \`${router?.avgBestVsMedianGap ?? 0}\`
+- Avg trend efficiency: \`${router?.avgTrendEfficiency ?? 0}\`
 - Score: \`${router?.scorePct ?? 0}%\`
 
 ## Stability
@@ -634,6 +645,18 @@ async function main(): Promise<void> {
     ? routerDailyRoutes.filter((item) => Number(item.effectiveRiskMultiplier) > 0 && Number(item.effectiveRiskMultiplier) < 1).length / routerDailyRoutes.length
     : 0;
   const avgStrategySwitchesPerWeek = computeStrategySwitchPerWeek(routerDailyRoutes);
+  const avgWeeklyDailyAlignment = routerDailyRoutes.length > 0
+    ? average(routerDailyRoutes.map((item) => toFiniteNumber(item.weeklyDailyAlignment)))
+    : 0;
+  const avgPositiveStrategyRatio = routerDailyRoutes.length > 0
+    ? average(routerDailyRoutes.map((item) => toFiniteNumber(item.positiveStrategyRatio)))
+    : 0;
+  const avgBestVsMedianGap = routerDailyRoutes.length > 0
+    ? average(routerDailyRoutes.map((item) => toFiniteNumber(item.bestVsMedianGap)))
+    : 0;
+  const avgTrendEfficiency = routerDailyRoutes.length > 0
+    ? average(routerDailyRoutes.map((item) => toFiniteNumber(item.trendEfficiency)))
+    : 0;
   const routerScorePct = routerReports.length > 0
     ? round(100 * (
       (beatBaselineRatio * 0.40)
@@ -690,6 +713,15 @@ async function main(): Promise<void> {
   if (routerReports.length > 0 && beatBaselineRatio < 0.5) {
     notes.push('router 对 default / rank1 / top10 的超额优势不足，说明特征到策略的映射还不够稳定。');
   }
+  if (routerReports.length > 0 && avgWeeklyDailyAlignment < 0.45) {
+    notes.push('周线与日线的一致性偏弱，说明“周级定基调、日级修正”的落实还不够稳定。');
+  }
+  if (routerReports.length > 0 && avgPositiveStrategyRatio < 35) {
+    notes.push('router 触发时对应的候选池健康度偏弱，系统仍较常在低 edge 窗口里做决策。');
+  }
+  if (routerReports.length > 0 && avgBestVsMedianGap > 3000) {
+    notes.push('最佳策略与中位策略差距仍偏大，说明路由选错时的业务损失可能依然很高。');
+  }
   if (topContributionShare > 0.7) {
     notes.push('收益过度集中在少数窗口，当前盈利稳定性不够理想。');
   }
@@ -736,6 +768,10 @@ async function main(): Promise<void> {
       avgStopDayRatio: round(stopDayRatio, 4),
       avgReduceDayRatio: round(reduceDayRatio, 4),
       avgStrategySwitchesPerWeek: round(avgStrategySwitchesPerWeek, 4),
+      avgWeeklyDailyAlignment: round(avgWeeklyDailyAlignment, 4),
+      avgPositiveStrategyRatio: round(avgPositiveStrategyRatio, 4),
+      avgBestVsMedianGap: round(avgBestVsMedianGap, 4),
+      avgTrendEfficiency: round(avgTrendEfficiency, 4),
       scorePct: routerScorePct
     } : null,
     stability: {

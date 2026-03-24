@@ -136,7 +136,10 @@ function summarizeRuleBuckets(items) {
 
   return items
     .slice(0, 4)
-    .map((item) => item?.featureBucket || item?.rule?.when?.featureBucket?.[0] || item?.ruleId || 'rule')
+    .map((item) => {
+      const whenValue = item?.rule?.when || item?.when;
+      return buildRouterPolicyFeatureSummary(whenValue);
+    })
     .filter(Boolean)
     .join(' · ');
 }
@@ -1196,6 +1199,7 @@ function RouterStudioPanel({
                           删除
                         </button>
                       </div>
+                      <em>{buildRouterPolicyFeatureSummary(rule.when)}</em>
                       <div className="router-rule-grid">
                         <label className="router-rule-field">
                           <span>Rule ID</span>

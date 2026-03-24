@@ -14,6 +14,7 @@ export const TRAINING_GUIDE_RECOMMENDATIONS = [
   'Top N 建议先固定为 10，先看候选池质量，再考虑扩容。',
   'lotSize 建议先固定 0.008，避免一次改太多维度。',
   'maxHoldMinutes 建议先用 6 到 8 分钟，控制高频策略持仓时长。',
+  '默认模板已经内置第三轮特征参数：openingWindowMinutes=60、volBaselineLookbackPeriods=8，并开启 bucket+numeric split。',
   '默认手续费档案已经切到 GMO 取引所レバレッジ 2倍；交易手续费记为 0，但保留 0.04%/日持仓费和 0.5% 强平费元数据。',
   '如果只是第一次创建配置，router 路径可以先留空，等训练和 validation 跑通后再补。',
   'rolling-window 默认按训练区间内部逐月滚动验证，不再切到训练结束后的未来区间。',
@@ -287,6 +288,24 @@ export function buildDefaultTrainingTemplate(now = new Date(), coverage: Trainin
       options: {
         enableATRSizing: true,
         feeModel: { ...GMO_LEVERAGE_2X_FEE_MODEL }
+      }
+    },
+    featureEngineering: {
+      openingWindowMinutes: 60,
+      volBaselineLookbackPeriods: 8,
+      routerSplit: {
+        enabled: true,
+        minSamplesPerBranch: 2,
+        metrics: [
+          'trendEfficiency',
+          'volExpansionRatio',
+          'openingImpulse',
+          'reversalStrength',
+          'positiveStrategyRatio',
+          'bestVsMedianGap',
+          'monthlyWeeklyAlignment',
+          'weeklyDailyAlignment'
+        ]
       }
     },
     output: {

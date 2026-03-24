@@ -2,25 +2,21 @@
  * 数据库连接池配置
  */
 
-import * as path from 'path';
 import * as dotenv from 'dotenv';
 import mysql from 'mysql2';
 import type { Pool } from 'mysql2/promise';
 import {
   createMysqlPromisePool,
-  loadEnvFiles,
   warmupMysqlConnection
 } from '@money/database';
+import { loadTrainEnv } from '../utils/train-env';
 
 // Load order:
-// 1) train/.env
-// 2) backend/.env
-// 3) repo root .env
-loadEnvFiles(dotenv, [
-  path.resolve(__dirname, '../../.env'),
-  path.resolve(__dirname, '../../../backend/.env'),
-  path.resolve(__dirname, '../../../.env')
-]);
+// 1) train/.env.test (NODE_ENV=test only)
+// 2) train/.env
+// 3) backend/.env
+// 4) repo root .env
+loadTrainEnv(dotenv);
 
 const pool = createMysqlPromisePool(mysql, {
   overrides: {

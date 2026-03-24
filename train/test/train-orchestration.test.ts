@@ -9,12 +9,13 @@ const {
 } = require('../dist/services/train-orchestration.js');
 
 test('train orchestration resolves run actions per config type', () => {
-  assert.deepEqual(resolveAllowedActions('training'), ['train', 'generate-validation', 'build-router', 'feature-causality']);
+  assert.deepEqual(resolveAllowedActions('training'), ['train', 'generate-validation', 'build-router', 'feature-causality', 'goal-tracking']);
   assert.deepEqual(resolveAllowedActions('validation'), ['validate', 'cost-sensitivity', 'router-validate']);
   assert.equal(resolveRunRequestAction('training'), 'train');
   assert.equal(resolveRunRequestAction('training', 'generate-validation'), 'generate-validation');
   assert.equal(resolveRunRequestAction('training', 'build-router'), 'build-router');
   assert.equal(resolveRunRequestAction('training', 'feature-causality'), 'feature-causality');
+  assert.equal(resolveRunRequestAction('training', 'goal-tracking'), 'goal-tracking');
   assert.equal(resolveRunRequestAction('validation'), 'validate');
   assert.equal(resolveRunRequestAction('validation', 'cost-sensitivity'), 'cost-sensitivity');
   assert.equal(resolveRunRequestAction('validation', 'router-validate'), 'router-validate');

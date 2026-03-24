@@ -11,7 +11,7 @@ define require_var
 $(if $($(1)),,$(error 缺少参数 $(1). 示例: $(2)))
 endef
 
-.PHONY: help up down restart logs logs-train ps shell mysql db-init db-clear clear-db db-backup db-tables import clear-klines reimport-klines train validate clean
+.PHONY: help up down restart logs logs-train ps shell mysql db-init db-clear clear-db db-backup db-tables import clear-klines reimport-klines train validate feature-test ut-db-init ut-db-seed ut-feature-test clean
 
 # ============================================================================
 # 默认命令：显示帮助
@@ -37,6 +37,8 @@ help:
 	@echo "  make db-init         - 重建所有核心表（klines/backtest_results/strategies/trades/tasks）"
 	@echo "  make db-clear        - 清空除 klines 外的所有数据库表"
 	@echo "  make clear-db        - 同 make db-clear"
+	@echo "  make ut-db-init      - 重建 trading_ut 测试数据库"
+	@echo "  make ut-db-seed scenario=rolling-regime-shift - 导入固定测试 K 线"
 	@echo "  make db-backup       - 备份数据库"
 	@echo "  make db-tables       - 查看所有表"
 	@echo "  make clear-klines type=fx symbol=USD_JPY interval=1min startDate=20250101 endDate=20250131"
@@ -51,6 +53,10 @@ help:
 	@echo "  2. 验证 - 通过 TYPE/CONFIG 格式指定配置文件"
 	@echo "     make validate CONFIG=validation/2025_btcjpy_v7_hf_rsi_macd_top10_exact_from_2025_2024_validation"
 	@echo "     make validate CONFIG=validation/2025_btcjpy_v7_hf_rsi_macd_top10_exact_from_2025_2026_validation"
+	@echo ""
+	@echo "  3. 疏通测试 - 在真正训练前检查参数 -> rolling -> 产物链路"
+	@echo "     make feature-test"
+	@echo "     make ut-feature-test scenario=rolling-regime-shift"
 	@echo ""
 	@echo "📘 Train 说明:"
 	@echo "  现在正式运行入口在 train/src/scripts/*，对应 npm run train / validate / init-db / worker:run-queue"
@@ -175,6 +181,26 @@ validate:
 	@$(call require_var,CONFIG,make validate CONFIG=validation/2025_btcjpy_v7_hf_rsi_macd_top10_exact_from_2025_2024_validation)
 	@echo "✅ 开始验证: $(CONFIG).json"
 	@docker-compose run --rm train sh -c "npm install && npm run build && npm run validate configs/$(CONFIG).json"
+
+feature-test:
+	@echo "🧪 运行 train 疏通型 feature test..."
+	@docker-compose run --rm train sh -c "npm install && npm run test:feature"
+	@echo "✅ feature test 通过"
+
+ut-db-init:
+	@echo "🧪 初始化 trading_ut..."
+	@docker-compose run --rm -e UT_DB_NAME=trading_ut -e UT_DB_ADMIN_USER=root -e UT_DB_ADMIN_PASSWORD=rootpassword train sh -c "npm install && npm run build && npm run init-ut-db"
+	@echo "✅ trading_ut 已初始化"
+
+ut-db-seed:
+	@echo "🧪 导入 UT K 线场景: $(if $(scenario),$(scenario),all)"
+	@docker-compose run --rm -e DB_NAME=trading_ut -e UT_DB_NAME=trading_ut train sh -c "npm install && npm run build && npm run seed:ut-klines -- --scenario=$(if $(scenario),$(scenario),all)"
+	@echo "✅ UT K 线已导入"
+
+ut-feature-test:
+	@echo "🧪 运行基于 trading_ut 的全链路疏通测试..."
+	@docker-compose run --rm -e DB_NAME=trading_ut -e UT_DB_NAME=trading_ut -e UT_DB_ADMIN_USER=root -e UT_DB_ADMIN_PASSWORD=rootpassword train sh -c "npm install && npm run build && npm run test:feature-db -- --scenario=$(if $(scenario),$(scenario),rolling-regime-shift)"
+	@echo "✅ UT feature DB test 通过"
 
 # ============================================================================
 # 清理

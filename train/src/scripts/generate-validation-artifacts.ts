@@ -8,7 +8,6 @@ import * as mysql from 'mysql2/promise';
 import {
   BACKTEST_RESULTS_TABLE,
   createMysqlConnectionWithFallback,
-  loadEnvFiles,
 } from '@money/database';
 import {
   buildRollingArtifactPackage,
@@ -16,12 +15,9 @@ import {
   type RollingStrategyResultRow,
   type RollingTradeRow,
 } from '../services/rolling-artifact-builder';
+import { loadTrainEnv } from '../utils/train-env';
 
-loadEnvFiles(dotenv, [
-  path.resolve(__dirname, '../../.env'),
-  path.resolve(__dirname, '../../../backend/.env'),
-  path.resolve(__dirname, '../../../.env')
-]);
+loadTrainEnv(dotenv);
 
 interface Args {
   readonly trainConfig: string;
@@ -35,6 +31,22 @@ interface Args {
   readonly exact: boolean;
   readonly profile: string;
   readonly outputMode: 'json' | 'files';
+}
+
+type QueryableConnection = {
+  readonly query: <T = any>(sql: string, params?: readonly unknown[]) => Promise<[T, any]>;
+  readonly end: () => Promise<void>;
+};
+
+export interface GeneratedArtifactItem {
+  readonly configKey: string;
+  readonly configType: string;
+  readonly content: JsonObject;
+}
+
+export interface GeneratedArtifactsResult {
+  readonly validationConfigs: readonly GeneratedArtifactItem[];
+  readonly snapshot: GeneratedArtifactItem;
 }
 
 type JsonObject = any;
@@ -337,6 +349,7 @@ function buildArtifacts(args: Args, trainConfig: JsonObject, rollingPackage: Ret
       strategy: {
         explicitStrategies: rollingPackage.explicitStrategies
       },
+      featureEngineering: trainConfig.featureEngineering,
       executor: trainConfig.executor,
       output: {
         topN: args.limit,
@@ -378,6 +391,7 @@ function buildArtifacts(args: Args, trainConfig: JsonObject, rollingPackage: Ret
       intervalType: trainConfig.market.intervalType
     },
     executor: trainConfig.executor,
+    featureEngineering: trainConfig.featureEngineering,
     strategy: {
       explicitStrategies: rollingPackage.explicitStrategies
     },
@@ -432,11 +446,19 @@ function buildArtifacts(args: Args, trainConfig: JsonObject, rollingPackage: Ret
   };
 }
 
-async function main(): Promise<void> {
-  const args = parseArgs(process.argv);
+export async function runGenerateValidationArtifacts(
+  args: Args,
+  options: {
+    readonly connection?: QueryableConnection;
+    readonly trainRoot?: string;
+    readonly trainConfig?: JsonObject;
+  } = {}
+): Promise<GeneratedArtifactsResult> {
+  const trainRoot = options.trainRoot ?? path.resolve(__dirname, '..', '..');
   const trainConfigPath = path.resolve(args.trainConfig);
-  const trainConfig = readJson(trainConfigPath);
-  const connection = await createMysqlConnectionWithFallback(mysql, {
+  const trainConfig = options.trainConfig ?? readJson(trainConfigPath);
+  const ownsConnection = !options.connection;
+  const connection = options.connection ?? await createMysqlConnectionWithFallback(mysql, {
     defaults: {
       host: '127.0.0.1'
     }
@@ -477,21 +499,32 @@ async function main(): Promise<void> {
       topN: args.limit,
       strategyRows,
       trades,
-      klines
+      klines,
+      featureEngineering: trainConfig.featureEngineering
     });
-    const artifacts = buildArtifacts(args, trainConfig, rollingPackage, sourceRunId);
+    const artifacts = buildArtifacts(args, trainConfig, rollingPackage, sourceRunId) as GeneratedArtifactsResult;
 
-    if (args.outputMode === 'json') {
-      process.stdout.write(`${JSON.stringify(artifacts)}\n`);
-      return;
+    if (args.outputMode === 'files') {
+      for (const item of artifacts.validationConfigs) {
+        writeJson(path.resolve(trainRoot, item.configKey), item.content);
+      }
+      writeJson(path.resolve(trainRoot, artifacts.snapshot.configKey), artifacts.snapshot.content);
     }
 
-    for (const item of artifacts.validationConfigs) {
-      writeJson(path.resolve(__dirname, '../../', item.configKey), item.content);
-    }
-    writeJson(path.resolve(__dirname, '../../', artifacts.snapshot.configKey), artifacts.snapshot.content);
+    return artifacts;
   } finally {
-    await connection.end();
+    if (ownsConnection) {
+      await connection.end();
+    }
+  }
+}
+
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv);
+  const artifacts = await runGenerateValidationArtifacts(args);
+
+  if (args.outputMode === 'json') {
+    process.stdout.write(`${JSON.stringify(artifacts)}\n`);
   }
 }
 
