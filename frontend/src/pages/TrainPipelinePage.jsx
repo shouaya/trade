@@ -792,7 +792,8 @@ function isUiRunnableAction(actionKey) {
     || actionKey === 'waiting-validation'
     || actionKey === 'cost-sensitivity'
     || actionKey === 'feature-causality'
-    || actionKey === 'router-validate';
+    || actionKey === 'router-validate'
+    || actionKey === 'goal-tracking';
 }
 
 function getNextActionButtonLabel(nextActionKey) {
@@ -847,7 +848,7 @@ function ResultsOverview({ pipelines, meta }) {
   const routerReady = pipelines.filter((pipeline) => Boolean(pipeline.router?.routerPath && pipeline.router?.policyPath)).length;
   const reportReady = pipelines.filter((pipeline) => {
     const reports = pipeline.reports || {};
-    return Boolean(reports.featureCausality || reports.costSensitivity || reports.routerValidation);
+    return Boolean(reports.featureCausality || reports.costSensitivity || reports.routerValidation || reports.goalTracking);
   }).length;
 
   const cards = [
@@ -932,6 +933,11 @@ function PipelineResultsPanel({ pipeline, onViewRequest, onOpenRouterStudio }) {
       key: 'router-validation',
       label: 'Router 验证',
       data: pipeline.reports?.routerValidation
+    },
+    {
+      key: 'goal-tracking',
+      label: '目标达成追踪',
+      data: pipeline.reports?.goalTracking
     }
   ];
 
@@ -2679,6 +2685,8 @@ function TrainPipelinePage() {
                 ? '成本敏感度'
                 : request.action === 'router-validate'
                   ? 'Router 验证'
+                  : request.action === 'goal-tracking'
+                    ? '目标达成追踪'
                   : '训练';
         setActionMessage({
           text: request.action === 'train'

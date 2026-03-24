@@ -11,7 +11,7 @@ define require_var
 $(if $($(1)),,$(error 缺少参数 $(1). 示例: $(2)))
 endef
 
-.PHONY: help up down restart logs logs-train ps shell mysql db-init db-backup db-tables import clear-klines reimport-klines train validate clean
+.PHONY: help up down restart logs logs-train ps shell mysql db-init db-clear clear-db db-backup db-tables import clear-klines reimport-klines train validate clean
 
 # ============================================================================
 # 默认命令：显示帮助
@@ -35,6 +35,8 @@ help:
 	@echo ""
 	@echo "🗄️  数据库:"
 	@echo "  make db-init         - 重建所有核心表（klines/backtest_results/strategies/trades/tasks）"
+	@echo "  make db-clear        - 清空除 klines 外的所有数据库表"
+	@echo "  make clear-db        - 同 make db-clear"
 	@echo "  make db-backup       - 备份数据库"
 	@echo "  make db-tables       - 查看所有表"
 	@echo "  make clear-klines type=fx symbol=USD_JPY interval=1min startDate=20250101 endDate=20250131"
@@ -108,6 +110,11 @@ db-init:
 	@docker-compose exec api sh -lc "npm install && npm run init-db"
 	@docker-compose run --rm train sh -lc "npm install && npm run build && npm run init-db"
 	@echo "✅ backend + train 表初始化完成"
+
+db-clear clear-db:
+	@echo "🧹 清空除 klines 外的所有数据库表..."
+	@docker-compose run --rm train sh -lc "npm install && npm run build && npm run clear-db"
+	@echo "✅ 数据库已清理（klines 保留）"
 
 db-backup:
 	@echo "💾 备份数据库..."

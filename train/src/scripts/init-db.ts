@@ -11,6 +11,7 @@ import {
   ensureBacktestResultsSchema,
   ensureTrainDataTraceSchema,
   ensureTrainConfigsSchema,
+  ensureTrainGoalTrackingSchema,
   ensureTrainRunRequestsSchema
 } from '@money/database';
 import db from '../configs/database';
@@ -125,6 +126,12 @@ async function createTrainRunRequestsTable(): Promise<void> {
   console.log('✅ train_run_requests 表创建成功');
 }
 
+async function createTrainGoalTrackingTable(): Promise<void> {
+  console.log('📊 创建 train_goal_tracking 表...');
+  await ensureTrainGoalTrackingSchema(db);
+  console.log('✅ train_goal_tracking 表创建成功');
+}
+
 async function main(): Promise<void> {
   console.log('='.repeat(80));
   console.log('🚀 开始初始化数据库');
@@ -151,6 +158,7 @@ async function main(): Promise<void> {
     await createTasksTable();
     await createTrainConfigsTable();
     await createTrainRunRequestsTable();
+    await createTrainGoalTrackingTable();
 
     console.log('');
     console.log('='.repeat(80));
@@ -166,6 +174,7 @@ async function main(): Promise<void> {
       'trades',
       'tasks',
       'train_configs',
+      'train_goal_tracking',
       'training_config_details',
       'validation_config_details',
       'snapshot_config_details',

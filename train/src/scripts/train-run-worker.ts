@@ -114,6 +114,23 @@ function applyTrainIdToConfig(config: Record<string, any>, trainId: string): Rec
   };
 }
 
+function toPosix(value: string): string {
+  return String(value || '').replace(/\\/g, '/');
+}
+
+function resolveConfigRef(baseConfigKey: string, targetRef: string): string {
+  const normalizedRef = String(targetRef || '').trim();
+  if (!normalizedRef) {
+    return '';
+  }
+
+  if (path.posix.isAbsolute(normalizedRef)) {
+    return toPosix(path.posix.normalize(normalizedRef));
+  }
+
+  return toPosix(path.posix.normalize(path.posix.join(path.posix.dirname(String(baseConfigKey || '')), normalizedRef)));
+}
+
 async function loadConfigRecordByKey(configKey: string): Promise<mysql.RowDataPacket | null> {
   return await loadTrainConfigByKey(db, configKey);
 }
@@ -161,7 +178,12 @@ async function resolveRouterConfigPath(configRow: mysql.RowDataPacket): Promise<
     throw new Error('regimeRouting.routerConfigPath is missing');
   }
 
-  return routerConfigPath;
+  const trainingConfigKey = String(linkedTrainingRow['config_key'] || '').trim();
+  if (!trainingConfigKey) {
+    throw new Error('linked training config key is missing for router validation');
+  }
+
+  return resolveConfigRef(trainingConfigKey, routerConfigPath);
 }
 
 function safeUnlink(filePath: string): void {
@@ -354,6 +376,19 @@ async function resolveCommand(
     };
   }
 
+  if (action === 'goal-tracking') {
+    return {
+      command: 'node',
+      args: [
+        'dist/scripts/goal-attainment-report.js',
+        '--trainConfig',
+        exportPath,
+        '--trainConfigRef',
+        String(configRow['config_key'] || '')
+      ]
+    };
+  }
+
   throw new Error(`unsupported action: ${action}`);
 }
 
@@ -519,6 +554,13 @@ async function enqueuePostValidationFollowUps(configRow: mysql.RowDataPacket): P
     const enqueued = await enqueueRequestForConfigRow(configRow, action, 'post-validation');
     if (enqueued) {
       console.log(`📊 queued follow-up ${action} for ${configRow['config_key']}`);
+    }
+  }
+
+  if (linkedTrainingRow) {
+    const enqueued = await enqueueRequestForConfigRow(linkedTrainingRow, 'goal-tracking', 'post-validation');
+    if (enqueued) {
+      console.log(`🎯 queued follow-up goal-tracking for ${linkedTrainingRow['config_key']}`);
     }
   }
 }
@@ -706,6 +748,12 @@ async function processRequest(request: QueueRow): Promise<void> {
       }
       if (request.action === 'validate') {
         await enqueuePostValidationFollowUps(configRow);
+      }
+      if (request.action === 'router-validate' || request.action === 'build-router') {
+        const linkedTrainingRow = await resolveLinkedTrainingConfigRow(configRow);
+        if (linkedTrainingRow) {
+          await enqueueRequestForConfigRow(linkedTrainingRow, 'goal-tracking', `post-${request.action}`);
+        }
       }
       return;
     }

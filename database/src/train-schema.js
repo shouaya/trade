@@ -11,6 +11,7 @@ const {
   VALIDATION_CONFIG_DETAILS_DDL
 } = require('./train-configs.schema');
 const { TRAIN_RUN_REQUESTS_DDL } = require('./train-run-requests.schema');
+const { TRAIN_GOAL_TRACKING_DDL } = require('./train-goal-tracking.schema');
 const {
   dropColumnIfExists,
   dropIndexIfExists,
@@ -28,6 +29,7 @@ const {
   SNAPSHOT_CONFIG_DETAILS_TABLE,
   TABLES,
   TRAIN_CONFIGS_TABLE,
+  TRAIN_GOAL_TRACKING_TABLE,
   TRAINING_CONFIG_DETAILS_TABLE,
   VALIDATION_CONFIG_DETAILS_TABLE,
   TRAIN_RUN_REQUESTS_TABLE
@@ -122,6 +124,14 @@ async function ensureTrainRunRequestsSchema(db) {
   await ensureColumn(db, TRAIN_RUN_REQUESTS_TABLE, 'cancel_requested', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER execution_pid');
 }
 
+async function ensureTrainGoalTrackingSchema(db) {
+  await db.query(TRAIN_GOAL_TRACKING_DDL);
+  await ensureIndex(db, TRAIN_GOAL_TRACKING_TABLE, 'uniq_train_goal_tracking', 'UNIQUE INDEX uniq_train_goal_tracking (train_id, config_id)');
+  await ensureIndex(db, TRAIN_GOAL_TRACKING_TABLE, 'idx_train_id', 'INDEX idx_train_id (train_id)');
+  await ensureIndex(db, TRAIN_GOAL_TRACKING_TABLE, 'idx_config_id', 'INDEX idx_config_id (config_id)');
+  await ensureIndex(db, TRAIN_GOAL_TRACKING_TABLE, 'idx_symbol_updated_at', 'INDEX idx_symbol_updated_at (symbol, updated_at)');
+}
+
 async function ensureTrainDataTraceSchema(db) {
   await ensureColumn(db, TABLES.STRATEGIES, 'train_id', `VARCHAR(100) NULL COMMENT 'root training lineage id' AFTER name`);
   await ensureIndex(db, TABLES.STRATEGIES, 'idx_train_id', 'INDEX idx_train_id (train_id)');
@@ -137,5 +147,6 @@ module.exports = {
   ensureBacktestResultsSchema,
   ensureTrainConfigsSchema,
   ensureTrainRunRequestsSchema,
-  ensureTrainDataTraceSchema
+  ensureTrainDataTraceSchema,
+  ensureTrainGoalTrackingSchema
 };

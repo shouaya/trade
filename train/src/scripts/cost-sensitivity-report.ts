@@ -60,6 +60,9 @@ interface ConfigFile {
       readonly feeModel?: FeeModelConfig;
     };
   };
+  readonly output?: {
+    readonly topN?: number;
+  };
 }
 
 interface StrategyScenarioStats {
@@ -189,6 +192,15 @@ function ensureDir(dirPath: string): void {
 function round(value: number, digits = 2): number {
   if (!Number.isFinite(value)) return 0;
   return Number(value.toFixed(digits));
+}
+
+function buildStrategyLabel(strategyName: string): string {
+  const tokens = String(strategyName || '').split('-').filter(Boolean);
+  if (tokens.length <= 6) {
+    return strategyName;
+  }
+
+  return tokens.slice(-6).join('-');
 }
 
 async function loadKlines(config: ConfigFile): Promise<readonly KlineData[]> {
@@ -372,12 +384,19 @@ function buildMarkdown(
   stressMultiplier: number
 ): string {
   const lines: string[] = [];
+  const configuredTopN = Number(config.output?.topN || 0);
   lines.push(`# ${config.market.symbol} Cost Sensitivity Report`);
   lines.push('');
   lines.push(`- Config: \`${configPath}\``);
   lines.push(`- Validation / training name: \`${config.name}\``);
   lines.push(`- Period: \`${new Date(config.timeRange.startTimeMs).toISOString()}\` -> \`${new Date(config.timeRange.endTimeMs).toISOString()}\``);
   lines.push(`- Strategies tested: \`${strategies.length}\``);
+  if (configuredTopN > 0) {
+    lines.push(`- Rolling pool TopN per month: \`${configuredTopN}\``);
+    if (strategies.length !== configuredTopN) {
+      lines.push(`- Validation strategy universe: \`${strategies.length}\` (union of monthly rolling pools, not a single global TopN snapshot)`);
+    }
+  }
   lines.push(`- Stress multiplier: \`${stressMultiplier}\``);
   const feeModel = validateFeeModelConfig(config.executor?.options?.feeModel, 'config.executor.options.feeModel');
   lines.push(`- Fee venue: \`${feeModel.venueCode}\``);
@@ -396,10 +415,20 @@ function buildMarkdown(
   lines.push('- `Base Fee`: fee on, slippage off');
   lines.push('- `Fee + Base Slippage`: fee on, default slippage model');
   lines.push('- `Fee + Extreme Slippage`: fee on, stressed slippage model');
+  const baseFeeInactive = scenarioResults.every((result) => {
+    const noCost = result.scenarios.find((row) => row.scenario === 'no_cost');
+    const baseFee = result.scenarios.find((row) => row.scenario === 'base_fee');
+    return Boolean(noCost && baseFee)
+      && round(noCost?.totalPnl ?? 0, 4) === round(baseFee?.totalPnl ?? 0, 4)
+      && round(baseFee?.totalCommission ?? 0, 4) === 0;
+  });
+  if (baseFeeInactive) {
+    lines.push('- Current note: `Base Fee` is identical to `No Cost` here. That means entry/exit commission is effectively zero in the tested config, and no extra carry-like fee was charged in these sampled trades.');
+  }
   lines.push('');
   lines.push('## Strategy Summary');
   lines.push('');
-  lines.push('| Strategy | No Cost PnL | Base Fee PnL | Fee+Base Slip PnL | Fee+Extreme Slip PnL | Drag vs No Cost | Extreme DD |');
+  lines.push('| Strategy Label | No Cost PnL | Base Fee PnL | Fee+Base Slip PnL | Fee+Extreme Slip PnL | Drag vs No Cost | Extreme DD |');
   lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: |');
 
   for (const result of scenarioResults) {
@@ -415,6 +444,8 @@ function buildMarkdown(
   for (const result of scenarioResults) {
     lines.push('');
     lines.push(`## ${result.strategyLabel}`);
+    lines.push('');
+    lines.push(`- Full strategy: \`${result.strategyName}\``);
     lines.push('');
     lines.push('| Scenario | Total PnL | Return % | Max DD | Profit Factor | Trades | Commission | Gross PnL |');
     lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
@@ -456,7 +487,7 @@ async function main(): Promise<void> {
 
     scenarioResults.push({
       strategyName: strategy.name,
-      strategyLabel: strategy.name.replace(/^.*-/, ''),
+      strategyLabel: buildStrategyLabel(strategy.name),
       scenarios
     });
   }
@@ -477,6 +508,7 @@ async function main(): Promise<void> {
     intervalType: config.market.intervalType,
     period: config.timeRange,
     stressMultiplier: args.stressMultiplier,
+    rollingPoolTopN: Number(config.output?.topN || 0) || null,
     strategyCount: strategies.length,
     scenarioResults
   };

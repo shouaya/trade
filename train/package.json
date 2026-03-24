@@ -7,12 +7,13 @@
     "build": "tsc",
     "build:watch": "tsc --watch",
     "clean": "node -e \"require('fs').rmSync('dist',{ recursive: true, force: true })\"",
-    "prebuild": "npm --prefix ../simulator run build && npm run clean",
+    "prebuild": "npm --prefix ../simulator run build",
     "coverage": "npm run build && c8 --reporter=text --reporter=lcov --all --include=dist/services/**/*.js --include=dist/scripts/_*.js --include=dist/services/indicators/**/*.js node --experimental-strip-types test/run-tests.ts",
     "coverage:check": "npm run build && c8 --check-coverage --lines 90 --functions 90 --statements 90 --reporter=text --all --include=dist/services/**/*.js --include=dist/scripts/_*.js --include=dist/services/indicators/**/*.js node --experimental-strip-types test/run-tests.ts",
     "test": "npm run build && node --experimental-strip-types test/run-tests.ts",
     "type-check": "tsc --noEmit",
     "init-db": "node dist/scripts/init-db.js",
+    "clear-db": "node dist/scripts/clear-db.js",
     "seed:configs": "node dist/scripts/seed-configs.js",
     "sync:configs": "node dist/scripts/sync-config-registry.js",
     "worker:run-queue": "node dist/scripts/train-run-worker.js",
@@ -21,6 +22,7 @@
     "validate": "node dist/scripts/train.js",
     "router:validate": "node dist/scripts/router-validate.js",
     "report:cost-sensitivity": "node dist/scripts/cost-sensitivity-report.js",
+    "report:goal-tracking": "node dist/scripts/goal-attainment-report.js",
     "audit:causal-features": "node dist/scripts/feature-causality-audit.js"
   },
   "dependencies": {

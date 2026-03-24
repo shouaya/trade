@@ -1130,7 +1130,8 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
     const reportSummary = {
       costSensitivity: findLatestMatch(reportFiles, symbolReportMatcher('cost-sensitivity')),
       featureCausality: findLatestMatch(reportFiles, symbolReportMatcher('feature-causality')),
-      routerValidation: findLatestMatch(reportFiles, symbolReportMatcher('regime-routing-results'))
+      routerValidation: findLatestMatch(reportFiles, symbolReportMatcher('regime-routing-results')),
+      goalTracking: findLatestMatch(reportFiles, symbolReportMatcher('goal-tracking'))
     };
 
     const steps = [
@@ -1216,6 +1217,12 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
         title: 'Router Validation',
         status: buildStatus(Boolean(reportSummary.routerValidation)),
         detail: reportSummary.routerValidation?.path ? toRepoRelative(repoRoot, reportSummary.routerValidation.path) : '未找到'
+      },
+      {
+        key: 'goal-tracking',
+        title: 'Goal Tracking',
+        status: buildStatus(Boolean(reportSummary.goalTracking)),
+        detail: reportSummary.goalTracking?.path ? toRepoRelative(repoRoot, reportSummary.goalTracking.path) : '未找到'
       }
     ];
 
@@ -1254,6 +1261,11 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
         path: toRepoRelative(repoRoot, reportSummary.routerValidation.path),
         modifiedAt: reportSummary.routerValidation.modifiedAt,
         preview: buildReportPreview(reportSummary.routerValidation.path)
+      } : null,
+      goalTracking: reportSummary.goalTracking ? {
+        path: toRepoRelative(repoRoot, reportSummary.goalTracking.path),
+        modifiedAt: reportSummary.goalTracking.modifiedAt,
+        preview: buildReportPreview(reportSummary.goalTracking.path)
       } : null
     };
 

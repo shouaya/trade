@@ -13,7 +13,12 @@ function resolveTrainServicePath(fileName) {
 
 function loadTrainService(fileName, label) {
   const servicePath = resolveTrainServicePath(fileName);
+  const cachedModule = require.cache[servicePath];
+
   if (!fs.existsSync(servicePath)) {
+    if (cachedModule?.exports) {
+      return cachedModule.exports;
+    }
     throw new Error(`${label} not built: ${servicePath}`);
   }
 

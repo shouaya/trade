@@ -279,12 +279,17 @@ function buildReportDeletePlan(trainingRecord, relatedConfigs) {
 
   const trainingSymbol = String(trainingRecord?.symbol || trainingRecord?.content?.market?.symbol || '').trim().toUpperCase();
   const trainingTimeRange = trainingRecord?.content?.timeRange || {};
+  const trainingBaseName = path.basename(String(trainingRecord?.configKey || ''), '.json');
   const featureStart = formatIsoDateOnly(trainingTimeRange.startIso || trainingTimeRange.startTimeMs);
   const featureEnd = formatIsoDateOnly(trainingTimeRange.endIso || trainingTimeRange.endTimeMs);
   if (trainingSymbol && featureStart && featureEnd) {
     const featurePrefix = `reports/feature-causality/${trainingSymbol}_${featureStart}_to_${featureEnd}_60m`;
     fileKeys.add(`${featurePrefix}.json`);
     fileKeys.add(`${featurePrefix}.md`);
+  }
+  if (trainingBaseName) {
+    fileKeys.add(`reports/goal-tracking/${trainingBaseName}.goal-tracking.json`);
+    fileKeys.add(`reports/goal-tracking/${trainingBaseName}.goal-tracking.md`);
   }
 
   for (const item of relatedConfigs) {
@@ -807,6 +812,7 @@ router.post('/:id/clear-results', async (req, res) => {
     let deletedTaskRows = 0;
     let deletedTradeRows = 0;
     let deletedStrategyRows = 0;
+    let deletedGoalTrackingRows = 0;
     if (record.configType === 'training') {
       const [deleteRequestsResult] = await connection.query(
         `DELETE FROM ${TABLES.TRAIN_RUN_REQUESTS}
@@ -835,6 +841,13 @@ router.post('/:id/clear-results', async (req, res) => {
         [record.trainId]
       );
       deletedStrategyRows = Number(deleteStrategiesResult.affectedRows || 0);
+
+      const [deleteGoalTrackingResult] = await connection.query(
+        `DELETE FROM ${TABLES.TRAIN_GOAL_TRACKING}
+         WHERE train_id = ?`,
+        [record.trainId]
+      );
+      deletedGoalTrackingRows = Number(deleteGoalTrackingResult.affectedRows || 0);
 
       for (const item of clearPlan.removableConfigs) {
         const absolutePath = resolveAbsoluteConfigPath(item.configKey);
@@ -875,6 +888,7 @@ router.post('/:id/clear-results', async (req, res) => {
         deletedTaskRows,
         deletedTradeRows,
         deletedStrategyRows,
+        deletedGoalTrackingRows,
         deletedFiles,
         deletedReportFiles
       },

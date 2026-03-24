@@ -20,7 +20,7 @@ export function buildRunCommand(configType: unknown, configKey: unknown): string
 
 export function resolveAllowedActions(configType: unknown): readonly string[] {
   if (configType === 'training') {
-    return ['train', 'generate-validation', 'build-router', 'feature-causality'];
+    return ['train', 'generate-validation', 'build-router', 'feature-causality', 'goal-tracking'];
   }
 
   if (configType === 'validation') {
