@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
-import * as fs from 'fs';
 import * as path from 'path';
 import db from '../configs/database';
 import { saveTrainArtifact } from '../services/train-artifact-store';
 import { runRouterValidation } from '../services/regime-router-validation';
+import { loadConfigContentFromFileOrDb } from '../services/train-config-loader';
 
 interface CliArgs {
   readonly validation: string;
@@ -29,10 +29,12 @@ function resolveArtifactConfigKey(filePath: string): string | null {
   return normalizedInput.startsWith('configs/') ? normalizedInput : null;
 }
 
-function loadTrainIdFromValidationConfig(validationPath: string): string | null {
+async function loadTrainIdFromValidationConfig(validationPath: string): Promise<string | null> {
   try {
-    const payload = JSON.parse(fs.readFileSync(path.resolve(validationPath), 'utf8'));
-    return String(payload?.trainId || payload?.trainingMeta?.trainId || '').trim() || null;
+    const loaded = await loadConfigContentFromFileOrDb<Record<string, any>>(db, validationPath);
+    const payload = loaded.content;
+    const trainingMeta = payload?.['trainingMeta'];
+    return String(payload?.['trainId'] || trainingMeta?.['trainId'] || '').trim() || null;
   } catch {
     return null;
   }
@@ -111,7 +113,7 @@ async function main(): Promise<void> {
     };
 
   const report = await runRouterValidation(runOptions);
-  const trainId = loadTrainIdFromValidationConfig(args.validation);
+  const trainId = await loadTrainIdFromValidationConfig(args.validation);
   const configKey = resolveArtifactConfigKey(args.validation);
   const reportPayload = trainId
     ? {

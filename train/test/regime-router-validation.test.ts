@@ -70,14 +70,6 @@ test('runRouterValidation applies rolling rules, monthly pools, and loss guards'
         },
       ],
     },
-    rollingPlan: {
-      monthlyPools: [
-        {
-          month: '2025-01',
-          topStrategies: [{ strategyName: 'beta' }],
-        },
-      ],
-    },
     featureEngineering: {
       openingWindowMinutes: 1,
       volBaselineLookbackPeriods: 1,
@@ -254,6 +246,12 @@ test('runRouterValidation applies rolling rules, monthly pools, and loss guards'
   const originalQuery = dbModule.default.query;
   dbModule.default.query = async (sql) => {
     const text = String(sql);
+    if (text.includes('FROM feature_candidate_pools')) {
+      return [[{
+        window_start_ms: Date.parse('2025-01-01T00:00:00.000Z'),
+        strategy_name: 'beta',
+      }], {}];
+    }
     if (text.includes('FROM trades') && text.includes('ORDER BY exit_time ASC')) {
       return [trades, {}];
     }
@@ -350,14 +348,6 @@ test('runRouterValidation uses opening-window daily features instead of full-day
         },
       ],
     },
-    rollingPlan: {
-      monthlyPools: [
-        {
-          month: '2025-02',
-          topStrategies: [{ strategyName: 'alpha' }, { strategyName: 'beta' }],
-        },
-      ],
-    },
     featureEngineering: {
       openingWindowMinutes: 1,
       volBaselineLookbackPeriods: 1,
@@ -408,6 +398,18 @@ test('runRouterValidation uses opening-window daily features instead of full-day
   const originalQuery = dbModule.default.query;
   dbModule.default.query = async (sql) => {
     const text = String(sql);
+    if (text.includes('FROM feature_candidate_pools')) {
+      return [[
+        {
+          window_start_ms: Date.parse('2025-02-01T00:00:00.000Z'),
+          strategy_name: 'alpha',
+        },
+        {
+          window_start_ms: Date.parse('2025-02-01T00:00:00.000Z'),
+          strategy_name: 'beta',
+        },
+      ], {}];
+    }
     if (text.includes('FROM trades') && text.includes('ORDER BY exit_time ASC')) {
       return [trades, {}];
     }
@@ -488,6 +490,9 @@ test('runRouterValidation can auto-detect trade batch and handle empty samples',
   const originalQuery = dbModule.default.query;
   dbModule.default.query = async (sql) => {
     const text = String(sql);
+    if (text.includes('FROM feature_candidate_pools')) {
+      return [[], {}];
+    }
     if (text.includes('DATE_FORMAT(MAX(created_at)')) {
       return [[{ created_at: '2026-03-24 12:34:56' }], {}];
     }
@@ -511,6 +516,230 @@ test('runRouterValidation can auto-detect trade batch and handle empty samples',
     assert.equal(report.dailyRoutes.length, 0);
     assert.equal(report.comparison.router.totalPnl, 0);
     assert.equal(report.comparison.router.finalEquity, 10000);
+  } finally {
+    dbModule.default.query = originalQuery;
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('runRouterValidation can load validation and router configs from db when files are absent', async () => {
+  const originalQuery = dbModule.default.query;
+  dbModule.default.query = async (sql, params = []) => {
+    const text = String(sql);
+
+    if (text.includes('FROM train_configs tc')) {
+      const key = String(params[0] || '');
+      if (key === 'configs/validation/db_validation.json') {
+        return [[{
+          content: {
+            name: 'DB_VALIDATION',
+            trainId: 'train-db-1',
+            timeRange: {
+              startTimeMs: Date.parse('2025-03-01T00:00:00.000Z'),
+              endTimeMs: Date.parse('2025-03-01T23:59:00.000Z'),
+            },
+            market: {
+              symbol: 'BTCJPY',
+              intervalType: '1min',
+            },
+            strategy: {
+              explicitStrategies: [
+                {
+                  rank: 1,
+                  name: 'alpha',
+                  type: 'rsi_macd',
+                  parameters: {
+                    atr: { slMultiplier: 2, tpMultiplier: 4 },
+                    rsi: { oversold: 25, overbought: 75 },
+                    risk: { maxHoldMinutes: 6 },
+                  },
+                },
+              ],
+            },
+          },
+        }], {}];
+      }
+      if (key === 'configs/generated/regime-routing/db_router.json') {
+        return [[{
+          content: {
+            symbol: 'BTCJPY',
+            routerVersion: 'db_router_v1',
+            executionModel: {
+              precedence: ['daily_router'],
+              defaultFallback: {
+                action: 'trade',
+                riskMultiplier: 1,
+                strategyKey: 'rank1',
+              },
+            },
+            strategyCatalog: {
+              rank1: {
+                strategyName: 'alpha',
+                shortLabel: 'TOP1',
+              },
+            },
+            rules: [],
+          },
+        }], {}];
+      }
+      return [[], {}];
+    }
+    if (text.includes('FROM feature_candidate_pools')) {
+      return [[], {}];
+    }
+
+    if (text.includes('FROM trades') && text.includes('ORDER BY exit_time ASC')) {
+      return [[
+        { strategy_name: 'alpha', exit_time: Date.parse('2025-03-01T12:00:00.000Z'), pnl: 25 },
+      ], {}];
+    }
+    if (text.includes('FROM klines')) {
+      return [[
+        makeKlineRow('2025-03-01T00:00:00.000Z', 100, 101, 99.5, 100.5),
+      ], {}];
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  };
+
+  try {
+    const report = await runRouterValidation({
+      validationConfigPath: 'configs/validation/db_validation.json',
+      routerConfigPath: 'configs/generated/regime-routing/db_router.json',
+      tradeCreatedAt: '2026-03-25 00:00:00',
+    });
+
+    assert.equal(report.symbol, 'BTCJPY');
+    assert.equal(report.routerVersion, 'db_router_v1');
+    assert.equal(report.dailyRoutes.length, 1);
+    assert.equal(report.dailyRoutes[0].selectedStrategyName, 'alpha');
+    assert.equal(report.comparison.router.totalPnl, 25);
+  } finally {
+    dbModule.default.query = originalQuery;
+  }
+});
+
+test('runRouterValidation uses feature-memory monthly candidate pools when rollingPlan is absent', async () => {
+  const originalQuery = dbModule.default.query;
+  dbModule.default.query = async (sql, params = []) => {
+    const text = String(sql);
+
+    if (text.includes('FROM feature_candidate_pools')) {
+      return [[
+        {
+          window_start_ms: Date.parse('2025-04-01T00:00:00.000Z'),
+          rank_no: 1,
+          strategy_name: 'beta',
+        },
+      ], {}];
+    }
+    if (text.includes('FROM trades') && text.includes('ORDER BY exit_time ASC')) {
+      return [[
+        { strategy_name: 'alpha', exit_time: Date.parse('2025-04-01T12:00:00.000Z'), pnl: -40 },
+        { strategy_name: 'beta', exit_time: Date.parse('2025-04-01T12:00:00.000Z'), pnl: 60 },
+        { strategy_name: 'alpha', exit_time: Date.parse('2025-04-02T12:00:00.000Z'), pnl: -10 },
+        { strategy_name: 'beta', exit_time: Date.parse('2025-04-02T12:00:00.000Z'), pnl: 30 },
+      ], {}];
+    }
+    if (text.includes('FROM klines')) {
+      return [[
+        makeKlineRow('2025-03-01T00:00:00.000Z', 100, 100.5, 99.7, 100.1),
+        makeKlineRow('2025-03-01T00:01:00.000Z', 100.1, 100.6, 99.9, 100.2),
+        makeKlineRow('2025-04-01T00:00:00.000Z', 100, 100.2, 99.8, 100.05),
+        makeKlineRow('2025-04-02T00:00:00.000Z', 100.05, 100.4, 99.9, 100.2),
+      ], {}];
+    }
+    throw new Error(`Unexpected SQL: ${text} :: ${JSON.stringify(params)}`);
+  };
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'money-router-memory-pool-'));
+  const validationPath = path.join(tempDir, 'validation.json');
+  const routerPath = path.join(tempDir, 'router.json');
+
+    writeJson(validationPath, {
+      name: 'MEMORY_POOL_VALIDATION',
+      trainId: 'train-memory-pool-1',
+      timeRange: {
+        startTimeMs: Date.parse('2025-04-01T00:00:00.000Z'),
+        endTimeMs: Date.parse('2025-04-02T23:59:00.000Z'),
+      },
+    market: {
+      symbol: 'BTCJPY',
+      intervalType: '1min',
+    },
+    strategy: {
+      explicitStrategies: [
+        {
+          rank: 1,
+          name: 'alpha',
+          type: 'rsi_macd',
+          parameters: {
+            atr: { slMultiplier: 2, tpMultiplier: 4 },
+            rsi: { oversold: 25, overbought: 75 },
+            risk: { maxHoldMinutes: 6 },
+          },
+        },
+        {
+          rank: 2,
+          name: 'beta',
+          type: 'rsi_macd',
+          parameters: {
+            atr: { slMultiplier: 2, tpMultiplier: 4 },
+            rsi: { oversold: 30, overbought: 70 },
+            risk: { maxHoldMinutes: 8 },
+          },
+        },
+      ],
+    },
+    featureEngineering: {
+      openingWindowMinutes: 1,
+      volBaselineLookbackPeriods: 1,
+    },
+  });
+
+  writeJson(routerPath, {
+    symbol: 'BTCJPY',
+    routerVersion: 'memory_pool_router_v1',
+    executionModel: {
+      precedence: ['daily_router'],
+      defaultFallback: {
+        action: 'trade',
+        riskMultiplier: 1,
+        strategyKey: 'rank1',
+      },
+    },
+    strategyCatalog: {
+      rank1: { strategyName: 'alpha', shortLabel: 'TOP1', role: 'default-fallback' },
+      rank2: { strategyName: 'beta', shortLabel: 'TOP2', role: 'candidate' },
+    },
+    rules: [
+      {
+        id: 'positive_pool_route',
+        layer: 'daily_router',
+        priority: 1,
+        when: {
+          positiveStrategyRatio: { gte: 100 },
+        },
+        action: {
+          type: 'trade',
+          strategyKey: 'rank2',
+        },
+      },
+    ],
+  });
+
+    try {
+      const report = await runRouterValidation({
+        validationConfigPath: validationPath,
+        routerConfigPath: routerPath,
+        tradeCreatedAt: '2026-03-25 00:00:00',
+      });
+
+    assert.equal(report.dailyRoutes.length, 2);
+    assert.equal(report.dailyRoutes[0].positiveStrategyRatio, 0);
+    assert.equal(report.dailyRoutes[0].selectedStrategyName, 'alpha');
+    assert.equal(report.dailyRoutes[1].positiveStrategyRatio, 100);
+    assert.equal(report.dailyRoutes[1].selectedStrategyName, 'beta');
+    assert.equal(report.comparison.router.totalPnl, -10);
   } finally {
     dbModule.default.query = originalQuery;
     fs.rmSync(tempDir, { recursive: true, force: true });

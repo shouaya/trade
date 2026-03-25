@@ -1,10 +1,16 @@
 require('./strategy-parameter-generator.test.ts');
 require('./task-manager.test.ts');
+require('./clear-db.test.ts');
+require('./generate-validation-artifacts-learning.test.ts');
 require('./strategy-executor.test.ts');
 require('./golden-fixtures.test.ts');
 require('./train-config-registry.test.ts');
 require('./train-orchestration.test.ts');
 require('./train-artifact-store.test.ts');
+require('./feature-memory-store.test.ts');
+require('./feature-memory-package.test.ts');
+require('./feature-memory-runtime.test.ts');
+require('./train-config-loader.test.ts');
 require('./training-management.test.ts');
 require('./train-pipeline-summary.test.ts');
 require('./train-pipeline-summary.integration.test.ts');

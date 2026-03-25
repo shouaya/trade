@@ -9,10 +9,14 @@ import {
 } from '@money/database';
 import db from '../configs/database';
 import { saveTrainArtifact } from '../services/train-artifact-store';
+import { loadLatestRollingSnapshotFromFeatureMemory } from '../services/feature-memory-package';
 import {
   buildTrainConfigContentSelectSql,
   buildTrainConfigDetailJoinsSql
 } from '../services/train-config-registry';
+import {
+  loadConfigContentByRelativeRef
+} from '../services/train-config-loader';
 import { resolveEvaluationTimeRange } from '../services/validation-range';
 
 const TRAIN_ROOT = path.resolve(__dirname, '..', '..');
@@ -219,6 +223,16 @@ function parseMaybeJson(value: unknown): JsonObject | null {
   }
 }
 
+export function extractRollingMonthlyPools(snapshotContent: JsonObject | null | undefined): readonly JsonObject[] {
+  if (Array.isArray(snapshotContent?.rollingPlan?.monthlyPools)) {
+    return snapshotContent.rollingPlan.monthlyPools as readonly JsonObject[];
+  }
+  if (Array.isArray(snapshotContent?.rollingDetails?.monthlyPools)) {
+    return snapshotContent.rollingDetails.monthlyPools as readonly JsonObject[];
+  }
+  return [];
+}
+
 function toFiniteNumber(value: unknown): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
@@ -361,6 +375,22 @@ async function loadRouterReportsByValidationConfig(trainId: string): Promise<Rea
   }
 
   return reportMap;
+}
+
+async function loadSnapshotContent(
+  trainId: string,
+  symbol: string,
+  relatedRows: readonly RegistryRow[]
+): Promise<JsonObject> {
+  const snapshotRow = relatedRows.find((row) => extractRollingMonthlyPools(parseRowContent(row)).length > 0) ?? null;
+  if (snapshotRow) {
+    return parseRowContent(snapshotRow);
+  }
+
+  return await loadLatestRollingSnapshotFromFeatureMemory(db, {
+    trainId,
+    symbol
+  }) || {};
 }
 
 function pickBestValidationRow(rows: readonly BacktestResultRow[]): BacktestResultRow | null {
@@ -522,15 +552,8 @@ async function main(): Promise<void> {
   const symbol = String(trainingContent?.market?.symbol || trainingRow.symbol || '').trim().toUpperCase();
   const relatedRows = await loadDerivedRows(trainId);
   const validationRows = relatedRows.filter((row) => String(row.config_type || '') === 'validation');
-  const snapshotRow = relatedRows.find((row) => {
-    const content = parseRowContent(row);
-    return Array.isArray(content?.rollingPlan?.monthlyPools) && content.rollingPlan.monthlyPools.length > 0;
-  }) ?? null;
-
-  const snapshotContent = snapshotRow ? parseRowContent(snapshotRow) : {};
-  const monthlyPools = Array.isArray(snapshotContent?.rollingPlan?.monthlyPools)
-    ? snapshotContent.rollingPlan.monthlyPools as readonly JsonObject[]
-    : [];
+  const snapshotContent = await loadSnapshotContent(trainId, symbol, relatedRows);
+  const monthlyPools = extractRollingMonthlyPools(snapshotContent);
   const turnoverRatios = computePoolTurnoverRatios(monthlyPools);
   const poolSizes = monthlyPools.map((pool) => {
     const topStrategies = Array.isArray(pool?.topStrategies) ? pool.topStrategies : [];
@@ -603,7 +626,8 @@ async function main(): Promise<void> {
   const regimeRouting = (trainingContent?.regimeRouting ?? {}) as JsonObject;
   const routerConfigRef = String(regimeRouting.routerConfigPath || '').trim();
   const routerContent = routerConfigRef
-    ? loadJsonFileIfExists(resolveConfigRef(String(trainingRow.config_key), routerConfigRef))
+    ? await loadConfigContentByRelativeRef<JsonObject>(db, String(trainingRow.config_key), routerConfigRef)
+      || loadJsonFileIfExists(resolveConfigRef(String(trainingRow.config_key), routerConfigRef))
     : null;
   const routerVersion = String(routerContent?.routerVersion || '').trim();
   const routerReportMap = await loadRouterReportsByValidationConfig(trainId);

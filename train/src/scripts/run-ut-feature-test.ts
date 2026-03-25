@@ -236,7 +236,6 @@ async function main(): Promise<void> {
     });
 
     await upsertTrainConfig(db, generatedConfigKey, trainingConfig, { explicitType: 'training' });
-    await upsertTrainConfig(db, artifacts.snapshot.configKey, artifacts.snapshot.content, { explicitType: 'top-strategies' });
     for (const validationConfig of artifacts.validationConfigs) {
       await upsertTrainConfig(db, validationConfig.configKey, validationConfig.content, { explicitType: 'validation' });
       const validationPath = path.resolve(trainRoot, validationConfig.configKey);
@@ -276,7 +275,7 @@ async function main(): Promise<void> {
 
       const routerReport = await runRouterValidation({
         validationConfigPath: validationPath,
-        routerConfigPath: path.resolve(trainRoot, routerResult.routerConfigKey)
+        routerConfigPath: routerResult.routerConfigKey
       });
       const routerTradedDays = Number(routerReport.comparison?.router?.tradedDays || 0);
       const routerTotalPnl = Number(routerReport.comparison?.router?.totalPnl || 0);

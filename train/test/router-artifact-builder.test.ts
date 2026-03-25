@@ -6,12 +6,12 @@ const {
   buildDefaultPolicyConfigKey,
   buildRelativeConfigRef,
   resolveRelativeConfigRef,
-  buildStrategyCatalogFromSnapshot,
+  buildStrategyCatalogFromRollingPackage,
   buildPolicyContent,
   buildRollingRouterArtifacts,
 } = require('../dist/services/router-artifact-builder.js');
 
-test('router artifact builder resolves config paths and snapshot strategy catalog', () => {
+test('router artifact builder resolves config paths and rolling package strategy catalog', () => {
   assert.equal(
     buildDefaultRouterConfigKey('configs/training/2024_btcjpy_alpha.json'),
     'configs/generated/regime-routing/2024_btcjpy_alpha_router.json'
@@ -29,22 +29,22 @@ test('router artifact builder resolves config paths and snapshot strategy catalo
     'configs/generated/regime-routing/a_router.json'
   );
 
-  const strategyCatalog = buildStrategyCatalogFromSnapshot({
-    strategy: {
-      explicitStrategies: [
-        { name: 'alpha' },
-        { name: 'beta' },
-      ],
+  const strategyCatalog = buildStrategyCatalogFromRollingPackage({
+    rollingRouter: {
+      strategyCatalog: {
+        rank1: { strategyName: 'alpha', shortLabel: 'A1', role: 'default-fallback' },
+        rank2: { strategyName: 'beta', shortLabel: 'B2', role: 'candidate' },
+      },
     },
   });
   assert.deepEqual(strategyCatalog, {
-    rank1: { strategyName: 'alpha', shortLabel: 'TOP1', role: 'default-fallback' },
-    rank2: { strategyName: 'beta', shortLabel: 'TOP2', role: 'candidate' },
+    rank1: { strategyName: 'alpha', shortLabel: 'A1', role: 'default-fallback' },
+    rank2: { strategyName: 'beta', shortLabel: 'B2', role: 'candidate' },
   });
 });
 
-test('router artifact builder creates router and policy artifacts from rolling snapshot', () => {
-  const snapshotContent = {
+test('router artifact builder creates router and policy artifacts from rolling package', () => {
+  const rollingPackage = {
     symbol: 'BTCJPY',
     trainId: 'train-abc',
     rollingRouter: {
@@ -88,7 +88,7 @@ test('router artifact builder creates router and policy artifacts from rolling s
       trainId: 'train-abc',
     },
     trainingConfigKey: 'configs/training/2024_btcjpy_alpha.json',
-    snapshotContent,
+    rollingPackage,
   });
 
   assert.equal(artifacts.routerConfigKey, 'configs/generated/regime-routing/2024_btcjpy_alpha_router.json');
@@ -140,12 +140,15 @@ test('router artifact builder carries forward compatible previous router when ro
       },
     },
     trainingConfigKey: 'configs/training/2024_btcjpy_alpha.json',
-    snapshotContent: {
+    rollingPackage: {
       symbol: 'BTCJPY',
-      strategies: [
-        { strategyName: 'alpha' },
-        { strategyName: 'beta' },
-      ],
+      rollingRouter: {
+        strategyCatalog: {
+          rank1: { strategyName: 'alpha', shortLabel: 'A1', role: 'default-fallback' },
+          rank2: { strategyName: 'beta', shortLabel: 'B2', role: 'candidate' },
+        },
+        rules: [],
+      },
     },
     previousRouter,
   });

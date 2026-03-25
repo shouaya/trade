@@ -5,10 +5,12 @@
 
 import {
   BACKTEST_RESULTS_TABLE,
+  TABLES,
   STRATEGIES_DDL,
   TASKS_DDL,
   TRADES_DDL,
   ensureBacktestResultsSchema,
+  ensureFeatureMemorySchema,
   ensureTrainDataTraceSchema,
   ensureTrainConfigsSchema,
   ensureTrainArtifactsSchema,
@@ -139,6 +141,12 @@ async function createTrainArtifactsTable(): Promise<void> {
   console.log('✅ train_artifacts 表创建成功');
 }
 
+async function createFeatureMemoryTables(): Promise<void> {
+  console.log('📊 创建 feature-memory 表...');
+  await ensureFeatureMemorySchema(db);
+  console.log('✅ feature-memory 表创建成功');
+}
+
 async function main(): Promise<void> {
   console.log('='.repeat(80));
   console.log('🚀 开始初始化数据库');
@@ -167,6 +175,7 @@ async function main(): Promise<void> {
     await createTrainRunRequestsTable();
     await createTrainGoalTrackingTable();
     await createTrainArtifactsTable();
+    await createFeatureMemoryTables();
 
     console.log('');
     console.log('='.repeat(80));
@@ -192,7 +201,22 @@ async function main(): Promise<void> {
       'policy_config_details',
       'generic_config_details',
       'train_run_requests',
-      'train_artifacts'
+      'train_artifacts',
+      TABLES.TRAIN_RUNS,
+      TABLES.MARKET_WINDOWS,
+      TABLES.FEATURE_MEMORIES,
+      TABLES.FEATURE_MATCHES,
+      TABLES.STRATEGY_DEFINITIONS,
+      TABLES.STRATEGY_PARAMETER_SETS,
+      TABLES.STRATEGY_LIBRARY_MEMBERS,
+      TABLES.FEATURE_CANDIDATE_POOLS,
+      TABLES.FEATURE_CANDIDATE_POOL_ITEMS,
+      TABLES.WINDOW_STRATEGY_EVALUATIONS,
+      TABLES.WINDOW_BEST_ACTIONS,
+      TABLES.UNKNOWN_FEATURE_EVENTS,
+      TABLES.FEATURE_WRITEBACKS,
+      TABLES.ANALYSIS_ARTIFACTS,
+      TABLES.FEATURE_EMBEDDINGS
     ];
     const results: TableCheckResult[] = [];
 

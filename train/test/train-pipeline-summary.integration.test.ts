@@ -527,3 +527,115 @@ test('buildTrainingPipelineSummary surfaces running training state before artifa
     fs.rmSync(repoRoot, { recursive: true, force: true });
   }
 });
+
+test('buildTrainingPipelineSummary can use feature-memory rolling package artifact when top-strategies config is absent', async () => {
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'money-summary-memory-snapshot-'));
+  const trainRoot = path.join(repoRoot, 'train');
+  mkdirp(trainRoot);
+
+  const db = {
+    query: async (sql) => {
+      const text = String(sql);
+
+      if (text.includes("SET NAMES 'utf8mb4'")) {
+        return [[], {}];
+      }
+      if (text.includes('SHOW TABLES')) {
+        return [[
+          { Tables_in_money: 'train_run_requests' },
+          { Tables_in_money: 'train_configs' },
+          { Tables_in_money: 'train_artifacts' },
+        ], {}];
+      }
+      if (text.includes(`FROM ${TRAIN_ARTIFACTS_TABLE}`)) {
+        return [[
+          {
+            id: 201,
+            artifact_key: 'rolling-package:btcjpy:abc',
+            artifact_type: 'ai-summary',
+            train_id: 'train-memory-9',
+            config_id: null,
+            config_key: null,
+            symbol: 'BTCJPY',
+            interval_type: '1min',
+            period_start_ms: null,
+            period_end_ms: null,
+            report_path: null,
+            summary_path: null,
+            summary_markdown: null,
+            payload_json: JSON.stringify({
+              trainId: 'train-memory-9',
+              artifact: {
+                artifactType: 'rolling-strategy-package',
+                name: 'BTCJPY_ROLLING_PACKAGE_FROM_2024',
+                generatedAt: '2026-03-25T03:00:00.000Z',
+                limit: 10,
+                exact: false,
+                rollingPlan: {
+                  monthlyPools: [
+                    { month: '2025-01', selectedStrategyName: 'alpha' },
+                  ],
+                  rules: {
+                    dailyRouter: [{ id: 'daily-1' }],
+                  },
+                },
+              },
+            }),
+            metadata_json: null,
+            created_at: '2026-03-25T03:00:00.000Z',
+            updated_at: '2026-03-25T03:00:00.000Z',
+          },
+        ], {}];
+      }
+      if (text.includes('FROM train_run_requests')) {
+        return [[], {}];
+      }
+      if (text.includes('FROM train_configs tc')) {
+        return [[
+          {
+            id: 1,
+            config_key: 'configs/training/2024_btcjpy_alpha.json',
+            config_type: 'training',
+            config_name: '2024_BTCJPY_ALPHA',
+            symbol: 'BTCJPY',
+            interval_type: '1min',
+            result_group: 'btcjpy_alpha_train_2024',
+            source_table: null,
+            train_config_ref: null,
+            training_year: '2024',
+            updated_at: '2026-03-25T01:05:00.000Z',
+            content: JSON.stringify({
+              name: '2024_BTCJPY_ALPHA',
+              trainId: 'train-memory-9',
+              market: { symbol: 'BTCJPY', intervalType: '1min' },
+              database: { tableName: 'btcjpy_alpha_train_2024' },
+              output: { topN: 10 },
+              timeRange: {
+                startIso: '2024-01-01T00:00:00.000Z',
+                endIso: '2024-12-31T23:59:00.000Z',
+              },
+              strategy: {
+                types: ['rsi_macd'],
+                parameters: { risk: { lotSize: [0.01], maxHoldMinutes: [6] } },
+              },
+            }),
+          },
+        ], {}];
+      }
+
+      throw new Error(`Unexpected SQL: ${text}`);
+    },
+  };
+
+  try {
+    const summary = await buildTrainingPipelineSummary({ db, repoRoot, trainRoot });
+    const pipeline = summary.data[0];
+
+    assert.equal(pipeline.topStrategySnapshot.path, 'train_artifacts:rolling-package:btcjpy:abc');
+    assert.equal(pipeline.topStrategySnapshot.rollingPlan.monthlyPools.length, 1);
+    assert.equal(pipeline.finalConfigState.status, 'done');
+    assert.equal(pipeline.finalConfigState.canExport, true);
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});

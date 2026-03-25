@@ -29,6 +29,7 @@ import {
   summarizeAggregateAction,
   type RollingRouterAction
 } from '../modules/decision-engine';
+import { saveRollingFeatureMemory } from '../services/feature-memory-store';
 import { loadTrainEnv } from '../utils/train-env';
 
 loadTrainEnv(dotenv);
@@ -88,6 +89,31 @@ interface RankedStrategy {
   readonly totalPnl: number;
   readonly returnPct: number;
   readonly score: number;
+  readonly evaluationRole?: 'retrieval' | 'exploration' | 'fallback';
+}
+
+interface FeatureMemoryLearningConfig {
+  readonly bootstrapDiscoveryCount: number;
+  readonly unknownDiscoveryCount: number;
+  readonly matchTopK: number;
+  readonly minReuseSimilarity: number;
+  readonly minRetrievedCandidates: number;
+  readonly maxRetrievedCandidates: number;
+}
+
+interface HistoricalMemoryMatch {
+  readonly matchedPeriodKey: string;
+  readonly featureBucket: string | null;
+  readonly similarityScore: number;
+  readonly confidenceScore: number;
+  readonly reusedStrategies: readonly RankedStrategy[];
+}
+
+interface HistoricalMemoryRecord {
+  readonly periodKey: string;
+  readonly feature: PeriodFeature;
+  readonly strategies: readonly RankedStrategy[];
+  readonly winnerName: string | null;
 }
 
 interface ValidationDefinition {
@@ -123,6 +149,10 @@ interface MonthlyEvaluationSnapshot {
   readonly monthlyWinnerPnl: number;
   readonly monthlyActionType: RollingRouterAction;
   readonly monthlyRiskCap: number;
+  readonly poolStatus: 'reused' | 'mixed' | 'explored';
+  readonly selectionSource: 'retrieval' | 'exploration' | 'fallback';
+  readonly unknownReasonCode: string | null;
+  readonly matches: readonly HistoricalMemoryMatch[];
   readonly oosTrades: readonly OosTrade[];
   readonly strategyDayPnlMap: ReadonlyMap<string, ReadonlyMap<string, number>>;
   readonly strategyWeekPnlMap: ReadonlyMap<string, ReadonlyMap<string, number>>;
@@ -136,7 +166,7 @@ interface GeneratedArtifactItem {
 
 interface GeneratedArtifactsResult {
   readonly validationConfigs: readonly GeneratedArtifactItem[];
-  readonly snapshot: GeneratedArtifactItem;
+  readonly rollingPackage: JsonObject;
 }
 
 interface RuleSample {
@@ -243,6 +273,19 @@ function normalizeValidationProfile(value: unknown): string {
   return normalized === 'custom-range' ? 'custom-range' : 'rolling-window';
 }
 
+function normalizePositiveInteger(value: unknown, fallback: number): number {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric > 0 ? numeric : fallback;
+}
+
+function normalizeUnitInterval(value: unknown, fallback: number): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.min(1, Math.max(0, numeric));
+}
+
 function getYearFromConfig(config: JsonObject, fallbackName: string): string | null {
   const baseYear = String(fallbackName || '').match(/^(\d{4})_/);
   if (baseYear) {
@@ -329,12 +372,6 @@ function buildExactValidationTableName(symbol: string, token: string, limit: num
   return `backtest_results_top${limit}_${symbol.toLowerCase()}_${token}_${digest}`;
 }
 
-function buildSnapshotFileName(outPrefix: string, limit: number): string {
-  return outPrefix.endsWith(`top${limit}`)
-    ? `${outPrefix}.generated.json`
-    : `${outPrefix}_top${limit}.generated.json`;
-}
-
 function buildValidationDefinitions(trainConfig: JsonObject, profile: string, customRange: JsonObject): readonly ValidationDefinition[] {
   const trainingStartSource = trainConfig?.timeRange?.startIso || trainConfig?.timeRange?.startTimeMs;
   const trainingEndSource = trainConfig?.timeRange?.endIso || trainConfig?.timeRange?.endTimeMs;
@@ -394,7 +431,63 @@ function buildValidationDefinitions(trainConfig: JsonObject, profile: string, cu
   return definitions;
 }
 
-function buildTrainStrategies(trainConfig: JsonObject): readonly RuntimeStrategy[] {
+export function resolveFeatureMemoryLearningConfig(trainConfig: JsonObject, topN: number): FeatureMemoryLearningConfig {
+  const config = (
+    (trainConfig?.featureMemory && typeof trainConfig.featureMemory === 'object' ? trainConfig.featureMemory : null)
+    || (trainConfig?.strategy?.learning && typeof trainConfig.strategy.learning === 'object' ? trainConfig.strategy.learning : null)
+    || {}
+  ) as JsonObject;
+
+  return {
+    bootstrapDiscoveryCount: normalizePositiveInteger(config.bootstrapDiscoveryCount, Math.max(topN * 6, 48)),
+    unknownDiscoveryCount: normalizePositiveInteger(config.unknownDiscoveryCount, Math.max(topN * 2, 16)),
+    matchTopK: normalizePositiveInteger(config.matchTopK, 3),
+    minReuseSimilarity: normalizeUnitInterval(config.minReuseSimilarity, 0.78),
+    minRetrievedCandidates: normalizePositiveInteger(config.minRetrievedCandidates, Math.max(topN, 4)),
+    maxRetrievedCandidates: normalizePositiveInteger(config.maxRetrievedCandidates, Math.max(topN * 3, 12))
+  };
+}
+
+export function selectEvenlySpacedStrategies(
+  strategies: readonly RuntimeStrategy[],
+  limit: number,
+  excludedNames: ReadonlySet<string> = new Set<string>()
+): readonly RuntimeStrategy[] {
+  const available = strategies.filter((strategy) => !excludedNames.has(strategy.name));
+  if (limit >= available.length) {
+    return available;
+  }
+  if (limit <= 0) {
+    return [];
+  }
+
+  const selected: RuntimeStrategy[] = [];
+  const usedIndexes = new Set<number>();
+  const lastIndex = available.length - 1;
+
+  for (let position = 0; position < limit; position += 1) {
+    const scaledIndex = Math.round((position * lastIndex) / Math.max(limit - 1, 1));
+    let index = Math.min(lastIndex, Math.max(0, scaledIndex));
+    while (usedIndexes.has(index) && index < lastIndex) {
+      index += 1;
+    }
+    while (usedIndexes.has(index) && index > 0) {
+      index -= 1;
+    }
+    if (usedIndexes.has(index)) {
+      continue;
+    }
+    usedIndexes.add(index);
+    selected.push(available[index] as RuntimeStrategy);
+  }
+
+  return selected;
+}
+
+function buildDiscoveryStrategyUniverse(
+  trainConfig: JsonObject,
+  learning: FeatureMemoryLearningConfig
+): readonly RuntimeStrategy[] {
   const strategyTypes = Array.isArray(trainConfig?.strategy?.types)
     ? trainConfig.strategy.types
     : ['rsi_macd'];
@@ -405,7 +498,7 @@ function buildTrainStrategies(trainConfig: JsonObject): readonly RuntimeStrategy
   );
   const venueCode = String(feeModel.venueCode || '').trim();
 
-  return generateStrategyCombinations({ types: strategyTypes, parameters }).map((strategy) => ({
+  const fullUniverse = generateStrategyCombinations({ types: strategyTypes, parameters }).map((strategy) => ({
     ...strategy,
     name: venueCode ? `${venueCode}-${strategy.name}` : strategy.name,
     parameters: venueCode
@@ -415,6 +508,106 @@ function buildTrainStrategies(trainConfig: JsonObject): readonly RuntimeStrategy
         }
       : strategy.parameters
   }));
+
+  return selectEvenlySpacedStrategies(
+    fullUniverse,
+    Math.max(learning.bootstrapDiscoveryCount, learning.unknownDiscoveryCount)
+  );
+}
+
+function buildFeatureSimilarityVector(feature: PeriodFeature): readonly number[] {
+  return [
+    Number(feature.realizedVolPct || 0),
+    Number(feature.avgAbsReturnPct || 0),
+    Number(feature.avgRangePct || 0),
+    Number(feature.maxAbsReturnPct || 0),
+    Number(feature.maxRangePct || 0),
+    Number(feature.returnPct || 0),
+    Number(feature.upMinuteRatio || 0),
+    Number(feature.trendEfficiency || 0),
+    Number(feature.volExpansionRatio || 0),
+    Number(feature.openingImpulse || 0),
+    Number(feature.reversalStrength || 0)
+  ];
+}
+
+function computeCosineSimilarity(left: PeriodFeature, right: PeriodFeature): number {
+  const leftVector = buildFeatureSimilarityVector(left);
+  const rightVector = buildFeatureSimilarityVector(right);
+
+  let dot = 0;
+  let leftNorm = 0;
+  let rightNorm = 0;
+  for (let index = 0; index < leftVector.length; index += 1) {
+    const leftValue = leftVector[index] ?? 0;
+    const rightValue = rightVector[index] ?? 0;
+    dot += leftValue * rightValue;
+    leftNorm += leftValue * leftValue;
+    rightNorm += rightValue * rightValue;
+  }
+  if (leftNorm <= 0 || rightNorm <= 0) {
+    return 0;
+  }
+  return Math.max(0, Math.min(1, dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm))));
+}
+
+export function findHistoricalMemoryMatches(
+  currentFeature: PeriodFeature,
+  history: readonly HistoricalMemoryRecord[],
+  learning: FeatureMemoryLearningConfig
+): readonly HistoricalMemoryMatch[] {
+  return [...history]
+    .map((record) => {
+      const similarityScore = computeCosineSimilarity(currentFeature, record.feature);
+      const confidenceScore = normalizeUnitInterval(
+        ((Number(record.feature.positiveStrategyRatio || 0) / 100) * 0.5) + (similarityScore * 0.5),
+        similarityScore
+      );
+      return {
+        matchedPeriodKey: record.periodKey,
+        featureBucket: String(record.feature.featureBucket || '').trim() || null,
+        similarityScore,
+        confidenceScore,
+        reusedStrategies: record.strategies
+      } satisfies HistoricalMemoryMatch;
+    })
+    .filter((match) => match.reusedStrategies.length > 0)
+    .sort((left, right) => {
+      if (right.similarityScore !== left.similarityScore) {
+        return right.similarityScore - left.similarityScore;
+      }
+      if (right.confidenceScore !== left.confidenceScore) {
+        return right.confidenceScore - left.confidenceScore;
+      }
+      return left.matchedPeriodKey.localeCompare(right.matchedPeriodKey);
+    })
+    .slice(0, learning.matchTopK);
+}
+
+export function buildRetrievedCandidates(
+  matches: readonly HistoricalMemoryMatch[],
+  learning: FeatureMemoryLearningConfig
+): readonly RuntimeStrategy[] {
+  const deduped = new Map<string, RuntimeStrategy>();
+
+  for (const match of matches) {
+    for (const strategy of match.reusedStrategies) {
+      if (deduped.has(strategy.name)) {
+        continue;
+      }
+      deduped.set(strategy.name, {
+        id: deduped.size + 1,
+        name: strategy.name,
+        type: strategy.type,
+        parameters: strategy.parameters
+      });
+      if (deduped.size >= learning.maxRetrievedCandidates) {
+        return Array.from(deduped.values());
+      }
+    }
+  }
+
+  return Array.from(deduped.values());
 }
 
 async function loadEarliestKlineTime(connection: QueryableConnection, symbol: string, intervalType: string): Promise<number> {
@@ -744,7 +937,7 @@ function aggregateRulesByBucket(
           featureBucket: [featureBucket]
         },
         action: buildRuleAction(layer, summary, strategyKeyMap, featureEngineering),
-        rationale: `${layer} learned from ${bucketSamples.length} history-only rolling OOS samples`
+        rationale: `${layer} learned from ${bucketSamples.length} feature-memory rolling OOS samples`
       } satisfies RouterRule;
     });
 }
@@ -1026,7 +1219,7 @@ function buildLossRecheckRules(
         priority: priority++,
         when,
         action: buildRuleAction('loss_recheck', summary, strategyKeyMap, featureEngineering),
-        rationale: `loss_recheck learned from ${bucketSamples.length} history-only rolling loss feedback samples`
+        rationale: `loss_recheck learned from ${bucketSamples.length} feature-memory rolling loss feedback samples`
       } satisfies RouterRule;
     });
 }
@@ -1039,6 +1232,8 @@ async function buildHistoryOnlyRollingState(
   readonly fullKlines: readonly RollingKlineRow[];
   readonly snapshots: readonly MonthlyEvaluationSnapshot[];
   readonly unionStrategies: readonly RankedStrategy[];
+  readonly weeklySamples: readonly RuleSample[];
+  readonly dailySamples: readonly RuleSample[];
   readonly strategyCatalog: Record<string, JsonObject>;
   readonly defaultStrategyKey: string | null;
   readonly routerRules: readonly RouterRule[];
@@ -1064,12 +1259,14 @@ async function buildHistoryOnlyRollingState(
       ? trainConfig.validationPlan.customRange
       : {}
   );
-  const runtimeStrategies = buildTrainStrategies(trainConfig);
+  const learningConfig = resolveFeatureMemoryLearningConfig(trainConfig, args.limit);
+  const discoveryUniverse = buildDiscoveryStrategyUniverse(trainConfig, learningConfig);
   const featureEngineering = getDecisionFeatureEngineeringConfig(trainConfig.featureEngineering);
   const strategyAggregates = new Map<string, StrategyAggregate>();
   const snapshots: MonthlyEvaluationSnapshot[] = [];
+  const learnedHistory: HistoricalMemoryRecord[] = [];
 
-  console.log(`[rolling-learn] generated ${runtimeStrategies.length} candidate strategies for history-only monthly learning`);
+  console.log(`[rolling-learn] prepared ${discoveryUniverse.length} discovery strategies for bootstrap/unknown-state exploration`);
 
   for (const definition of validationDefinitions) {
     const validationStartMs = Number(definition.evaluationTimeRange.startTimeMs);
@@ -1080,17 +1277,6 @@ async function buildHistoryOnlyRollingState(
     const trainingWindowStartMs = Math.max(dataStartMs, preferredStartMs);
     const trainingKlines = filterKlinesByRange(fullKlines, trainingWindowStartMs, trainingWindowEndMs);
     const executionKlines = filterKlinesByRange(fullKlines, executionStartMs, validationEndMs);
-    const rankedStrategies = await rankStrategiesForWindow(
-      runtimeStrategies,
-      trainingKlines,
-      trainConfig.executor?.options || {},
-      args.limit,
-      `${definition.label} learning`
-    );
-    if (!rankedStrategies.length) {
-      throw new Error(`no valid strategies learned for ${definition.label}`);
-    }
-
     const validationMonthKlines = filterKlinesByRange(fullKlines, validationStartMs, validationEndMs);
     const monthFeature = buildPeriodFeatures(
       validationMonthKlines,
@@ -1104,6 +1290,60 @@ async function buildHistoryOnlyRollingState(
     if (!monthFeature) {
       throw new Error(`unable to compute month feature for ${definition.label}`);
     }
+    const sourceMonth = formatMonthKey(toUtcStartOfMonth(trainingWindowEndMs));
+    const preliminaryFeature: PeriodFeature = {
+      ...monthFeature,
+      featureBucket: buildFeatureBucket(sourceMonth, monthFeature),
+      positiveStrategyRatio: 0,
+      bestVsMedianGap: 0
+    };
+    const matches = findHistoricalMemoryMatches(preliminaryFeature, learnedHistory, learningConfig);
+    const retrievedCandidates = buildRetrievedCandidates(matches, learningConfig);
+    const bestSimilarity = matches[0]?.similarityScore ?? 0;
+    const shouldReuse = matches.length > 0
+      && bestSimilarity >= learningConfig.minReuseSimilarity
+      && retrievedCandidates.length >= learningConfig.minRetrievedCandidates;
+    const discoveryCount = shouldReuse
+      ? Math.max(0, learningConfig.minRetrievedCandidates - retrievedCandidates.length)
+      : learnedHistory.length === 0
+        ? learningConfig.bootstrapDiscoveryCount
+        : learningConfig.unknownDiscoveryCount;
+    const discoveryCandidates = selectEvenlySpacedStrategies(
+      discoveryUniverse,
+      discoveryCount,
+      new Set(retrievedCandidates.map((strategy) => strategy.name))
+    );
+    const selectedCandidates = matches.length > 0
+      ? [...retrievedCandidates, ...discoveryCandidates]
+      : discoveryCandidates;
+
+    console.log(
+      `[rolling-learn] ${definition.label}: matches=${matches.length} reused=${retrievedCandidates.length} discovery=${discoveryCandidates.length} mode=${shouldReuse ? (discoveryCandidates.length > 0 ? 'mixed' : 'retrieval') : (matches.length > 0 ? 'mixed' : 'exploration')}`
+    );
+
+    const candidateRoleMap = new Map<string, 'retrieval' | 'exploration'>();
+    for (const strategy of retrievedCandidates) {
+      candidateRoleMap.set(strategy.name, 'retrieval');
+    }
+    for (const strategy of discoveryCandidates) {
+      if (!candidateRoleMap.has(strategy.name)) {
+        candidateRoleMap.set(strategy.name, 'exploration');
+      }
+    }
+
+    const rankedStrategies = (await rankStrategiesForWindow(
+      selectedCandidates,
+      trainingKlines,
+      trainConfig.executor?.options || {},
+      args.limit,
+      `${definition.label} feature-memory learning`
+    )).map((strategy) => ({
+      ...strategy,
+      evaluationRole: candidateRoleMap.get(strategy.name) || 'exploration'
+    }));
+    if (!rankedStrategies.length) {
+      throw new Error(`no valid strategies learned for ${definition.label}`);
+    }
 
     const simulated = await simulateValidationWindow(
       rankedStrategies,
@@ -1113,29 +1353,49 @@ async function buildHistoryOnlyRollingState(
       args.symbol
     );
 
-    const monthlyTopStrategies = rankedStrategies
+    const validatedStrategies = rankedStrategies
       .map((strategy) => ({
-        rank: strategy.rank,
-        strategyName: strategy.name,
-        totalPnl: round(Number(simulated.strategyMonthlyPnls.get(strategy.name) ?? 0), 2),
-        score: strategy.score
+        ...strategy,
+        totalPnl: round(Number(simulated.strategyMonthlyPnls.get(strategy.name) ?? 0), 2)
       }))
       .sort((left, right) => {
         if (right.totalPnl !== left.totalPnl) return right.totalPnl - left.totalPnl;
         if (right.score !== left.score) return right.score - left.score;
-        return left.strategyName.localeCompare(right.strategyName);
-      });
+        return left.name.localeCompare(right.name);
+      })
+      .map((strategy, index) => ({
+        ...strategy,
+        rank: index + 1
+      }));
+
+    const monthlyTopStrategies = validatedStrategies
+      .map((strategy) => ({
+        rank: strategy.rank,
+        strategyName: strategy.name,
+        totalPnl: strategy.totalPnl,
+        score: strategy.score
+      }));
 
     const monthlyWinner = monthlyTopStrategies[0] ?? null;
     const monthlyAction = choosePeriodAction(monthlyWinner?.totalPnl ?? 0, featureEngineering.routerDecision);
-    const sourceMonth = formatMonthKey(toUtcStartOfMonth(trainingWindowEndMs));
-    const featureBucket = buildFeatureBucket(sourceMonth, monthFeature);
     const enrichedMonthFeature: PeriodFeature = {
-      ...monthFeature,
-      featureBucket,
+      ...preliminaryFeature,
       positiveStrategyRatio: buildPoolHealthMetrics(monthlyTopStrategies.map((item) => item.totalPnl)).positiveStrategyRatio,
       bestVsMedianGap: buildPoolHealthMetrics(monthlyTopStrategies.map((item) => item.totalPnl)).bestVsMedianGap
     };
+    const poolStatus = shouldReuse
+      ? (discoveryCandidates.length > 0 ? 'mixed' : 'reused')
+      : matches.length > 0
+        ? 'mixed'
+        : 'explored';
+    const selectionSource: 'retrieval' | 'exploration' = matches.length > 0 ? 'retrieval' : 'exploration';
+    const unknownReasonCode = shouldReuse
+      ? null
+      : learnedHistory.length === 0
+        ? 'low_sample_count'
+        : matches.length === 0
+          ? 'low_similarity'
+          : 'unstable_outcomes';
 
     for (const strategy of rankedStrategies) {
       const aggregate = strategyAggregates.get(strategy.name) ?? {
@@ -1166,9 +1426,20 @@ async function buildHistoryOnlyRollingState(
       monthlyWinnerPnl: monthlyWinner?.totalPnl ?? 0,
       monthlyActionType: monthlyAction.type,
       monthlyRiskCap: monthlyAction.risk,
+      poolStatus,
+      selectionSource,
+      unknownReasonCode,
+      matches,
       oosTrades: simulated.trades,
       strategyDayPnlMap: buildDailyStrategyPnlMap(simulated.trades),
       strategyWeekPnlMap: buildWeeklyStrategyPnlMap(simulated.trades)
+    });
+
+    learnedHistory.push({
+      periodKey: formatMonthKey(validationStartMs),
+      feature: enrichedMonthFeature,
+      strategies: validatedStrategies.slice(0, args.limit),
+      winnerName: monthlyWinner?.strategyName ?? null
     });
   }
 
@@ -1199,6 +1470,8 @@ async function buildHistoryOnlyRollingState(
     fullKlines,
     snapshots,
     unionStrategies,
+    weeklySamples,
+    dailySamples,
     strategyCatalog,
     defaultStrategyKey,
     routerRules: [...monthlyGuardRules, ...weeklyGuardRules, ...dailyRouterRules, ...lossRecheckRules],
@@ -1226,7 +1499,7 @@ function buildArtifacts(
     content: {
       ...(trainId ? { trainId } : {}),
       name: `${args.symbol}_ROLLING_${String(snapshot.definition.shortLabel).toUpperCase().replace(/-/g, '_')}_FROM_${trainingYear}_VALIDATION`,
-      description: `${args.symbol} ${snapshot.definition.descriptionLabel} - 基于 history-only rolling learning`,
+      description: `${args.symbol} ${snapshot.definition.descriptionLabel} - 基于 feature-memory rolling learning`,
       timeRange: snapshot.definition.executionTimeRange,
       market: {
         symbol: args.symbol,
@@ -1267,7 +1540,7 @@ function buildArtifacts(
         executionTimeRange: snapshot.definition.executionTimeRange
       },
       rollingSource: {
-        mode: 'history-only',
+        mode: 'feature-memory-rolling',
         lookbackMonths: ROLLING_LOOKBACK_MONTHS,
         trainingWindow: snapshot.trainingWindow,
         sourceMonth: snapshot.sourceMonth,
@@ -1282,14 +1555,19 @@ function buildArtifacts(
           selectedStrategyName: item.monthlyWinnerName,
           actionType: item.monthlyActionType,
           riskCap: item.monthlyRiskCap,
+          poolStatus: item.poolStatus,
+          selectionSource: item.selectionSource,
+          unknownReasonCode: item.unknownReasonCode,
+          matches: item.matches.map((match) => ({
+            matchedPeriodKey: match.matchedPeriodKey,
+            featureBucket: match.featureBucket,
+            similarityScore: match.similarityScore,
+            confidenceScore: match.confidenceScore,
+            reusedStrategies: match.reusedStrategies.map((strategy) => strategy.name)
+          })),
           currentBestPnl: item.monthlyWinnerPnl,
           trainingWindow: item.trainingWindow,
-          topStrategies: item.explicitStrategies.map((strategy) => ({
-            rank: strategy.rank,
-            strategyName: strategy.name,
-            totalPnl: strategy.totalPnl,
-            score: strategy.score
-          }))
+          topStrategies: item.monthlyTopStrategies
         })),
         rules: {
           monthlyGuard: rollingState.rollingPlanRules.monthlyGuard,
@@ -1301,14 +1579,13 @@ function buildArtifacts(
     }
   }));
 
-  const snapshotConfigKey = `configs/top-strategies/${buildSnapshotFileName(args.outPrefix, args.limit)}`;
-  const snapshotContent = {
+  const rollingPackage = {
     ...(trainId ? { trainId } : {}),
     artifactType: 'rolling-strategy-package',
-    learningMode: 'history-only',
+    learningMode: 'feature-memory-rolling',
     lookbackMonths: ROLLING_LOOKBACK_MONTHS,
     name: `${args.symbol}_ROLLING_PACKAGE_FROM_${trainingYear}`,
-    description: `${args.symbol} history-only rolling candidate pools + router learning package`,
+    description: `${args.symbol} feature-memory rolling candidate pools + router learning package`,
     generatedAt: new Date().toISOString(),
     limit: args.limit,
     exact: args.exact,
@@ -1338,7 +1615,7 @@ function buildArtifacts(
       ...(trainId ? { trainId } : {}),
       trainingYear,
       timeRange: trainConfig.timeRange,
-      learningMode: 'history-only',
+      learningMode: 'feature-memory-rolling',
       lookbackMonths: ROLLING_LOOKBACK_MONTHS
     },
     validationTargets: rollingState.snapshots.map((snapshot) => ({
@@ -1362,14 +1639,19 @@ function buildArtifacts(
         selectedStrategyName: snapshot.monthlyWinnerName,
         actionType: snapshot.monthlyActionType,
         riskCap: snapshot.monthlyRiskCap,
+        poolStatus: snapshot.poolStatus,
+        selectionSource: snapshot.selectionSource,
+        unknownReasonCode: snapshot.unknownReasonCode,
+        matches: snapshot.matches.map((match) => ({
+          matchedPeriodKey: match.matchedPeriodKey,
+          featureBucket: match.featureBucket,
+          similarityScore: match.similarityScore,
+          confidenceScore: match.confidenceScore,
+          reusedStrategies: match.reusedStrategies.map((strategy) => strategy.name)
+        })),
         currentBestPnl: snapshot.monthlyWinnerPnl,
         trainingWindow: snapshot.trainingWindow,
-        topStrategies: snapshot.explicitStrategies.map((strategy) => ({
-          rank: strategy.rank,
-          strategyName: strategy.name,
-          totalPnl: strategy.totalPnl,
-          score: strategy.score
-        }))
+        topStrategies: snapshot.monthlyTopStrategies
       })),
       rules: {
         monthlyGuard: rollingState.rollingPlanRules.monthlyGuard,
@@ -1387,11 +1669,7 @@ function buildArtifacts(
 
   return {
     validationConfigs,
-    snapshot: {
-      configKey: snapshotConfigKey,
-      configType: 'top-strategies',
-      content: snapshotContent
-    }
+    rollingPackage
   };
 }
 
@@ -1401,12 +1679,14 @@ export async function runGenerateValidationArtifacts(
     readonly connection?: QueryableConnection;
     readonly trainRoot?: string;
     readonly trainConfig?: JsonObject;
+    readonly persistFeatureMemory?: boolean;
   } = {}
 ): Promise<GeneratedArtifactsResult> {
   const trainRoot = options.trainRoot ?? path.resolve(__dirname, '..', '..');
   const trainConfigPath = path.resolve(args.trainConfig);
   const trainConfig = options.trainConfig ?? readJson(trainConfigPath);
   const ownsConnection = !options.connection;
+  const persistFeatureMemory = options.persistFeatureMemory ?? ownsConnection;
   const connection = options.connection ?? await createMysqlConnectionWithFallback(mysql, {
     defaults: {
       host: '127.0.0.1'
@@ -1417,11 +1697,51 @@ export async function runGenerateValidationArtifacts(
     const rollingState = await buildHistoryOnlyRollingState(connection, trainConfig, args);
     const artifacts = buildArtifacts(args, trainConfig, rollingState);
 
+    if (persistFeatureMemory) {
+      const trainId = String(trainConfig.trainId || trainConfig.trainingMeta?.trainId || '').trim() || null;
+      await saveRollingFeatureMemory(connection, {
+        runKey: `rolling:${args.symbol}:${args.outPrefix}:${String(trainConfig.name || 'train')}:${stableHashForRunKey({
+          timeRange: trainConfig.timeRange,
+          limit: args.limit,
+          profile: args.profile
+        })}`,
+        trainId,
+        symbol: args.symbol,
+        intervalType: String(trainConfig?.market?.intervalType || '1min'),
+        trainConfigKey: resolveTrainConfigRef(args.trainConfig, args.trainConfigRef),
+        trainConfigName: String(trainConfig?.name || ''),
+        strategyCatalog: rollingState.unionStrategies,
+        monthlySnapshots: rollingState.snapshots.map((snapshot) => ({
+          validationMonth: snapshot.validationMonth,
+          trainingWindow: snapshot.trainingWindow,
+          monthFeature: snapshot.monthFeature,
+          explicitStrategies: snapshot.explicitStrategies,
+          monthlyWinnerName: snapshot.monthlyWinnerName,
+          monthlyWinnerPnl: snapshot.monthlyWinnerPnl,
+          monthlyActionType: snapshot.monthlyActionType,
+          monthlyRiskCap: snapshot.monthlyRiskCap,
+          poolStatus: snapshot.poolStatus,
+          selectionSource: snapshot.selectionSource,
+          unknownReasonCode: snapshot.unknownReasonCode,
+          matches: snapshot.matches.map((match) => ({
+            matchedPeriodKey: match.matchedPeriodKey,
+            similarityScore: match.similarityScore,
+            confidenceScore: match.confidenceScore,
+            featureBucket: match.featureBucket,
+            reusedStrategies: match.reusedStrategies.map((strategy) => strategy.name)
+          }))
+        })),
+        weeklySamples: rollingState.weeklySamples,
+        dailySamples: rollingState.dailySamples,
+        routerRules: rollingState.routerRules,
+        artifactPayload: artifacts.rollingPackage
+      });
+    }
+
     if (args.outputMode === 'files') {
       for (const item of artifacts.validationConfigs) {
         writeJson(path.resolve(trainRoot, item.configKey), item.content);
       }
-      writeJson(path.resolve(trainRoot, artifacts.snapshot.configKey), artifacts.snapshot.content);
     }
 
     return artifacts;
@@ -1430,6 +1750,15 @@ export async function runGenerateValidationArtifacts(
       await connection.end();
     }
   }
+}
+
+function stableHashForRunKey(value: unknown): string {
+  const text = JSON.stringify(value ?? null);
+  let hash = 7;
+  for (const char of text) {
+    hash = ((hash * 31) + char.charCodeAt(0)) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
 }
 
 async function main(): Promise<void> {

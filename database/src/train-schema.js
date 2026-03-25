@@ -14,6 +14,23 @@ const { TRAIN_RUN_REQUESTS_DDL } = require('./train-run-requests.schema');
 const { TRAIN_GOAL_TRACKING_DDL } = require('./train-goal-tracking.schema');
 const { TRAIN_ARTIFACTS_DDL } = require('./train-artifacts.schema');
 const {
+  ANALYSIS_ARTIFACTS_DDL,
+  FEATURE_CANDIDATE_POOLS_DDL,
+  FEATURE_CANDIDATE_POOL_ITEMS_DDL,
+  FEATURE_EMBEDDINGS_DDL,
+  FEATURE_MATCHES_DDL,
+  FEATURE_MEMORIES_DDL,
+  FEATURE_WRITEBACKS_DDL,
+  MARKET_WINDOWS_DDL,
+  STRATEGY_DEFINITIONS_DDL,
+  STRATEGY_LIBRARY_MEMBERS_DDL,
+  STRATEGY_PARAMETER_SETS_DDL,
+  TRAIN_RUNS_DDL,
+  UNKNOWN_FEATURE_EVENTS_DDL,
+  WINDOW_BEST_ACTIONS_DDL,
+  WINDOW_STRATEGY_EVALUATIONS_DDL
+} = require('./feature-memory.schema');
+const {
   dropColumnIfExists,
   dropIndexIfExists,
   ensureColumn,
@@ -143,6 +160,30 @@ async function ensureTrainArtifactsSchema(db) {
   await ensureIndex(db, TRAIN_ARTIFACTS_TABLE, 'idx_config_key', 'INDEX idx_config_key (config_key)');
 }
 
+async function ensureFeatureMemorySchema(db) {
+  const ddls = [
+    TRAIN_RUNS_DDL,
+    MARKET_WINDOWS_DDL,
+    FEATURE_MEMORIES_DDL,
+    STRATEGY_DEFINITIONS_DDL,
+    STRATEGY_PARAMETER_SETS_DDL,
+    STRATEGY_LIBRARY_MEMBERS_DDL,
+    FEATURE_MATCHES_DDL,
+    FEATURE_CANDIDATE_POOLS_DDL,
+    FEATURE_CANDIDATE_POOL_ITEMS_DDL,
+    WINDOW_STRATEGY_EVALUATIONS_DDL,
+    WINDOW_BEST_ACTIONS_DDL,
+    UNKNOWN_FEATURE_EVENTS_DDL,
+    FEATURE_WRITEBACKS_DDL,
+    ANALYSIS_ARTIFACTS_DDL,
+    FEATURE_EMBEDDINGS_DDL
+  ];
+
+  for (const ddl of ddls) {
+    await db.query(ddl);
+  }
+}
+
 async function ensureTrainDataTraceSchema(db) {
   await ensureColumn(db, TABLES.STRATEGIES, 'train_id', `VARCHAR(100) NULL COMMENT 'root training lineage id' AFTER name`);
   await ensureIndex(db, TABLES.STRATEGIES, 'idx_train_id', 'INDEX idx_train_id (train_id)');
@@ -160,5 +201,6 @@ module.exports = {
   ensureTrainRunRequestsSchema,
   ensureTrainDataTraceSchema,
   ensureTrainGoalTrackingSchema,
-  ensureTrainArtifactsSchema
+  ensureTrainArtifactsSchema,
+  ensureFeatureMemorySchema
 };

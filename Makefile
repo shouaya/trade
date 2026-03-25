@@ -35,7 +35,7 @@ help:
 	@echo ""
 	@echo "🗄️  数据库:"
 	@echo "  make db-init         - 重建所有核心表（klines/backtest_results/strategies/trades/tasks）"
-	@echo "  make db-clear        - 清空除 klines 外的所有数据库表"
+	@echo "  make db-clear        - 按白名单清空训练/验证相关表，默认保留 klines"
 	@echo "  make clear-db        - 同 make db-clear"
 	@echo "  make ut-db-init      - 重建 trading_ut 测试数据库"
 	@echo "  make ut-db-seed scenario=rolling-regime-shift - 导入固定测试 K 线"
@@ -119,7 +119,7 @@ db-init:
 	@echo "✅ backend + train 表初始化完成"
 
 db-clear clear-db:
-	@echo "🧹 清空除 klines 外的所有数据库表..."
+	@echo "🧹 按白名单清空训练/验证相关表（默认保留 klines）..."
 	@docker-compose run --rm train sh -lc "npm install && npm run build && npm run clear-db"
 	@echo "✅ 数据库已清理（klines 保留）"
 

@@ -2,7 +2,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import db from '../configs/database';
 import {
-  TRAIN_CONFIGS_TABLE,
   ensureTrainConfigsSchema
 } from '@money/database';
 import type * as mysql from 'mysql2/promise';
@@ -11,11 +10,13 @@ import {
   buildRelativeConfigRef,
   resolveRelativeConfigRef
 } from '../services/router-artifact-builder';
+import { loadLatestRollingSnapshotFromFeatureMemory } from '../services/feature-memory-package';
 import {
-  buildTrainConfigContentSelectSql,
-  buildTrainConfigDetailJoinsSql,
   upsertTrainConfig
 } from '../services/train-config-registry';
+import {
+  loadConfigContentByRelativeRef
+} from '../services/train-config-loader';
 
 type JsonObject = Record<string, any>;
 interface Args {
@@ -67,35 +68,23 @@ function readJson(filePath: string): JsonObject {
   return JSON.parse(fs.readFileSync(filePath, 'utf8')) as JsonObject;
 }
 
-function writeJson(trainRoot: string, configKey: string, payload: JsonObject): void {
-  const absolutePath = path.resolve(trainRoot, configKey);
-  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
-  fs.writeFileSync(absolutePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-}
-
-async function loadLatestSnapshot(connection: mysql.Pool | mysql.Connection, trainId: string): Promise<JsonObject> {
-  const [rows] = await connection.query<mysql.RowDataPacket[]>(
-    `SELECT tc.*, ${buildTrainConfigContentSelectSql()}
-     FROM ${TRAIN_CONFIGS_TABLE} tc
-     ${buildTrainConfigDetailJoinsSql('tc')}
-     WHERE tc.config_type = 'top-strategies'
-       AND tc.train_id = ?
-     ORDER BY tc.updated_at DESC, tc.id DESC
-     LIMIT 1`,
-    [trainId]
-  );
-
-  const row = rows[0];
-  if (!row) {
-    throw new Error(`top-strategies snapshot not found for train_id=${trainId}`);
+async function loadLatestRollingPackage(connection: mysql.Pool | mysql.Connection, trainId: string): Promise<JsonObject> {
+  const featureMemorySnapshot = await loadLatestRollingSnapshotFromFeatureMemory(connection, {
+    trainId
+  });
+  if (featureMemorySnapshot) {
+    return featureMemorySnapshot;
   }
 
-  return typeof row['content'] === 'string'
-    ? JSON.parse(row['content'])
-    : row['content'] as JsonObject;
+  throw new Error(`rolling package not found in feature-memory artifacts for train_id=${trainId}`);
 }
 
-function loadJsonByRelativeRef(trainRoot: string, trainingConfigKey: string, relativeRef: unknown): JsonObject | null {
+async function loadJsonByRelativeRef(
+  connection: mysql.Pool | mysql.Connection,
+  trainRoot: string,
+  trainingConfigKey: string,
+  relativeRef: unknown
+): Promise<JsonObject | null> {
   const normalizedRef = String(relativeRef || '').trim();
   if (!normalizedRef) {
     return null;
@@ -104,7 +93,7 @@ function loadJsonByRelativeRef(trainRoot: string, trainingConfigKey: string, rel
   const configKey = resolveRelativeConfigRef(trainingConfigKey, normalizedRef);
   const absolutePath = path.resolve(trainRoot, configKey);
   if (!fs.existsSync(absolutePath)) {
-    return null;
+    return await loadConfigContentByRelativeRef<JsonObject>(connection, trainingConfigKey, normalizedRef);
   }
 
   return readJson(absolutePath);
@@ -135,8 +124,9 @@ export async function runBuildRouterArtifacts(
     throw new Error('trainId is required before building router artifacts');
   }
 
-  const snapshotContent = await loadLatestSnapshot(connection, trainId);
-  const previousRouter = loadJsonByRelativeRef(
+  const rollingPackage = await loadLatestRollingPackage(connection, trainId);
+  const previousRouter = await loadJsonByRelativeRef(
+    connection as mysql.Pool | mysql.Connection,
     trainRoot,
     args.trainConfigRef,
     (trainingConfig['regimeRouting'] as JsonObject | undefined)?.['routerConfigPath']
@@ -144,12 +134,9 @@ export async function runBuildRouterArtifacts(
   const artifacts = buildRollingRouterArtifacts({
     trainingConfig,
     trainingConfigKey: args.trainConfigRef,
-    snapshotContent,
+    rollingPackage,
     previousRouter
   });
-
-  writeJson(trainRoot, artifacts.routerConfigKey, artifacts.routerContent);
-  writeJson(trainRoot, artifacts.policyConfigKey, artifacts.policyContent);
 
   const nextTrainingContent = {
     ...trainingConfig,

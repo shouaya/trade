@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 
 const { test } = require('./harness.ts');
 const {
+  extractRollingMonthlyPools,
   loadLatestValidationRows,
   resolveValidationWindowRange,
 } = require('../dist/scripts/goal-attainment-report.js');
@@ -71,4 +72,18 @@ test('goal attainment report loads latest validation rows by window instead of c
   assert.equal(aprilRows[0].strategy_name, 'alpha');
   assert.equal(mayRows.length, 1);
   assert.equal(mayRows[0].strategy_name, 'gamma');
+});
+
+test('goal attainment report can extract monthly pools from feature-memory style rolling details', () => {
+  const pools = extractRollingMonthlyPools({
+    rollingDetails: {
+      monthlyPools: [
+        { month: '2025-01', selectedStrategyName: 'alpha' },
+        { month: '2025-02', selectedStrategyName: 'beta' },
+      ],
+    },
+  });
+
+  assert.equal(pools.length, 2);
+  assert.equal(pools[0].selectedStrategyName, 'alpha');
 });

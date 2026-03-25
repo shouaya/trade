@@ -312,6 +312,47 @@ function pickLatestArtifact(artifacts: readonly any[], matcher: (artifact: any) 
   return matched[0] || null;
 }
 
+function extractRollingPackageArtifact(artifact: any): any | null {
+  const payload = artifact?.payload;
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const nested = payload.artifact;
+  if (nested && typeof nested === 'object' && nested.artifactType === 'rolling-strategy-package') {
+    return nested;
+  }
+
+  if (payload.artifactType === 'rolling-strategy-package') {
+    return payload;
+  }
+
+  return null;
+}
+
+function buildTopStrategySnapshotFromArtifact(artifact: any): any | null {
+  const rollingPackage = extractRollingPackageArtifact(artifact);
+  if (!rollingPackage) {
+    return null;
+  }
+
+  return {
+    path: getArtifactPath(artifact) || `analysis_artifacts:${artifact.artifactKey}`,
+    configName: rollingPackage.name || null,
+    generatedAt: rollingPackage.generatedAt || artifact.updatedAt || artifact.createdAt || null,
+    sourceRunId: rollingPackage.sourceRunId || null,
+    limit: rollingPackage.limit || null,
+    exact: Boolean(rollingPackage.exact),
+    rollingPlan: {
+      monthlyPools: Array.isArray(rollingPackage?.rollingPlan?.monthlyPools)
+        ? rollingPackage.rollingPlan.monthlyPools
+        : [],
+      rules: rollingPackage?.rollingPlan?.rules || {},
+      normalizedRules: []
+    }
+  };
+}
+
 function buildStatus(stepDone: boolean, partial = false): string {
   if (stepDone) {
     return 'done';
@@ -482,7 +523,7 @@ export function buildMethodologyStages(pipeline: any, trainingConfig: any): any[
         trainingRange,
         hasValidationConfig ? `validation ${validations.length} 份` : '未匹配到 validation'
       ],
-      notes: '方法论要求先锁定 symbol、训练期以及 rolling 起点，再进入 history-only 月度学习。',
+      notes: '方法论要求先锁定 symbol、训练期以及 rolling 起点，再进入 feature-memory 月度学习。',
       actionKeys: ['generate-validation', 'prepare-validation']
     },
     {
@@ -809,10 +850,10 @@ function buildNextAction(training: any, validationRecords: readonly any[], repor
       key: 'build-router',
       title: '补 router / policy catalog',
       reason: !routerFiles.routerPath
-        ? '训练和验证已经跑通，但还没有找到可用的 router 配置文件。'
-        : 'router 已存在，但 policy catalog 还没有同步完成。',
+        ? '训练和验证已经跑通，但数据库里还没有看到可用的 router 配置。'
+        : 'router 已存在，但 policy catalog 还没有同步落库完成。',
       commands: [
-        '系统会按 rolling 训练结果自动维护 router 和 policy catalog，也可以手动补跑 build-router'
+        '系统会按 rolling 训练结果自动维护 router 和 policy catalog，必要时也可以手动补跑 build-router'
       ]
     };
   }
@@ -829,12 +870,12 @@ function buildNextAction(training: any, validationRecords: readonly any[], repor
   }
 
   return {
-    key: 'review',
-    title: '进入结果复盘',
-    reason: '主流程产物已经齐全，可以开始看报告和策略差异。',
-    commands: [
-      '先看 train_artifacts 表中的最新结构化产物，AI 总结 markdown 放在 train/reports/'
-    ]
+      key: 'review',
+      title: '进入结果复盘',
+      reason: '主流程产物已经齐全，可以开始看报告和策略差异。',
+      commands: [
+      '先看 train_artifacts / analysis_artifacts 中的最新结构化产物，AI 总结 markdown 放在 train/reports/'
+      ]
   };
 }
 
@@ -1205,6 +1246,17 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
           || normalizeText(entry.data?.sourceTable) === normalizeText(resultGroup);
       })
       .sort((left: any, right: any) => (right.stat?.mtimeMs || 0) - (left.stat?.mtimeMs || 0))[0] || null;
+    const snapshotArtifactMatch = !snapshotMatch
+      ? pickLatestArtifact(artifactRows, (artifact) => {
+          if (normalizeText(artifact?.symbol) !== normalizeText(symbol)) {
+            return false;
+          }
+          if (trainId && String(artifact?.trainId || '') !== trainId) {
+            return false;
+          }
+          return Boolean(extractRollingPackageArtifact(artifact));
+        })
+      : null;
 
     const trainingCompleted = hasTrainingCompleted({
       trainingRun,
@@ -1425,7 +1477,7 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
         rules: snapshotMatch.data?.rollingPlan?.rules || {},
         normalizedRules: snapshotMatch.data?.rollingDetails?.rules || []
       }
-    } : null;
+    } : buildTopStrategySnapshotFromArtifact(snapshotArtifactMatch);
 
     const reports = {
       costSensitivity: toArtifactSummary(reportSummary.costSensitivity, repoRoot),

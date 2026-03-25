@@ -174,16 +174,34 @@ async function resolveRouterConfigPath(configRow: mysql.RowDataPacket): Promise<
   const trainingConfig = parseConfigContent(linkedTrainingRow);
   const regimeRouting = trainingConfig['regimeRouting'] as Record<string, any> | undefined;
   const routerConfigPath = String(regimeRouting?.['routerConfigPath'] || '').trim();
-  if (!routerConfigPath) {
-    throw new Error('regimeRouting.routerConfigPath is missing');
-  }
-
   const trainingConfigKey = String(linkedTrainingRow['config_key'] || '').trim();
   if (!trainingConfigKey) {
     throw new Error('linked training config key is missing for router validation');
   }
 
-  return resolveConfigRef(trainingConfigKey, routerConfigPath);
+  if (routerConfigPath) {
+    return resolveConfigRef(trainingConfigKey, routerConfigPath);
+  }
+
+  const trainId = String(linkedTrainingRow['train_id'] || '').trim();
+  if (trainId) {
+    const [rows] = await db.query<mysql.RowDataPacket[]>(
+      `SELECT config_key
+       FROM ${TRAIN_CONFIGS_TABLE}
+       WHERE config_type = 'router'
+         AND train_id = ?
+         AND status = 'active'
+       ORDER BY updated_at DESC, id DESC
+       LIMIT 1`,
+      [trainId]
+    );
+    const configKey = String(rows[0]?.['config_key'] || '').trim();
+    if (configKey) {
+      return configKey;
+    }
+  }
+
+  throw new Error('router config is missing; neither regimeRouting.routerConfigPath nor active router config was found');
 }
 
 function safeUnlink(filePath: string): void {
@@ -219,15 +237,9 @@ async function upsertRegistryConfig(
 async function persistGeneratedArtifacts(stdoutText: string): Promise<void> {
   const parsed = JSON.parse(stdoutText) as {
     readonly validationConfigs?: readonly { readonly configKey: string; readonly configType: string; readonly content: Record<string, any>; }[];
-    readonly snapshot?: { readonly configKey: string; readonly configType: string; readonly content: Record<string, any>; };
   };
 
-  const items = [
-    ...(parsed.validationConfigs || []),
-    ...(parsed.snapshot ? [parsed.snapshot] : [])
-  ];
-
-  for (const item of items) {
+  for (const item of parsed.validationConfigs || []) {
     await upsertRegistryConfig(item.configKey, item.configType, item.content);
     safeUnlink(path.resolve(TRAIN_ROOT, item.configKey));
   }
@@ -235,16 +247,13 @@ async function persistGeneratedArtifacts(stdoutText: string): Promise<void> {
 
 function parseGeneratedArtifacts(stdoutText: string): {
   readonly validationConfigs: readonly { readonly configKey: string; readonly configType: string; readonly content: Record<string, any>; }[];
-  readonly snapshot: { readonly configKey: string; readonly configType: string; readonly content: Record<string, any>; } | null;
 } {
   const parsed = JSON.parse(stdoutText) as {
     readonly validationConfigs?: readonly { readonly configKey: string; readonly configType: string; readonly content: Record<string, any>; }[];
-    readonly snapshot?: { readonly configKey: string; readonly configType: string; readonly content: Record<string, any>; };
   };
 
   return {
-    validationConfigs: parsed.validationConfigs || [],
-    snapshot: parsed.snapshot || null
+    validationConfigs: parsed.validationConfigs || []
   };
 }
 
@@ -521,7 +530,8 @@ function hasRouterConfigPath(trainingRow: mysql.RowDataPacket | null): boolean {
 
   const trainingConfig = parseConfigContent(trainingRow);
   const regimeRouting = trainingConfig['regimeRouting'] as Record<string, any> | undefined;
-  return String(regimeRouting?.['routerConfigPath'] || '').trim().length > 0;
+  return String(regimeRouting?.['routerConfigPath'] || '').trim().length > 0
+    || String(trainingRow['train_id'] || '').trim().length > 0;
 }
 
 async function enqueuePostTrainFollowUps(configRow: mysql.RowDataPacket): Promise<void> {

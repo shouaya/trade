@@ -97,6 +97,7 @@ function createRegistryDb() {
     configs: [],
     rollingPools: [],
     rollingRules: [],
+    rollingPackagePayload: null,
   };
 
   function getActiveConfig(configKey) {
@@ -206,12 +207,10 @@ function createRegistryDb() {
         return [{ insertId: state.rollingRules.length }, {}];
       }
 
-      if (text.includes(`FROM ${TRAIN_CONFIGS_TABLE} tc`) && text.includes("tc.config_type = 'top-strategies'")) {
-        const trainId = String(params[0] || '');
-        const row = state.configs
-          .filter((item) => item.config_type === 'top-strategies' && item.train_id === trainId && item.status === 'active')
-          .sort((left, right) => right.version_no - left.version_no || right.id - left.id)[0];
-        return [row ? [{ ...row, content: row.content }] : [], {}];
+      if (text.includes('FROM analysis_artifacts')) {
+        return state.rollingPackagePayload
+          ? [[{ payload_json: JSON.stringify({ artifact: state.rollingPackagePayload }) }], {}]
+          : [[], {}];
       }
 
       throw new Error(`Unexpected registry SQL: ${text}`);
@@ -396,23 +395,20 @@ test('feature flow runs training params to rolling artifacts and router outputs 
   });
 
   assert.equal(artifacts.validationConfigs.length, 2);
-  assert.equal(artifacts.snapshot.content.trainId, 'train-feature-001');
-  assert.equal(artifacts.snapshot.content.rollingPlan.monthlyPools.length, 2);
-  assert.equal(artifacts.snapshot.content.rollingPlan.monthlyPools[0].sourceMonth, '2025-01');
-  assert.ok(artifacts.snapshot.content.rollingRouter.rules.length >= 1);
+  assert.equal(artifacts.rollingPackage.trainId, 'train-feature-001');
+  assert.equal(artifacts.rollingPackage.rollingPlan.monthlyPools.length, 2);
+  assert.equal(artifacts.rollingPackage.rollingPlan.monthlyPools[0].sourceMonth, '2025-01');
+  assert.ok(artifacts.rollingPackage.rollingRouter.rules.length >= 1);
   assert.equal(artifacts.validationConfigs[0].content.validationTarget.evaluationTimeRange.startIso, '2025-01-03T00:00:00.000Z');
   assert.equal(artifacts.validationConfigs[0].content.validationTarget.executionTimeRange.startIso, '2024-12-01T00:00:00.000Z');
   assert.equal(artifacts.validationConfigs[0].content.timeRange.startIso, '2024-12-01T00:00:00.000Z');
 
   const registryDb = createRegistryDb();
   await upsertTrainConfig(registryDb, trainingConfigKey, trainingConfig, { explicitType: 'training' });
-  await upsertTrainConfig(registryDb, artifacts.snapshot.configKey, artifacts.snapshot.content, { explicitType: 'top-strategies' });
+  registryDb.state.rollingPackagePayload = artifacts.rollingPackage;
   for (const item of artifacts.validationConfigs) {
     await upsertTrainConfig(registryDb, item.configKey, item.content, { explicitType: 'validation' });
   }
-
-  assert.equal(registryDb.state.rollingPools.length, 2);
-  assert.ok(registryDb.state.rollingRules.length >= 1);
 
   const firstValidation = artifacts.validationConfigs[0];
   const firstValidationPath = path.join(trainRoot, firstValidation.configKey);
@@ -433,16 +429,13 @@ test('feature flow runs training params to rolling artifacts and router outputs 
     skipEnsureSchema: true,
   });
 
-  const routerPath = path.join(trainRoot, routerBuildResult.routerConfigKey);
-  const policyPath = path.join(trainRoot, routerBuildResult.policyConfigKey);
-  assert.equal(fs.existsSync(routerPath), true);
-  assert.equal(fs.existsSync(policyPath), true);
-
   const updatedTraining = registryDb.state.configs
     .filter((item) => item.config_key === trainingConfigKey && item.status === 'active')
     .sort((left, right) => right.version_no - left.version_no)[0];
   assert.ok(updatedTraining.content.regimeRouting.routerConfigPath);
   assert.ok(updatedTraining.content.regimeRouting.policyCatalogPath);
+  assert.equal(routerBuildResult.routerConfigKey, 'configs/generated/regime-routing/2025_btcjpy_feature_flow_router.json');
+  assert.equal(routerBuildResult.policyConfigKey, 'configs/generated/regime-routing/2025_btcjpy_feature_flow_router.policy.json');
 
   const validationTrades = [
     { strategy_name: primaryStrategyName, exit_time: Date.parse('2025-01-03T12:00:00.000Z'), pnl: 80 },
@@ -459,6 +452,28 @@ test('feature flow runs training params to rolling artifacts and router outputs 
   dbModule.default.query = async (sql, params = []) => {
     const text = String(sql);
     assert.equal(countPlaceholders(text), params.length, `SQL placeholders mismatch: ${text}`);
+    if (text.includes(`FROM ${TRAIN_CONFIGS_TABLE} tc`) && text.includes('WHERE tc.config_key = ?')) {
+      const configKey = String(params[0] || '');
+      const row = registryDb.state.configs
+        .filter((item) => item.config_key === configKey && item.status === 'active')
+        .sort((left, right) => right.version_no - left.version_no || right.id - left.id)[0];
+      return [row ? [{ ...row, content: row.content }] : [], {}];
+    }
+    if (text.includes('FROM feature_candidate_pools')) {
+      const monthlyPools = Array.isArray(artifacts.rollingPackage?.rollingPlan?.monthlyPools)
+        ? artifacts.rollingPackage.rollingPlan.monthlyPools
+        : [];
+      const rows = monthlyPools.flatMap((pool) => {
+        const startMs = Date.parse(`${String(pool.month || '2025-01')}-01T00:00:00.000Z`);
+        const topStrategies = Array.isArray(pool.topStrategies) ? pool.topStrategies : [];
+        return topStrategies.map((strategy, index) => ({
+          window_start_ms: startMs,
+          rank_no: index + 1,
+          strategy_name: String(strategy.strategyName || ''),
+        }));
+      });
+      return [rows, {}];
+    }
     if (text.includes('FROM trades') && text.includes('ORDER BY exit_time ASC')) {
       return [validationTrades, {}];
     }
@@ -471,7 +486,7 @@ test('feature flow runs training params to rolling artifacts and router outputs 
   try {
     const routerReport = await runRouterValidation({
       validationConfigPath: firstValidationPath,
-      routerConfigPath: routerPath,
+      routerConfigPath: routerBuildResult.routerConfigKey,
       tradeCreatedAt: '2026-03-25 10:00:00',
     });
 

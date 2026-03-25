@@ -4,12 +4,6 @@ type JsonObject = Record<string, any>;
 type RouterLayer = 'monthly_guard' | 'weekly_guard' | 'daily_router' | 'loss_recheck';
 type RouterActionType = 'trade' | 'reduce' | 'stop';
 
-interface StrategySnapshotRow {
-  readonly rank?: number;
-  readonly strategyName?: string;
-  readonly name?: string;
-}
-
 interface TrainingConfigLike {
   readonly name?: string;
   readonly symbol?: string;
@@ -96,31 +90,13 @@ export function resolveRelativeConfigRef(baseConfigKey: string, targetRef: strin
   return toPosix(path.posix.normalize(path.posix.join(path.posix.dirname(String(baseConfigKey || '')), String(targetRef || ''))));
 }
 
-export function buildStrategyCatalogFromSnapshot(snapshotContent: JsonObject | null | undefined): Record<string, RouterStrategyRef> {
-  const rollingRouter = snapshotContent?.['rollingRouter'] as JsonObject | undefined;
+export function buildStrategyCatalogFromRollingPackage(rollingPackage: JsonObject | null | undefined): Record<string, RouterStrategyRef> {
+  const rollingRouter = rollingPackage?.['rollingRouter'] as JsonObject | undefined;
   if (rollingRouter?.['strategyCatalog'] && typeof rollingRouter['strategyCatalog'] === 'object') {
     return rollingRouter['strategyCatalog'] as Record<string, RouterStrategyRef>;
   }
 
-  const strategyBlock = snapshotContent?.['strategy'] as JsonObject | undefined;
-  const explicitStrategies = Array.isArray(strategyBlock?.['explicitStrategies'])
-    ? strategyBlock?.['explicitStrategies']
-    : [];
-  const fallbackStrategies = Array.isArray(snapshotContent?.['strategies'])
-    ? snapshotContent?.['strategies']
-    : [];
-  const sourceStrategies = (explicitStrategies.length > 0 ? explicitStrategies : fallbackStrategies) as readonly StrategySnapshotRow[];
-
-  return sourceStrategies.slice(0, 10).reduce((accumulator, strategy, index) => {
-    const key = `rank${index + 1}`;
-    const strategyName = String(strategy?.name || strategy?.strategyName || `Strategy ${index + 1}`);
-    accumulator[key] = {
-      strategyName,
-      shortLabel: `TOP${index + 1}`,
-      role: index === 0 ? 'default-fallback' : 'candidate'
-    };
-    return accumulator;
-  }, {} as Record<string, RouterStrategyRef>);
+  throw new Error('rolling package is missing rollingRouter.strategyCatalog');
 }
 
 function buildRouterVersion(symbol: string, trainingConfig: TrainingConfigLike, trainId: string, previousRouter: RouterConfigLike | null): string {
@@ -278,7 +254,7 @@ export function buildPolicyContent(
 export function buildRollingRouterArtifacts(options: {
   readonly trainingConfig: TrainingConfigLike;
   readonly trainingConfigKey: string;
-  readonly snapshotContent: JsonObject;
+  readonly rollingPackage: JsonObject;
   readonly previousRouter?: RouterConfigLike | null;
 }): {
   readonly routerConfigKey: string;
@@ -288,7 +264,7 @@ export function buildRollingRouterArtifacts(options: {
   readonly routerContent: JsonObject;
   readonly policyContent: JsonObject;
 } {
-  const { trainingConfig, trainingConfigKey, snapshotContent, previousRouter = null } = options;
+  const { trainingConfig, trainingConfigKey, rollingPackage, previousRouter = null } = options;
   const regimeRouting = trainingConfig.regimeRouting;
   const existingRouterRef = String(regimeRouting?.routerConfigPath || '').trim();
   const existingPolicyRef = String(regimeRouting?.policyCatalogPath || '').trim();
@@ -299,17 +275,17 @@ export function buildRollingRouterArtifacts(options: {
     ? resolveRelativeConfigRef(trainingConfigKey, existingPolicyRef)
     : buildDefaultPolicyConfigKey(routerConfigKey);
 
-  const symbol = String(trainingConfig.market?.symbol || trainingConfig.symbol || snapshotContent?.['symbol'] || 'BTCJPY').toUpperCase();
+  const symbol = String(trainingConfig.market?.symbol || trainingConfig.symbol || rollingPackage?.['symbol'] || 'BTCJPY').toUpperCase();
   const trainId = String(
     trainingConfig.trainId
     || trainingConfig.trainingMeta?.trainId
-    || snapshotContent?.['trainId']
-    || (snapshotContent?.['trainingMeta'] as JsonObject | undefined)?.['trainId']
+    || rollingPackage?.['trainId']
+    || (rollingPackage?.['trainingMeta'] as JsonObject | undefined)?.['trainId']
     || ''
   ).trim();
-  const strategyCatalog = buildStrategyCatalogFromSnapshot(snapshotContent);
-  const rollingRouter = snapshotContent?.['rollingRouter'] && typeof snapshotContent['rollingRouter'] === 'object'
-    ? snapshotContent['rollingRouter'] as JsonObject
+  const strategyCatalog = buildStrategyCatalogFromRollingPackage(rollingPackage);
+  const rollingRouter = rollingPackage?.['rollingRouter'] && typeof rollingPackage['rollingRouter'] === 'object'
+    ? rollingPackage['rollingRouter'] as JsonObject
     : null;
   const rollingRules = Array.isArray(rollingRouter?.['rules'])
     ? rollingRouter?.['rules'] as readonly RouterRule[]
@@ -351,7 +327,7 @@ export function buildRollingRouterArtifacts(options: {
     ? ['Compatible rules were carried forward from the previous rolling router']
     : rollingRules.length > 0
       ? ['Initialized from rolling month/week/day mapping package']
-      : ['Initialized from current Top-N snapshot']);
+      : ['Initialized from feature-memory rolling package']);
 
   return {
     routerConfigKey,

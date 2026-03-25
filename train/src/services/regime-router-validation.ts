@@ -1,8 +1,10 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import type * as mysql from 'mysql2/promise';
 import db from '../configs/database';
-import { loadRouterPolicyCatalogByRouterConfig, type RouterPolicyCatalog } from './router-policy-catalog';
+import {
+  loadRouterPolicyCatalogByRouterConfig,
+  type RouterPolicyCatalog,
+  validateRouterPolicyCatalog
+} from './router-policy-catalog';
 import {
   buildLaggedFeatureMap,
   buildOpeningWindowPeriodFeatures,
@@ -19,6 +21,11 @@ import {
   type PeriodFeature
 } from './rolling-features';
 import { resolveEvaluationTimeRange, resolveExecutionTimeRange } from './validation-range';
+import {
+  loadConfigContentByRelativeRef,
+  loadConfigContentFromFileOrDb
+} from './train-config-loader';
+import { loadMonthlyCandidatePoolsFromFeatureMemory } from './feature-memory-runtime';
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const JPY_INITIAL_CAPITAL = 1_000_000;
@@ -28,6 +35,10 @@ type RouterLayer = 'monthly_guard' | 'weekly_guard' | 'daily_router' | 'loss_rec
 type RouterActionType = 'trade' | 'reduce' | 'stop';
 
 interface ValidationConfig {
+  readonly trainId?: string;
+  readonly trainingMeta?: {
+    readonly trainId?: string;
+  };
   readonly name: string;
   readonly description?: string;
   readonly timeRange: {
@@ -42,14 +53,6 @@ interface ValidationConfig {
   };
   readonly strategy: {
     readonly explicitStrategies: readonly ValidationStrategy[];
-  };
-  readonly rollingPlan?: {
-    readonly monthlyPools?: readonly {
-      readonly month?: string;
-      readonly topStrategies?: readonly {
-        readonly strategyName?: string;
-      }[];
-    }[];
   };
   readonly featureEngineering?: {
     readonly openingWindowMinutes?: number;
@@ -248,17 +251,6 @@ export interface RouterValidationReport {
     readonly oracleBestOfDay: ComparisonMetrics;
   };
   readonly dailyRoutes: readonly DailyRouteRow[];
-}
-
-function loadJson<T>(filePath: string): T {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
-}
-
-function resolveConfigPath(filePath: string): string {
-  if (path.isAbsolute(filePath)) {
-    return filePath;
-  }
-  return path.resolve(__dirname, '..', '..', filePath);
 }
 
 function isNumericConditionMatched(condition: NumericCondition | undefined, value: number): boolean {
@@ -532,11 +524,11 @@ function toShortLabel(strategy: ValidationStrategy): string {
 }
 
 export async function runRouterValidation(options: RouterValidationRunOptions): Promise<RouterValidationReport> {
-  const resolvedValidationConfigPath = resolveConfigPath(options.validationConfigPath);
-  const resolvedRouterConfigPath = resolveConfigPath(options.routerConfigPath);
-  const validationConfig = loadJson<ValidationConfig>(resolvedValidationConfigPath);
-  const routerConfig = loadJson<RouterConfig>(resolvedRouterConfigPath);
-  const policyCatalog = loadRouterPolicyCatalogByRouterConfig(resolvedRouterConfigPath, routerConfig);
+  const validationLoaded = await loadConfigContentFromFileOrDb<ValidationConfig>(db, options.validationConfigPath);
+  const routerLoaded = await loadConfigContentFromFileOrDb<RouterConfig>(db, options.routerConfigPath);
+  const validationConfig = validationLoaded.content;
+  const routerConfig = routerLoaded.content;
+  const policyCatalog = await loadRouterPolicyCatalog(validationLoaded.configKey, routerLoaded, routerConfig);
 
   if (!validationConfig.strategy.explicitStrategies.length) {
     throw new Error('validation config has no explicit strategies');
@@ -581,14 +573,11 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
   const dailyTradeMap = buildPeriodStrategyPnlMap(trades, getJstDayKey);
   const weeklyTradeMap = buildPeriodStrategyPnlMap(trades, getIsoWeekKey);
   const monthlyTradeMap = buildPeriodStrategyPnlMap(trades, getJstMonthKey);
-  const monthlyPoolMap = new Map<string, readonly string[]>(
-    (validationConfig.rollingPlan?.monthlyPools ?? []).map((item) => [
-      String(item.month ?? ''),
-      (item.topStrategies ?? [])
-        .map((entry) => String(entry.strategyName ?? '').trim())
-        .filter((name) => name.length > 0)
-    ] as const)
-  );
+  const trainId = String(validationConfig.trainId || validationConfig.trainingMeta?.trainId || '').trim() || null;
+  const featureMemoryMonthlyPoolMap = await loadMonthlyCandidatePoolsFromFeatureMemory(db, {
+    symbol,
+    trainId
+  });
 
   const defaultStrategyKey = routerConfig.executionModel.defaultFallback.strategyKey;
   const defaultStrategyRef = routerConfig.strategyCatalog[defaultStrategyKey];
@@ -628,7 +617,8 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
     const monthFeatureBase = laggedMonthlyFeatureMap.get(month) ?? null;
     const weekFeatureBase = laggedWeeklyFeatureMap.get(week) ?? null;
     const previousDayFeatureBase = laggedDailyFeatureMap.get(dayFeature.key) ?? null;
-    const candidatePool = monthlyPoolMap.get(month) ?? validationConfig.strategy.explicitStrategies.map((strategy) => strategy.name);
+    const candidatePool = featureMemoryMonthlyPoolMap.get(month)
+      ?? validationConfig.strategy.explicitStrategies.map((strategy) => strategy.name);
     const previousMonthTradeMap = monthFeatureBase ? (monthlyTradeMap.get(monthFeatureBase.key) ?? new Map<string, number>()) : new Map<string, number>();
     const previousWeekTradeMap = weekFeatureBase ? (weeklyTradeMap.get(weekFeatureBase.key) ?? new Map<string, number>()) : new Map<string, number>();
     const previousDayTradeMap = previousDayFeatureBase ? (dailyTradeMap.get(previousDayFeatureBase.key) ?? new Map<string, number>()) : new Map<string, number>();
@@ -781,4 +771,32 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
     },
     dailyRoutes
   };
+}
+
+async function loadRouterPolicyCatalog(
+  validationConfigKey: string | null,
+  routerLoaded: {
+    readonly absolutePath: string | null;
+    readonly configKey: string | null;
+  },
+  routerConfig: RouterConfig
+): Promise<RouterPolicyCatalog | null> {
+  if (routerLoaded.absolutePath) {
+    return loadRouterPolicyCatalogByRouterConfig(routerLoaded.absolutePath, routerConfig);
+  }
+
+  const policyRef = String(routerConfig.policyCatalogPath || '').trim();
+  if (!policyRef || !routerLoaded.configKey) {
+    return null;
+  }
+
+  const catalog = await loadConfigContentByRelativeRef<RouterPolicyCatalog>(db, routerLoaded.configKey, policyRef);
+  if (!catalog) {
+    if (validationConfigKey) {
+      return null;
+    }
+    return null;
+  }
+  validateRouterPolicyCatalog(catalog, routerConfig);
+  return catalog;
 }

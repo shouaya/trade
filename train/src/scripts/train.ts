@@ -779,7 +779,7 @@ async function main(): Promise<void> {
     if (runMode === 'training') {
       console.log('\n♻️  rolling training manifest mode');
       console.log('   - 旧的整段候选池总回测已移除');
-      console.log('   - 月度 history-only 学习将在 generate-validation 阶段执行');
+      console.log('   - 月度 feature-memory rolling 学习将在 generate-validation 阶段执行');
       console.log(`   - train_id: ${trainId}`);
       console.log(`   - topN: ${topN}`);
     } else {
@@ -837,7 +837,7 @@ async function main(): Promise<void> {
     console.log(`   - train_id: ${trainId}`);
     console.log(`   - mode: ${runMode}`);
     if (runMode === 'training') {
-      console.log(`   - rolling learner: history-only`);
+      console.log('   - rolling learner: feature-memory');
       console.log(`   - lookback months: 3`);
       console.log(`   - Top N: ${topN}`);
     }
