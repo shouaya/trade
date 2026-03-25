@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type * as mysql from 'mysql2/promise';
 import db from '../configs/database';
+import { saveTrainArtifact } from '../services/train-artifact-store';
 import { StrategyExecutor } from '../services/strategy-executor';
 import { validateFeeModelConfig } from '../services/fee-model';
 import { generateStrategyCombinations } from '../services/strategy-parameter-generator';
@@ -98,7 +99,7 @@ interface StrategyScenarioResult {
   readonly scenarios: readonly StrategyScenarioStats[];
 }
 
-const DEFAULT_OUTPUT_DIR = path.resolve(__dirname, '../../reports/cost-sensitivity');
+const TRAIN_ROOT = path.resolve(__dirname, '..', '..');
 
 function parseArgs(argv: readonly string[]): CliArgs {
   const args = argv.slice(2);
@@ -200,8 +201,8 @@ function loadJson<T>(filePath: string): T {
   return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
 }
 
-function ensureDir(dirPath: string): void {
-  fs.mkdirSync(dirPath, { recursive: true });
+function toPosix(value: string): string {
+  return value.replace(/\\/g, '/');
 }
 
 function round(value: number, digits = 2): number {
@@ -392,95 +393,6 @@ function toScenarioStats(name: string, label: string, result: BacktestResult): S
   };
 }
 
-function buildMarkdown(
-  configPath: string,
-  config: ConfigFile,
-  strategies: readonly Strategy[],
-  scenarioResults: readonly StrategyScenarioResult[],
-  stressMultiplier: number
-): string {
-  const evaluationRange = resolveEvaluationTimeRange(config);
-  const lines: string[] = [];
-  const configuredTopN = Number(config.output?.topN || 0);
-  lines.push(`# ${config.market.symbol} Cost Sensitivity Report`);
-  lines.push('');
-  lines.push(`- Config: \`${configPath}\``);
-  lines.push(`- Validation / training name: \`${config.name}\``);
-  lines.push(`- Period: \`${new Date(evaluationRange.startTimeMs).toISOString()}\` -> \`${new Date(evaluationRange.endTimeMs).toISOString()}\``);
-  lines.push(`- Strategies tested: \`${strategies.length}\``);
-  if (configuredTopN > 0) {
-    lines.push(`- Rolling pool TopN per month: \`${configuredTopN}\``);
-    if (strategies.length !== configuredTopN) {
-      lines.push(`- Validation strategy universe: \`${strategies.length}\` (union of monthly rolling pools, not a single global TopN snapshot)`);
-    }
-  }
-  lines.push(`- Stress multiplier: \`${stressMultiplier}\``);
-  const feeModel = validateFeeModelConfig(config.executor?.options?.feeModel, 'config.executor.options.feeModel');
-  lines.push(`- Fee venue: \`${feeModel.venueCode}\``);
-  lines.push(`- Product: \`${feeModel.market ?? 'unknown'}\`${feeModel.productCode ? ` / \`${feeModel.productCode}\`` : ''}`);
-  lines.push(`- Commission rate: \`${feeModel.commissionRate}\``);
-  if (feeModel.dailyLeverageRate !== undefined) {
-    lines.push(`- Daily leverage rate metadata: \`${feeModel.dailyLeverageRate}\``);
-  }
-  if (feeModel.liquidationFeeRate !== undefined) {
-    lines.push(`- Liquidation fee metadata: \`${feeModel.liquidationFeeRate}\``);
-  }
-  lines.push('');
-  lines.push('## Scenario Definitions');
-  lines.push('');
-  lines.push('- `No Cost`: fee off, slippage off');
-  lines.push('- `Base Fee`: fee on, slippage off');
-  lines.push('- `Fee + Base Slippage`: fee on, default slippage model');
-  lines.push('- `Fee + Extreme Slippage`: fee on, stressed slippage model');
-  const baseFeeInactive = scenarioResults.every((result) => {
-    const noCost = result.scenarios.find((row) => row.scenario === 'no_cost');
-    const baseFee = result.scenarios.find((row) => row.scenario === 'base_fee');
-    return Boolean(noCost && baseFee)
-      && round(noCost?.totalPnl ?? 0, 4) === round(baseFee?.totalPnl ?? 0, 4)
-      && round(baseFee?.totalCommission ?? 0, 4) === 0;
-  });
-  if (baseFeeInactive) {
-    lines.push('- Current note: `Base Fee` is identical to `No Cost` here. That means entry/exit commission is effectively zero in the tested config, and no extra carry-like fee was charged in these sampled trades.');
-  }
-  lines.push('');
-  lines.push('## Strategy Summary');
-  lines.push('');
-  lines.push('| Strategy Label | No Cost PnL | Base Fee PnL | Fee+Base Slip PnL | Fee+Extreme Slip PnL | Drag vs No Cost | Extreme DD |');
-  lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: |');
-
-  for (const result of scenarioResults) {
-    const map = new Map(result.scenarios.map((row) => [row.scenario, row] as const));
-    const noCost = map.get('no_cost');
-    const extreme = map.get('fee_extreme_slippage');
-    const baseSlip = map.get('fee_base_slippage');
-    const feeOnly = map.get('base_fee');
-    const drag = noCost && extreme ? round(noCost.totalPnl - extreme.totalPnl) : 0;
-    lines.push(`| ${result.strategyLabel} | ${noCost?.totalPnl ?? 0} | ${feeOnly?.totalPnl ?? 0} | ${baseSlip?.totalPnl ?? 0} | ${extreme?.totalPnl ?? 0} | ${drag} | ${extreme?.maxDrawdown ?? 0} |`);
-  }
-
-  for (const result of scenarioResults) {
-    lines.push('');
-    lines.push(`## ${result.strategyLabel}`);
-    lines.push('');
-    lines.push(`- Full strategy: \`${result.strategyName}\``);
-    lines.push('');
-    lines.push('| Scenario | Total PnL | Return % | Max DD | Profit Factor | Trades | Commission | Gross PnL |');
-    lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
-    for (const row of result.scenarios) {
-      lines.push(`| ${row.label} | ${row.totalPnl} | ${row.returnPct} | ${row.maxDrawdown} | ${row.profitFactor} | ${row.totalTrades} | ${row.totalCommission} | ${row.grossPnl} |`);
-    }
-  }
-
-  lines.push('');
-  lines.push('## Reading Guide');
-  lines.push('');
-  lines.push('- If `Fee + Base Slippage` already flips the strategy negative, the raw edge is probably too thin.');
-  lines.push('- If `Fee + Extreme Slippage` sharply increases drawdown, execution fragility is high.');
-  lines.push('- If only `No Cost` looks attractive, the result should not be treated as deployable evidence.');
-  lines.push('');
-  return `${lines.join('\n')}\n`;
-}
-
 async function main(): Promise<void> {
   const args = parseArgs(process.argv);
   const resolvedConfigPath = resolveConfigPath(args.config);
@@ -514,11 +426,6 @@ async function main(): Promise<void> {
 
   const baseName = path.basename(resolvedConfigPath, path.extname(resolvedConfigPath));
   const suffix = args.strategyName ? `_${args.strategyName.replace(/[^A-Za-z0-9_-]/g, '_')}` : '';
-  const outputDir = args.outputDir ? path.resolve(args.outputDir) : DEFAULT_OUTPUT_DIR;
-  ensureDir(outputDir);
-  const jsonPath = path.join(outputDir, `${baseName}${suffix}.json`);
-  const mdPath = path.join(outputDir, `${baseName}${suffix}.md`);
-
   const payload = {
     generatedAt: new Date().toISOString(),
     trainId: String(config.trainId || config.trainingMeta?.trainId || '').trim() || null,
@@ -533,11 +440,26 @@ async function main(): Promise<void> {
     scenarioResults
   };
 
-  fs.writeFileSync(jsonPath, JSON.stringify(payload, null, 2) + '\n', 'utf8');
-  fs.writeFileSync(mdPath, buildMarkdown(resolvedConfigPath, config, strategies, scenarioResults, args.stressMultiplier), 'utf8');
+  await saveTrainArtifact(db, {
+    artifactKey: `cost-sensitivity:${baseName}${suffix}`,
+    artifactType: 'cost-sensitivity',
+    trainId: String(config.trainId || config.trainingMeta?.trainId || '').trim() || null,
+    configKey: resolvedConfigPath.includes('/configs/')
+      ? toPosix(path.relative(TRAIN_ROOT, resolvedConfigPath))
+      : null,
+    symbol: config.market.symbol,
+    intervalType: config.market.intervalType,
+    periodStartMs: Number(evaluationRange.startTimeMs),
+    periodEndMs: Number(evaluationRange.endTimeMs),
+    payload,
+    metadata: {
+      strategyCount: strategies.length,
+      stressMultiplier: args.stressMultiplier
+    }
+  });
 
-  console.log(`Cost sensitivity JSON written: ${jsonPath}`);
-  console.log(`Cost sensitivity report written: ${mdPath}`);
+  console.log(`Cost sensitivity artifact saved: cost-sensitivity:${baseName}${suffix}`);
+  console.log('Structured output is stored in DB; keep files only for AI summary markdown.');
 }
 
 main()

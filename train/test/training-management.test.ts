@@ -28,6 +28,12 @@ test('training management bootstrap returns API-ready default guide state', () =
   assert.equal(bootstrap.draft.validationProfile, 'rolling-window');
   assert.equal(bootstrap.content.featureEngineering.openingWindowMinutes, 60);
   assert.equal(bootstrap.content.featureEngineering.volBaselineLookbackPeriods, 8);
+  assert.equal(bootstrap.content.featureEngineering.routerDecision.periodAction.stopAtOrBelowPnl, -500);
+  assert.equal(bootstrap.content.featureEngineering.routerDecision.periodAction.reduceBelowPnl, 0);
+  assert.equal(bootstrap.content.featureEngineering.routerDecision.dailyAction.minEdgeVsWeekBaseAbsolute, 0);
+  assert.equal(bootstrap.content.featureEngineering.routerDecision.dailyAction.preferWeekBaseOnReduce, false);
+  assert.equal(bootstrap.content.featureEngineering.routerDecision.aggregateAction.normalizeStopToReduceForNonLossCheck, false);
+  assert.equal(bootstrap.content.featureEngineering.routerDecision.lossRecheckAction.reduceAtOrBelowCurrentPnl, 0);
   assert.equal(bootstrap.content.featureEngineering.routerSplit.enabled, true);
   assert.deepEqual(bootstrap.content.featureEngineering.routerSplit.metrics, [
     'trendEfficiency',

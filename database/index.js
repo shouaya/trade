@@ -13,7 +13,8 @@ const {
   TRAIN_GOAL_TRACKING_TABLE,
   TRAINING_CONFIG_DETAILS_TABLE,
   VALIDATION_CONFIG_DETAILS_TABLE,
-  TRAIN_RUN_REQUESTS_TABLE
+  TRAIN_RUN_REQUESTS_TABLE,
+  TRAIN_ARTIFACTS_TABLE
 } = require('./src/table-names');
 const { allTablesExist, tableExists } = require('./src/table-checks');
 const {
@@ -28,7 +29,8 @@ const {
   ensureTrainDataTraceSchema,
   ensureTrainConfigsSchema,
   ensureTrainRunRequestsSchema,
-  ensureTrainGoalTrackingSchema
+  ensureTrainGoalTrackingSchema,
+  ensureTrainArtifactsSchema
 } = require('./src/train-schema');
 const { STRATEGIES_DDL } = require('./src/strategies.schema');
 const { TASKS_DDL } = require('./src/tasks.schema');
@@ -46,6 +48,7 @@ const {
 } = require('./src/train-configs.schema');
 const { TRAIN_RUN_REQUESTS_DDL } = require('./src/train-run-requests.schema');
 const { TRAIN_GOAL_TRACKING_DDL } = require('./src/train-goal-tracking.schema');
+const { TRAIN_ARTIFACTS_DDL } = require('./src/train-artifacts.schema');
 
 const INIT_DDLS = [
   KLINES_DDL,
@@ -63,7 +66,8 @@ const INIT_DDLS = [
   POLICY_CONFIG_DETAILS_DDL,
   GENERIC_CONFIG_DETAILS_DDL,
   TRAIN_RUN_REQUESTS_DDL,
-  TRAIN_GOAL_TRACKING_DDL
+  TRAIN_GOAL_TRACKING_DDL,
+  TRAIN_ARTIFACTS_DDL
 ];
 
 module.exports = {
@@ -91,6 +95,8 @@ module.exports = {
   TRAIN_CONFIGS_DDL,
   TRAIN_GOAL_TRACKING_DDL,
   TRAIN_GOAL_TRACKING_TABLE,
+  TRAIN_ARTIFACTS_DDL,
+  TRAIN_ARTIFACTS_TABLE,
   TRAINING_CONFIG_DETAILS_DDL,
   TRAINING_CONFIG_DETAILS_TABLE,
   TRAIN_RUN_REQUESTS_TABLE,
@@ -103,6 +109,7 @@ module.exports = {
   ensureBacktestResultsSchema,
   ensureTrainDataTraceSchema,
   ensureTrainConfigsSchema,
+  ensureTrainArtifactsSchema,
   ensureTrainGoalTrackingSchema,
   ensureTrainRunRequestsSchema,
   ensureKlineSchema,

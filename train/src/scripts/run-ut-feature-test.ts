@@ -162,6 +162,34 @@ async function main(): Promise<void> {
     featureEngineering: {
       openingWindowMinutes: 1,
       volBaselineLookbackPeriods: 1,
+      routerDecision: {
+        periodAction: {
+          stopAtOrBelowPnl: -500,
+          reduceBelowPnl: 0,
+          reduceRisk: 0.85,
+          tradeRisk: 1
+        },
+        dailyAction: {
+          stopAtOrBelowBestPnl: -200,
+          minEdgeVsWeekBaseAbsolute: 0,
+          minEdgeVsWeekBaseRatio: 1,
+          reduceRisk: 0.85,
+          tradeRisk: 1,
+          preferWeekBaseOnReduce: false
+        },
+        aggregateAction: {
+          stopShareThreshold: 0.67,
+          reduceShareThreshold: 0.67,
+          normalizeStopToReduceForNonLossCheck: false,
+          minimumReducedRisk: 0.25
+        },
+        lossRecheckAction: {
+          stopAtOrBelowCurrentPnl: -200,
+          reduceAtOrBelowCurrentPnl: 0,
+          reduceRisk: 0.85,
+          tradeRisk: 1
+        }
+      },
       routerSplit: {
         enabled: true,
         minSamplesPerBranch: 1,

@@ -7,6 +7,7 @@ import {
   TABLES,
   ensureBacktestResultsSchema,
   ensureKlineSchema,
+  ensureTrainArtifactsSchema,
   ensureTrainConfigsSchema,
   ensureTrainDataTraceSchema,
   ensureTrainGoalTrackingSchema,
@@ -88,6 +89,7 @@ async function resetSchema(): Promise<void> {
     await ensureTrainConfigsSchema(connection);
     await ensureTrainRunRequestsSchema(connection);
     await ensureTrainGoalTrackingSchema(connection);
+    await ensureTrainArtifactsSchema(connection);
   } finally {
     await connection.end();
   }

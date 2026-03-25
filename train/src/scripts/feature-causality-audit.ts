@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 
-import * as fs from 'fs';
-import * as path from 'path';
 import type * as mysql from 'mysql2/promise';
 import db from '../configs/database';
+import { saveTrainArtifact } from '../services/train-artifact-store';
 import type { KlineData } from '../types';
 import {
   buildPeriodFeatures,
@@ -14,7 +13,6 @@ import {
 } from '../services/rolling-features';
 
 const DEFAULT_OPENING_MINUTES = 60;
-const DEFAULT_OUTPUT_DIR = path.resolve(__dirname, '../../reports/feature-causality');
 
 interface CliArgs {
   readonly trainId?: string;
@@ -144,30 +142,6 @@ function parseArgs(argv: readonly string[]): CliArgs {
   };
 }
 
-function ensureDir(dirPath: string): void {
-  fs.mkdirSync(dirPath, { recursive: true });
-}
-
-function correlation(xs: readonly number[], ys: readonly number[]): number {
-  if (xs.length !== ys.length || xs.length < 2) return 0;
-  const xMean = xs.reduce((sum, value) => sum + value, 0) / xs.length;
-  const yMean = ys.reduce((sum, value) => sum + value, 0) / ys.length;
-
-  let numerator = 0;
-  let xVar = 0;
-  let yVar = 0;
-  for (let index = 0; index < xs.length; index += 1) {
-    const x = xs[index] ?? 0;
-    const y = ys[index] ?? 0;
-    numerator += (x - xMean) * (y - yMean);
-    xVar += (x - xMean) ** 2;
-    yVar += (y - yMean) ** 2;
-  }
-
-  if (xVar === 0 || yVar === 0) return 0;
-  return round(numerator / Math.sqrt(xVar * yVar), 4);
-}
-
 function computeFeature(key: string, klines: readonly KlineData[], openingMinutes: number): PeriodFeature | null {
   return buildPeriodFeatures(klines, () => key, detectDailyFeatureBucket, {
     openingWindowCount: Math.min(openingMinutes, klines.length)
@@ -232,83 +206,10 @@ function buildDailyAuditRows(klines: readonly KlineData[], openingMinutes: numbe
   return rows;
 }
 
-function buildMarkdown(args: CliArgs, rows: readonly DailyAuditRow[]): string {
-  const bucketMatchRate = rows.length
-    ? round((rows.filter((row) => row.bucketMatched).length / rows.length) * 100, 2)
-    : 0;
-  const signMatchRate = rows.length
-    ? round((rows.filter((row) => Math.sign(row.fullDay.returnPct) === Math.sign(row.openingWindow.returnPct)).length / rows.length) * 100, 2)
-    : 0;
-  const returnCorrelation = correlation(
-    rows.map((row) => row.openingWindow.returnPct),
-    rows.map((row) => row.fullDay.returnPct)
-  );
-  const volCorrelation = correlation(
-    rows.map((row) => row.openingWindow.realizedVolPct),
-    rows.map((row) => row.fullDay.realizedVolPct)
-  );
-  const rangeCorrelation = correlation(
-    rows.map((row) => row.openingWindow.avgRangePct),
-    rows.map((row) => row.fullDay.avgRangePct)
-  );
-  const trendEfficiencyCorrelation = correlation(
-    rows.map((row) => row.openingWindow.trendEfficiency),
-    rows.map((row) => row.fullDay.trendEfficiency)
-  );
-  const reversalStrengthCorrelation = correlation(
-    rows.map((row) => row.openingWindow.reversalStrength),
-    rows.map((row) => row.fullDay.reversalStrength)
-  );
-  const largestGaps = [...rows]
-    .sort((left, right) => (Math.abs(right.volDelta) + Math.abs(right.returnDelta)) - (Math.abs(left.volDelta) + Math.abs(left.returnDelta)))
-    .slice(0, 10);
-
-  const lines: string[] = [];
-  lines.push(`# ${args.symbol} Feature Causality Audit`);
-  lines.push('');
-  lines.push(`- Symbol: \`${args.symbol}\``);
-  lines.push(`- Interval: \`${args.intervalType}\``);
-  lines.push(`- Period: \`${new Date(args.startTimeMs).toISOString()}\` -> \`${new Date(args.endTimeMs).toISOString()}\``);
-  lines.push(`- Opening window minutes: \`${args.openingMinutes}\``);
-  lines.push(`- Days audited: \`${rows.length}\``);
-  lines.push('');
-  lines.push('## Summary');
-  lines.push('');
-  lines.push(`- Opening bucket match rate: \`${bucketMatchRate}%\``);
-  lines.push(`- Opening/full-day return sign match rate: \`${signMatchRate}%\``);
-  lines.push(`- Opening/full-day return correlation: \`${returnCorrelation}\``);
-  lines.push(`- Opening/full-day vol correlation: \`${volCorrelation}\``);
-  lines.push(`- Opening/full-day range correlation: \`${rangeCorrelation}\``);
-  lines.push(`- Opening/full-day trend efficiency correlation: \`${trendEfficiencyCorrelation}\``);
-  lines.push(`- Opening/full-day reversal strength correlation: \`${reversalStrengthCorrelation}\``);
-  lines.push('');
-  lines.push('## Interpretation');
-  lines.push('');
-  lines.push('- If bucket match and correlations are low, the current full-day research features are poor proxies for decision-time features.');
-  lines.push('- If opening-window features roughly preserve sign and volatility ranking, they are better candidates for causal router inputs.');
-  lines.push('- Large divergence days deserve manual review before turning research buckets into executable rules.');
-  lines.push('');
-  lines.push('## Largest Divergence Days');
-  lines.push('');
-  lines.push('| Day | Opening Bucket | Full Bucket | Opening Return % | Full Return % | Opening Vol % | Full Vol % | Opening Trend Eff | Full Trend Eff |');
-  lines.push('| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |');
-  for (const row of largestGaps) {
-    lines.push(`| ${row.day} | ${row.openingWindow.featureBucket} | ${row.fullDay.featureBucket} | ${row.openingWindow.returnPct} | ${row.fullDay.returnPct} | ${row.openingWindow.realizedVolPct} | ${row.fullDay.realizedVolPct} | ${row.openingWindow.trendEfficiency} | ${row.fullDay.trendEfficiency} |`);
-  }
-  lines.push('');
-  return `${lines.join('\n')}\n`;
-}
-
 async function main(): Promise<void> {
   const args = parseArgs(process.argv);
   const klines = await loadKlines(args);
   const rows = buildDailyAuditRows(klines, args.openingMinutes);
-
-  const outputDir = args.outputDir ? path.resolve(args.outputDir) : DEFAULT_OUTPUT_DIR;
-  ensureDir(outputDir);
-  const baseName = `${args.symbol}_${new Date(args.startTimeMs).toISOString().slice(0, 10)}_to_${new Date(args.endTimeMs).toISOString().slice(0, 10)}_${args.openingMinutes}m`;
-  const jsonPath = path.join(outputDir, `${baseName}.json`);
-  const mdPath = path.join(outputDir, `${baseName}.md`);
 
   const payload = {
     generatedAt: new Date().toISOString(),
@@ -321,11 +222,22 @@ async function main(): Promise<void> {
     rows
   };
 
-  fs.writeFileSync(jsonPath, JSON.stringify(payload, null, 2) + '\n', 'utf8');
-  fs.writeFileSync(mdPath, buildMarkdown(args, rows), 'utf8');
+  await saveTrainArtifact(db, {
+    artifactKey: `feature-causality:${args.symbol}:${args.intervalType}:${args.startTimeMs}:${args.endTimeMs}:${args.openingMinutes}`,
+    artifactType: 'feature-causality',
+    trainId: args.trainId ?? null,
+    symbol: args.symbol,
+    intervalType: args.intervalType,
+    periodStartMs: args.startTimeMs,
+    periodEndMs: args.endTimeMs,
+    payload,
+    metadata: {
+      openingMinutes: args.openingMinutes
+    }
+  });
 
-  console.log(`Feature causality JSON written: ${jsonPath}`);
-  console.log(`Feature causality report written: ${mdPath}`);
+  console.log(`Feature causality artifact saved: feature-causality:${args.symbol}:${args.intervalType}:${args.startTimeMs}:${args.endTimeMs}:${args.openingMinutes}`);
+  console.log('Structured output is stored in DB; keep files only for AI summary markdown.');
 }
 
 main()

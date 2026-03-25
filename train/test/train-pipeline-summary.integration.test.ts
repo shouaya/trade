@@ -5,7 +5,11 @@ const path = require('node:path');
 
 const { test } = require('./harness.ts');
 const { buildTrainingPipelineSummary } = require('../dist/services/train-pipeline-summary.js');
-const { ROLLING_POOL_DETAILS_TABLE, ROLLING_RULE_DETAILS_TABLE } = require('@money/database');
+const {
+  TRAIN_ARTIFACTS_TABLE,
+  ROLLING_POOL_DETAILS_TABLE,
+  ROLLING_RULE_DETAILS_TABLE
+} = require('@money/database');
 
 function mkdirp(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -20,16 +24,12 @@ test('buildTrainingPipelineSummary assembles db-backed rolling pipeline status',
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'money-summary-'));
   const trainRoot = path.join(repoRoot, 'train');
 
-  writeText(path.join(trainRoot, 'reports', 'cost-sensitivity', '2024_btcjpy_cost.md'), '# Cost\n\nrouter beats default');
-  writeText(path.join(trainRoot, 'reports', 'feature-causality', '2024_btcjpy_feature.md'), '# Feature\n\ntrendEfficiency matters');
-  writeText(path.join(trainRoot, 'reports', 'regime-routing-results', '2024_btcjpy_router.md'), '# Router\n\nvalidation done');
-  writeText(path.join(trainRoot, 'reports', 'goal-tracking', '2024_btcjpy_goal.json'), JSON.stringify({ goal: 'stable-profit', score: 0.81 }));
-
   const tables = [
     'backtest_results',
     'tasks',
     'train_run_requests',
     'train_configs',
+    TRAIN_ARTIFACTS_TABLE,
     ROLLING_POOL_DETAILS_TABLE,
     ROLLING_RULE_DETAILS_TABLE,
   ];
@@ -143,6 +143,105 @@ test('buildTrainingPipelineSummary assembles db-backed rolling pipeline status',
           },
         ], {}];
       }
+      if (text.includes(`FROM ${TRAIN_ARTIFACTS_TABLE}`)) {
+        return [[
+          {
+            id: 101,
+            artifact_key: 'cost-sensitivity:2024_btcjpy_cost',
+            artifact_type: 'cost-sensitivity',
+            train_id: 'train-alpha-1',
+            config_id: 2,
+            config_key: 'configs/validation/2024_btcjpy_alpha_rolling_validation.json',
+            symbol: 'BTCJPY',
+            interval_type: '1min',
+            period_start_ms: 1711929600000,
+            period_end_ms: 1777161540000,
+            report_path: null,
+            summary_path: null,
+            summary_markdown: null,
+            payload_json: JSON.stringify({ kind: 'cost', headline: 'router beats default after cost' }),
+            metadata_json: JSON.stringify({ strategyCount: 10 }),
+            created_at: '2026-03-25T02:05:00.000Z',
+            updated_at: '2026-03-25T02:05:00.000Z',
+          },
+          {
+            id: 102,
+            artifact_key: 'feature-causality:BTCJPY:1min:1711929600000:1777161540000:60',
+            artifact_type: 'feature-causality',
+            train_id: 'train-alpha-1',
+            config_id: null,
+            config_key: null,
+            symbol: 'BTCJPY',
+            interval_type: '1min',
+            period_start_ms: 1711929600000,
+            period_end_ms: 1777161540000,
+            report_path: null,
+            summary_path: null,
+            summary_markdown: null,
+            payload_json: JSON.stringify({ kind: 'feature', note: 'trendEfficiency matters' }),
+            metadata_json: JSON.stringify({ openingMinutes: 60 }),
+            created_at: '2026-03-25T02:06:00.000Z',
+            updated_at: '2026-03-25T02:06:00.000Z',
+          },
+          {
+            id: 103,
+            artifact_key: 'router-validation:router_v1:1711929600000:1777161540000',
+            artifact_type: 'router-validation',
+            train_id: 'train-alpha-1',
+            config_id: 2,
+            config_key: 'configs/validation/2024_btcjpy_alpha_rolling_validation.json',
+            symbol: 'BTCJPY',
+            interval_type: '1min',
+            period_start_ms: 1711929600000,
+            period_end_ms: 1777161540000,
+            report_path: null,
+            summary_path: null,
+            summary_markdown: null,
+            payload_json: JSON.stringify({ kind: 'router-validation', headline: 'validation done' }),
+            metadata_json: JSON.stringify({ routerVersion: 'router_v1' }),
+            created_at: '2026-03-25T02:07:00.000Z',
+            updated_at: '2026-03-25T02:07:00.000Z',
+          },
+          {
+            id: 104,
+            artifact_key: 'goal-tracking:train-alpha-1:2024_btcjpy_alpha',
+            artifact_type: 'goal-tracking',
+            train_id: 'train-alpha-1',
+            config_id: 1,
+            config_key: 'configs/training/2024_btcjpy_alpha.json',
+            symbol: 'BTCJPY',
+            interval_type: '1min',
+            period_start_ms: null,
+            period_end_ms: null,
+            report_path: null,
+            summary_path: null,
+            summary_markdown: null,
+            payload_json: JSON.stringify({ goal: 'stable-profit', score: 0.81 }),
+            metadata_json: JSON.stringify({ scoringModelVersion: 'v1' }),
+            created_at: '2026-03-25T02:08:00.000Z',
+            updated_at: '2026-03-25T02:08:00.000Z',
+          },
+          {
+            id: 105,
+            artifact_key: 'ai-summary:train-alpha-1:pipeline',
+            artifact_type: 'ai-summary',
+            train_id: 'train-alpha-1',
+            config_id: 1,
+            config_key: 'configs/training/2024_btcjpy_alpha.json',
+            symbol: 'BTCJPY',
+            interval_type: '1min',
+            period_start_ms: null,
+            period_end_ms: null,
+            report_path: null,
+            summary_path: 'reports/ai-summaries/2024_btcjpy_alpha.pipeline.summary.md',
+            summary_markdown: '# R5 Summary\n\nrouter edge is improving',
+            payload_json: JSON.stringify({ title: 'R5 Summary', summaryKey: 'pipeline' }),
+            metadata_json: JSON.stringify({ createdBy: 'manual' }),
+            created_at: '2026-03-25T02:09:00.000Z',
+            updated_at: '2026-03-25T02:09:00.000Z',
+          },
+        ], {}];
+      }
       if (text.includes('FROM train_configs tc')) {
         return [[
           {
@@ -160,6 +259,7 @@ test('buildTrainingPipelineSummary assembles db-backed rolling pipeline status',
             content: JSON.stringify({
               name: '2024_BTCJPY_ALPHA',
               description: 'rolling training',
+              trainId: 'train-alpha-1',
               market: { symbol: 'BTCJPY', intervalType: '1min' },
               timeRange: {
                 startIso: '2024-04-01T00:00:00.000Z',
@@ -198,6 +298,7 @@ test('buildTrainingPipelineSummary assembles db-backed rolling pipeline status',
             updated_at: '2026-03-25T01:06:00.000Z',
             content: JSON.stringify({
               name: '2024_BTCJPY_ALPHA_ROLLING_VALIDATION',
+              trainId: 'train-alpha-1',
               trainConfig: 'configs/training/2024_btcjpy_alpha.json',
               validationProfile: 'rolling-window',
               validationTarget: { label: 'rolling 2024-04 -> 2026-03' },
@@ -317,7 +418,9 @@ test('buildTrainingPipelineSummary assembles db-backed rolling pipeline status',
     assert.equal(pipeline.validationConfigs[0].latestRun.runId, 'validation-run-1');
     assert.equal(pipeline.router.routerPath, 'configs/generated/regime-routing/2024_btcjpy_alpha_router.json');
     assert.equal(pipeline.router.policyPath, 'configs/generated/regime-routing/2024_btcjpy_alpha_router.policy.json');
-    assert.equal(pipeline.reports.costSensitivity.path, 'train/reports/cost-sensitivity/2024_btcjpy_cost.md');
+    assert.equal(pipeline.reports.costSensitivity.path, 'train_artifacts:cost-sensitivity:2024_btcjpy_cost');
+    assert.equal(pipeline.reports.aiSummary.path, 'reports/ai-summaries/2024_btcjpy_alpha.pipeline.summary.md');
+    assert.match(pipeline.reports.aiSummary.preview, /router edge is improving/);
     assert.match(pipeline.reports.goalTracking.preview, /stable-profit/);
     assert.equal(pipeline.steps.every((step) => step.status === 'done'), true);
     assert.equal(pipeline.nextAction.key, 'review');

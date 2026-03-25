@@ -14,6 +14,7 @@ export const POLICY_CONFIG_DETAILS_DDL: string;
 export const GENERIC_CONFIG_DETAILS_DDL: string;
 export const TRAIN_RUN_REQUESTS_DDL: string;
 export const TRAIN_GOAL_TRACKING_DDL: string;
+export const TRAIN_ARTIFACTS_DDL: string;
 export const INIT_DDLS: readonly string[];
 export const BACKTEST_RESULTS_TABLE: "backtest_results";
 export const TRAIN_CONFIGS_TABLE: "train_configs";
@@ -27,6 +28,7 @@ export const ROUTER_CONFIG_DETAILS_TABLE: "router_config_details";
 export const POLICY_CONFIG_DETAILS_TABLE: "policy_config_details";
 export const GENERIC_CONFIG_DETAILS_TABLE: "generic_config_details";
 export const TRAIN_RUN_REQUESTS_TABLE: "train_run_requests";
+export const TRAIN_ARTIFACTS_TABLE: "train_artifacts";
 export const TABLES: {
   readonly BACKTEST_RESULTS: "backtest_results";
   readonly KLINES: "klines";
@@ -44,6 +46,7 @@ export const TABLES: {
   readonly POLICY_CONFIG_DETAILS: "policy_config_details";
   readonly GENERIC_CONFIG_DETAILS: "generic_config_details";
   readonly TRAIN_RUN_REQUESTS: "train_run_requests";
+  readonly TRAIN_ARTIFACTS: "train_artifacts";
 };
 
 export interface QueryableDatabase {
@@ -78,6 +81,7 @@ export function ensureTrainDataTraceSchema(db: QueryableDatabase): Promise<void>
 export function ensureTrainConfigsSchema(db: QueryableDatabase): Promise<void>;
 export function ensureTrainGoalTrackingSchema(db: QueryableDatabase): Promise<void>;
 export function ensureTrainRunRequestsSchema(db: QueryableDatabase): Promise<void>;
+export function ensureTrainArtifactsSchema(db: QueryableDatabase): Promise<void>;
 export function tableExists(db: QueryableDatabase, tableName: string): Promise<boolean>;
 export function allTablesExist(db: QueryableDatabase, tableNames: readonly string[]): Promise<boolean>;
 export function loadEnvFiles(dotenvModule: { config(options?: { path?: string }): unknown }, envPaths: readonly string[]): void;

@@ -1,3 +1,5 @@
+import { cloneDefaultFeatureEngineeringConfig } from '../modules/decision-engine';
+
 export const DEFAULT_TRAINING_SYMBOL = 'BTCJPY';
 export const DEFAULT_TRAINING_RUN_TAG = 'V7_HF_RSI_MACD_TP_ATR';
 export const DEFAULT_TRADING_SCHEDULE = '* 12-18 * * 1-5';
@@ -290,24 +292,7 @@ export function buildDefaultTrainingTemplate(now = new Date(), coverage: Trainin
         feeModel: { ...GMO_LEVERAGE_2X_FEE_MODEL }
       }
     },
-    featureEngineering: {
-      openingWindowMinutes: 60,
-      volBaselineLookbackPeriods: 8,
-      routerSplit: {
-        enabled: true,
-        minSamplesPerBranch: 2,
-        metrics: [
-          'trendEfficiency',
-          'volExpansionRatio',
-          'openingImpulse',
-          'reversalStrength',
-          'positiveStrategyRatio',
-          'bestVsMedianGap',
-          'monthlyWeeklyAlignment',
-          'weeklyDailyAlignment'
-        ]
-      }
-    },
+    featureEngineering: cloneDefaultFeatureEngineeringConfig(),
     output: {
       topN: 10,
       strategyNamePrefix: `${startYear}-${symbol}-${DEFAULT_TRAINING_RUN_TAG.replace(/_/g, '-')}-`,

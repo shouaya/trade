@@ -17,6 +17,7 @@ require('./router-policy-catalog.test.ts');
 require('./router-artifact-builder.test.ts');
 require('./regime-router-validation.test.ts');
 require('./feature-flow.test.ts');
+require('./real-market-window-regression.test.ts');
 require('./cli-and-config.test.ts');
 require('./schedule-and-slippage.test.ts');
 require('./indicators-and-analyzers.test.ts');

@@ -6,6 +6,84 @@ const {
   normalizeLayerSummary,
 } = require('../dist/services/rolling-artifact-builder.js');
 
+function createFeatureEngineering(overrides = {}) {
+  const base = {
+    openingWindowMinutes: 1,
+    volBaselineLookbackPeriods: 1,
+    routerDecision: {
+      periodAction: {
+        stopAtOrBelowPnl: -500,
+        reduceBelowPnl: 0,
+        reduceRisk: 0.85,
+        tradeRisk: 1,
+      },
+      dailyAction: {
+        stopAtOrBelowBestPnl: -200,
+        minEdgeVsWeekBaseAbsolute: 0,
+        minEdgeVsWeekBaseRatio: 1,
+        reduceRisk: 0.85,
+        tradeRisk: 1,
+        preferWeekBaseOnReduce: false,
+      },
+      aggregateAction: {
+        stopShareThreshold: 0.67,
+        reduceShareThreshold: 0.67,
+        normalizeStopToReduceForNonLossCheck: false,
+        minimumReducedRisk: 0.25,
+      },
+      lossRecheckAction: {
+        stopAtOrBelowCurrentPnl: -200,
+        reduceAtOrBelowCurrentPnl: 0,
+        reduceRisk: 0.85,
+        tradeRisk: 1,
+      },
+    },
+    routerSplit: {
+      enabled: true,
+      minSamplesPerBranch: 2,
+      metrics: [
+        'trendEfficiency',
+        'volExpansionRatio',
+        'openingImpulse',
+        'reversalStrength',
+        'positiveStrategyRatio',
+        'bestVsMedianGap',
+        'monthlyWeeklyAlignment',
+        'weeklyDailyAlignment',
+      ],
+    },
+  };
+
+  return {
+    ...base,
+    ...overrides,
+    routerDecision: {
+      ...base.routerDecision,
+      ...(overrides.routerDecision || {}),
+      periodAction: {
+        ...base.routerDecision.periodAction,
+        ...((overrides.routerDecision && overrides.routerDecision.periodAction) || {}),
+      },
+      dailyAction: {
+        ...base.routerDecision.dailyAction,
+        ...((overrides.routerDecision && overrides.routerDecision.dailyAction) || {}),
+      },
+      aggregateAction: {
+        ...base.routerDecision.aggregateAction,
+        ...((overrides.routerDecision && overrides.routerDecision.aggregateAction) || {}),
+      },
+      lossRecheckAction: {
+        ...base.routerDecision.lossRecheckAction,
+        ...((overrides.routerDecision && overrides.routerDecision.lossRecheckAction) || {}),
+      },
+    },
+    routerSplit: {
+      ...base.routerSplit,
+      ...(overrides.routerSplit || {}),
+    },
+  };
+}
+
 test('rolling artifact builder creates month week day mapping package from training data', () => {
   const strategyRows = [
     {
@@ -58,7 +136,8 @@ test('rolling artifact builder creates month week day mapping package from train
     topN: 2,
     strategyRows,
     trades,
-    klines
+    klines,
+    featureEngineering: createFeatureEngineering()
   });
 
   assert.ok(result.explicitStrategies.length >= 1);
@@ -128,15 +207,13 @@ test('rolling artifact builder respects routerSplit featureEngineering defaults'
     strategyRows,
     trades,
     klines,
-    featureEngineering: {
-      openingWindowMinutes: 1,
-      volBaselineLookbackPeriods: 1,
+    featureEngineering: createFeatureEngineering({
       routerSplit: {
         enabled: true,
         minSamplesPerBranch: 2,
         metrics: ['positiveStrategyRatio']
       }
-    }
+    })
   });
 
   assert.ok(splitEnabled.dailyRules.length > 0);
@@ -156,26 +233,27 @@ test('rolling artifact builder respects routerSplit featureEngineering defaults'
     strategyRows,
     trades,
     klines,
-    featureEngineering: {
+    featureEngineering: createFeatureEngineering({
       routerSplit: {
         enabled: false
       }
-    }
+    })
   });
 
   assert.ok(splitDisabled.routerRules.every((rule) => !(rule.when && rule.when.positiveStrategyRatio)));
 });
 
-test('rolling artifact builder downgrades non-loss stop summaries to reduce so router does not flatline by default', () => {
+test('rolling artifact builder keeps non-loss stop summaries untouched when aggregate normalization is disabled', () => {
+  const config = createFeatureEngineering().routerDecision;
   const weeklySummary = normalizeLayerSummary('weekly_guard', {
     actionType: 'stop',
     averageRisk: 0,
     dominantStrategy: 'alpha',
     sampleCount: 5,
-  });
+  }, config);
 
-  assert.equal(weeklySummary.actionType, 'reduce');
-  assert.equal(weeklySummary.averageRisk, 0.5);
+  assert.equal(weeklySummary.actionType, 'stop');
+  assert.equal(weeklySummary.averageRisk, 0);
   assert.equal(weeklySummary.dominantStrategy, 'alpha');
 
   const monthlySummary = normalizeLayerSummary('monthly_guard', {
@@ -183,28 +261,37 @@ test('rolling artifact builder downgrades non-loss stop summaries to reduce so r
     averageRisk: 0,
     dominantStrategy: 'alpha',
     sampleCount: 5,
-  });
+  }, config);
 
-  assert.equal(monthlySummary.actionType, 'reduce');
-  assert.equal(monthlySummary.averageRisk, 0.5);
+  assert.equal(monthlySummary.actionType, 'stop');
+  assert.equal(monthlySummary.averageRisk, 0);
 
   const dailySummary = normalizeLayerSummary('daily_router', {
     actionType: 'stop',
     averageRisk: 0,
     dominantStrategy: 'alpha',
     sampleCount: 5,
-  });
+  }, config);
 
-  assert.equal(dailySummary.actionType, 'reduce');
-  assert.equal(dailySummary.averageRisk, 0.5);
+  assert.equal(dailySummary.actionType, 'stop');
+  assert.equal(dailySummary.averageRisk, 0);
 
   const lossSummary = normalizeLayerSummary('loss_recheck', {
     actionType: 'stop',
     averageRisk: 0,
     dominantStrategy: 'alpha',
     sampleCount: 5,
-  });
+  }, config);
 
   assert.equal(lossSummary.actionType, 'stop');
   assert.equal(lossSummary.averageRisk, 0);
+});
+
+test('rolling artifact builder requires explicit feature engineering decision config', () => {
+  assert.throws(() => buildRollingArtifactPackage({
+    topN: 1,
+    strategyRows: [],
+    trades: [],
+    klines: [],
+  }), /featureEngineering is required/);
 });

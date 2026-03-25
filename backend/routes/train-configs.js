@@ -5,6 +5,7 @@ const {
   BACKTEST_RESULTS_TABLE,
   TABLES,
   ensureBacktestResultsSchema,
+  ensureTrainArtifactsSchema,
   ensureTrainDataTraceSchema,
   ensureTrainConfigsSchema,
   TRAIN_CONFIGS_TABLE,
@@ -80,6 +81,22 @@ function resolveAbsoluteConfigPath(configKey) {
     throw new Error('导出路径超出 train 根目录');
   }
   return fullPath;
+}
+
+function sanitizeToken(value, fallback = 'summary') {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || fallback;
+}
+
+function ensureMarkdownText(value) {
+  const markdown = String(value || '').trim();
+  if (!markdown) {
+    throw new Error('markdown is required');
+  }
+  return markdown.endsWith('\n') ? markdown : `${markdown}\n`;
 }
 
 function toPosix(value) {
@@ -270,8 +287,8 @@ function buildRouterValidationReportPaths(trainingRecord, validationRecord) {
     return [];
   }
 
-  const prefix = `reports/regime-routing-results/${symbol}_${routerVersion}_${startLabel}_to_${endLabel}`;
-  return [`${prefix}.json`, `${prefix}.md`];
+  const prefix = `generated/analytics/regime-routing-results/${symbol}_${routerVersion}_${startLabel}_to_${endLabel}`;
+  return [`${prefix}.json`];
 }
 
 function buildReportDeletePlan(trainingRecord, relatedConfigs) {
@@ -283,13 +300,11 @@ function buildReportDeletePlan(trainingRecord, relatedConfigs) {
   const featureStart = formatIsoDateOnly(trainingTimeRange.startIso || trainingTimeRange.startTimeMs);
   const featureEnd = formatIsoDateOnly(trainingTimeRange.endIso || trainingTimeRange.endTimeMs);
   if (trainingSymbol && featureStart && featureEnd) {
-    const featurePrefix = `reports/feature-causality/${trainingSymbol}_${featureStart}_to_${featureEnd}_60m`;
+    const featurePrefix = `generated/analytics/feature-causality/${trainingSymbol}_${featureStart}_to_${featureEnd}_60m`;
     fileKeys.add(`${featurePrefix}.json`);
-    fileKeys.add(`${featurePrefix}.md`);
   }
   if (trainingBaseName) {
-    fileKeys.add(`reports/goal-tracking/${trainingBaseName}.goal-tracking.json`);
-    fileKeys.add(`reports/goal-tracking/${trainingBaseName}.goal-tracking.md`);
+    fileKeys.add(`generated/analytics/goal-tracking/${trainingBaseName}.goal-tracking.json`);
   }
 
   for (const item of relatedConfigs) {
@@ -297,8 +312,7 @@ function buildReportDeletePlan(trainingRecord, relatedConfigs) {
     if (configType === 'validation') {
       const baseName = path.basename(String(item.configKey || ''), '.json');
       if (baseName) {
-        fileKeys.add(`reports/cost-sensitivity/${baseName}.json`);
-        fileKeys.add(`reports/cost-sensitivity/${baseName}.md`);
+        fileKeys.add(`generated/analytics/cost-sensitivity/${baseName}.json`);
       }
 
       for (const reportPath of buildRouterValidationReportPaths(trainingRecord, item)) {
@@ -753,6 +767,98 @@ router.post('/:id/export', async (req, res) => {
   }
 });
 
+router.post('/:id/ai-summary', async (req, res) => {
+  try {
+    const hasRegistry = await ensureRegistryTableExists();
+    if (!hasRegistry) {
+      return sendRegistryNotReady(res);
+    }
+
+    await ensureTrainArtifactsSchema(db);
+
+    const row = await loadConfigById(req.params.id);
+    if (!row) {
+      return res.status(404).json({
+        success: false,
+        error: 'Train config not found'
+      });
+    }
+
+    const record = mapTrainConfigRecord(row, { includeContent: true });
+    const markdown = ensureMarkdownText(req.body?.markdown);
+    const summaryKey = sanitizeToken(req.body?.summaryKey || 'pipeline', 'pipeline');
+    const title = String(req.body?.title || '').trim() || null;
+    const symbol = String(record.symbol || record.content?.market?.symbol || '').trim().toUpperCase() || null;
+    const trainId = String(record.trainId || '').trim() || null;
+    const baseName = path.basename(String(record.configKey || ''), '.json') || `config-${record.id}`;
+    const fileName = `${baseName}.${summaryKey}.summary.md`;
+    const summaryRelativePath = toPosix(path.posix.join('reports', 'ai-summaries', fileName));
+    const summaryAbsolutePath = resolveAbsoluteConfigPath(summaryRelativePath);
+
+    fs.mkdirSync(path.dirname(summaryAbsolutePath), { recursive: true });
+    fs.writeFileSync(summaryAbsolutePath, markdown, 'utf8');
+
+    const artifactKey = `ai-summary:${trainId || `config-${record.id}`}:${summaryKey}`;
+    await db.query(
+      `INSERT INTO ${TABLES.TRAIN_ARTIFACTS}
+        (
+          artifact_key,
+          artifact_type,
+          train_id,
+          config_id,
+          config_key,
+          symbol,
+          summary_path,
+          summary_markdown,
+          payload_json,
+          metadata_json
+        )
+       VALUES (?, 'ai-summary', ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         train_id = VALUES(train_id),
+         config_id = VALUES(config_id),
+         config_key = VALUES(config_key),
+         symbol = VALUES(symbol),
+         summary_path = VALUES(summary_path),
+         summary_markdown = VALUES(summary_markdown),
+         payload_json = VALUES(payload_json),
+         metadata_json = VALUES(metadata_json),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        artifactKey,
+        trainId,
+        Number(record.id),
+        String(record.configKey || ''),
+        symbol,
+        summaryRelativePath,
+        markdown,
+        JSON.stringify({
+          title,
+          summaryKey,
+          sourceConfigType: record.configType,
+          sourceConfigName: record.configName || null
+        }),
+        JSON.stringify({
+          createdBy: 'manual',
+          title
+        })
+      ]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        artifactKey,
+        summaryPath: summaryRelativePath,
+        summaryKey
+      },
+      message: 'AI summary saved'
+    });
+  } catch (error) {
+    return sendJsonError(res, 400, 'Failed to save AI summary', getErrorMessage(error));
+  }
+});
+
 router.post('/:id/clear-results', async (req, res) => {
   let connection;
 
@@ -776,9 +882,6 @@ router.post('/:id/clear-results', async (req, res) => {
       : [];
     const trainOrchestration = loadTrainOrchestrationService();
     const clearPlan = trainOrchestration.buildClearResultsPlan(record, relatedConfigs);
-    const reportDeletePlan = record.configType === 'training'
-      ? buildReportDeletePlan(record, relatedConfigs)
-      : [];
     if (record.configType === 'training' && !record.trainId) {
       return sendJsonError(res, 400, 'Failed to clear train results', 'train_id is required; old data compatibility has been removed');
     }
@@ -813,7 +916,16 @@ router.post('/:id/clear-results', async (req, res) => {
     let deletedTradeRows = 0;
     let deletedStrategyRows = 0;
     let deletedGoalTrackingRows = 0;
+    let deletedArtifactRows = 0;
+    const deletedSummaryFiles = [];
     if (record.configType === 'training') {
+      const [artifactRows] = await connection.query(
+        `SELECT summary_path
+         FROM ${TABLES.TRAIN_ARTIFACTS}
+         WHERE train_id = ?`,
+        [record.trainId]
+      );
+
       const [deleteRequestsResult] = await connection.query(
         `DELETE FROM ${TABLES.TRAIN_RUN_REQUESTS}
          WHERE train_id = ?`,
@@ -856,12 +968,23 @@ router.post('/:id/clear-results', async (req, res) => {
         }
       }
 
-      for (const reportKey of reportDeletePlan) {
-        const absolutePath = resolveAbsoluteConfigPath(reportKey);
+      for (const row of artifactRows) {
+        const summaryPath = String(row.summary_path || '').trim();
+        if (!summaryPath) {
+          continue;
+        }
+        const absolutePath = resolveAbsoluteConfigPath(summaryPath);
         if (safeUnlink(absolutePath)) {
-          deletedReportFiles.push(reportKey);
+          deletedSummaryFiles.push(summaryPath);
         }
       }
+
+      const [deleteArtifactsResult] = await connection.query(
+        `DELETE FROM ${TABLES.TRAIN_ARTIFACTS}
+         WHERE train_id = ?`,
+        [record.trainId]
+      );
+      deletedArtifactRows = Number(deleteArtifactsResult.affectedRows || 0);
 
       const [deleteRegistryResult] = await connection.query(
         `DELETE FROM ${TRAIN_CONFIGS_TABLE}
@@ -889,8 +1012,9 @@ router.post('/:id/clear-results', async (req, res) => {
         deletedTradeRows,
         deletedStrategyRows,
         deletedGoalTrackingRows,
+        deletedArtifactRows,
         deletedFiles,
-        deletedReportFiles
+        deletedReportFiles: deletedSummaryFiles
       },
       message: 'Train results cleared'
     });

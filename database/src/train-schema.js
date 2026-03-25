@@ -12,6 +12,7 @@ const {
 } = require('./train-configs.schema');
 const { TRAIN_RUN_REQUESTS_DDL } = require('./train-run-requests.schema');
 const { TRAIN_GOAL_TRACKING_DDL } = require('./train-goal-tracking.schema');
+const { TRAIN_ARTIFACTS_DDL } = require('./train-artifacts.schema');
 const {
   dropColumnIfExists,
   dropIndexIfExists,
@@ -32,7 +33,8 @@ const {
   TRAIN_GOAL_TRACKING_TABLE,
   TRAINING_CONFIG_DETAILS_TABLE,
   VALIDATION_CONFIG_DETAILS_TABLE,
-  TRAIN_RUN_REQUESTS_TABLE
+  TRAIN_RUN_REQUESTS_TABLE,
+  TRAIN_ARTIFACTS_TABLE
 } = require('./table-names');
 
 async function ensureBacktestResultsSchema(db, tableName = BACKTEST_RESULTS_TABLE) {
@@ -132,6 +134,15 @@ async function ensureTrainGoalTrackingSchema(db) {
   await ensureIndex(db, TRAIN_GOAL_TRACKING_TABLE, 'idx_symbol_updated_at', 'INDEX idx_symbol_updated_at (symbol, updated_at)');
 }
 
+async function ensureTrainArtifactsSchema(db) {
+  await db.query(TRAIN_ARTIFACTS_DDL);
+  await ensureIndex(db, TRAIN_ARTIFACTS_TABLE, 'uniq_artifact_key', 'UNIQUE INDEX uniq_artifact_key (artifact_key)');
+  await ensureIndex(db, TRAIN_ARTIFACTS_TABLE, 'idx_type_updated_at', 'INDEX idx_type_updated_at (artifact_type, updated_at)');
+  await ensureIndex(db, TRAIN_ARTIFACTS_TABLE, 'idx_train_type_updated_at', 'INDEX idx_train_type_updated_at (train_id, artifact_type, updated_at)');
+  await ensureIndex(db, TRAIN_ARTIFACTS_TABLE, 'idx_symbol_type_period', 'INDEX idx_symbol_type_period (symbol, artifact_type, period_start_ms, period_end_ms)');
+  await ensureIndex(db, TRAIN_ARTIFACTS_TABLE, 'idx_config_key', 'INDEX idx_config_key (config_key)');
+}
+
 async function ensureTrainDataTraceSchema(db) {
   await ensureColumn(db, TABLES.STRATEGIES, 'train_id', `VARCHAR(100) NULL COMMENT 'root training lineage id' AFTER name`);
   await ensureIndex(db, TABLES.STRATEGIES, 'idx_train_id', 'INDEX idx_train_id (train_id)');
@@ -148,5 +159,6 @@ module.exports = {
   ensureTrainConfigsSchema,
   ensureTrainRunRequestsSchema,
   ensureTrainDataTraceSchema,
-  ensureTrainGoalTrackingSchema
+  ensureTrainGoalTrackingSchema,
+  ensureTrainArtifactsSchema
 };

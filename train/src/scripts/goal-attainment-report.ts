@@ -3,10 +3,12 @@ import * as path from 'path';
 import type * as mysql from 'mysql2/promise';
 import {
   BACKTEST_RESULTS_TABLE,
+  TRAIN_ARTIFACTS_TABLE,
   TRAIN_CONFIGS_TABLE,
   TRAIN_GOAL_TRACKING_TABLE
 } from '@money/database';
 import db from '../configs/database';
+import { saveTrainArtifact } from '../services/train-artifact-store';
 import {
   buildTrainConfigContentSelectSql,
   buildTrainConfigDetailJoinsSql
@@ -14,7 +16,6 @@ import {
 import { resolveEvaluationTimeRange } from '../services/validation-range';
 
 const TRAIN_ROOT = path.resolve(__dirname, '..', '..');
-const OUTPUT_DIR = path.resolve(__dirname, '../../reports/goal-tracking');
 const SCORING_MODEL_VERSION = 'goal-fit-v1';
 
 type JsonObject = any;
@@ -185,10 +186,6 @@ function toPosix(value: string): string {
   return String(value || '').replace(/\\/g, '/');
 }
 
-function toRepoRelative(filePath: string): string {
-  return toPosix(path.relative(TRAIN_ROOT, filePath));
-}
-
 function resolveConfigRef(baseConfigKey: string, targetRef: string): string {
   const normalizedRef = String(targetRef || '').trim();
   if (!normalizedRef) {
@@ -208,40 +205,23 @@ function loadJsonFileIfExists(relativePath: string): JsonObject | null {
   return JSON.parse(fs.readFileSync(absolutePath, 'utf8')) as JsonObject;
 }
 
-function formatIsoDateOnly(value: unknown): string {
-  if (value == null || value === '') {
-    return '';
+function parseMaybeJson(value: unknown): JsonObject | null {
+  if (!value) {
+    return null;
   }
-  const date = new Date(value as string | number | Date);
-  if (Number.isNaN(date.getTime())) {
-    return '';
+  if (typeof value === 'object') {
+    return value as JsonObject;
   }
-  return date.toISOString().slice(0, 10);
+  try {
+    return JSON.parse(String(value)) as JsonObject;
+  } catch {
+    return null;
+  }
 }
 
 function toFiniteNumber(value: unknown): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
-}
-
-function buildExpectedRouterReportPath(
-  routerVersion: string,
-  validationContent: JsonObject,
-  fallbackSymbol: string
-): string | null {
-  const symbol = String(validationContent?.market?.symbol || fallbackSymbol || '').trim().toUpperCase();
-  let timeRange;
-  try {
-    timeRange = resolveEvaluationTimeRange(validationContent);
-  } catch {
-    return null;
-  }
-  const startLabel = formatIsoDateOnly(timeRange.startIso || timeRange.startTimeMs);
-  const endLabel = formatIsoDateOnly(timeRange.endIso || timeRange.endTimeMs);
-  if (!symbol || !routerVersion || !startLabel || !endLabel) {
-    return null;
-  }
-  return `reports/regime-routing-results/${symbol}_${routerVersion}_${startLabel}_to_${endLabel}.json`;
 }
 
 async function loadTrainingRow(configKey: string | null, trainId: string): Promise<RegistryRow | null> {
@@ -358,6 +338,31 @@ export async function loadLatestValidationRows(
   return rows as BacktestResultRow[];
 }
 
+async function loadRouterReportsByValidationConfig(trainId: string): Promise<ReadonlyMap<string, RouterReport>> {
+  const [rows] = await db.query<mysql.RowDataPacket[]>(
+    `SELECT config_key, payload_json
+     FROM ${TRAIN_ARTIFACTS_TABLE}
+     WHERE train_id = ?
+       AND artifact_type = 'router-validation'
+     ORDER BY updated_at DESC, id DESC`,
+    [trainId]
+  );
+
+  const reportMap = new Map<string, RouterReport>();
+  for (const row of rows) {
+    const configKey = String(row['config_key'] || '').trim();
+    if (!configKey || reportMap.has(configKey)) {
+      continue;
+    }
+    const payload = parseMaybeJson(row['payload_json']);
+    if (payload) {
+      reportMap.set(configKey, payload as RouterReport);
+    }
+  }
+
+  return reportMap;
+}
+
 function pickBestValidationRow(rows: readonly BacktestResultRow[]): BacktestResultRow | null {
   return rows[0] ?? null;
 }
@@ -442,78 +447,12 @@ function computeStrategySwitchPerWeek(dailyRoutes: readonly RouterDayRow[]): num
   return average(switchCounts);
 }
 
-function renderMarkdown(report: JsonObject): string {
-  const summary = report.summary as JsonObject;
-  const adaptation = report.adaptation as JsonObject;
-  const validation = report.validation as JsonObject;
-  const router = (report.router ?? null) as JsonObject | null;
-  const stability = report.stability as JsonObject;
-  const notes = Array.isArray(report.notes) ? report.notes as readonly string[] : [];
-
-  const noteSection = notes.length > 0
-    ? notes.map((note) => `- ${note}`).join('\n')
-    : '- 当前没有新增预警。';
-
-  return `# ${report.symbol} Goal Tracking
-
-- Train ID: \`${report.trainId}\`
-- Training config: \`${report.trainingConfigKey}\`
-- Generated at: \`${report.generatedAt}\`
-- Scoring model: \`${report.scoringModelVersion}\`
-
-## Summary
-
-- Goal attainment: \`${summary.goalAttainmentPct}%\`
-- Status: \`${summary.status}\`
-- Headline: ${summary.headline}
-
-## Adaptation
-
-- Monthly pools: \`${adaptation.monthlyPoolCount}\`
-- Avg pool size: \`${adaptation.avgPoolSize}\`
-- Unique strategies: \`${adaptation.uniqueStrategyCount}\`
-- Avg turnover ratio: \`${adaptation.avgTurnoverRatio}\`
-- Score: \`${adaptation.scorePct}%\`
-
-## Validation
-
-- Validation windows: \`${validation.windowCount}\`
-- Profitable best-window ratio: \`${validation.profitableWindowRatio}\`
-- Median best return: \`${validation.medianBestReturnPct}%\`
-- Worst best return: \`${validation.worstBestReturnPct}%\`
-- Score: \`${validation.scorePct}%\`
-
-## Router
-
-- Coverage ratio: \`${router?.coverageRatio ?? 0}\`
-- Positive window ratio: \`${router?.positiveWindowRatio ?? 0}\`
-- Beat baseline ratio: \`${router?.beatBaselineRatio ?? 0}\`
-- Avg strategy switches / week: \`${router?.avgStrategySwitchesPerWeek ?? 0}\`
-- Avg week-day alignment: \`${router?.avgWeeklyDailyAlignment ?? 0}\`
-- Avg positive strategy ratio: \`${router?.avgPositiveStrategyRatio ?? 0}\`
-- Avg best-vs-median gap: \`${router?.avgBestVsMedianGap ?? 0}\`
-- Avg trend efficiency: \`${router?.avgTrendEfficiency ?? 0}\`
-- Score: \`${router?.scorePct ?? 0}%\`
-
-## Stability
-
-- Positive window ratio: \`${stability.positiveWindowRatio}\`
-- Avg max drawdown pct: \`${stability.avgMaxDrawdownPct}\`
-- Profit concentration share (top 5): \`${stability.topContributionShare}\`
-- Score: \`${stability.scorePct}%\`
-
-## Notes
-
-${noteSection}
-`;
-}
-
 async function upsertGoalTrackingRow(params: {
   readonly trainId: string;
   readonly configId: number;
   readonly configKey: string;
   readonly symbol: string;
-  readonly reportPath: string;
+  readonly reportPath: string | null;
   readonly report: JsonObject;
 }): Promise<void> {
   const { report } = params;
@@ -667,23 +606,10 @@ async function main(): Promise<void> {
     ? loadJsonFileIfExists(resolveConfigRef(String(trainingRow.config_key), routerConfigRef))
     : null;
   const routerVersion = String(routerContent?.routerVersion || '').trim();
-
-  const routerReports: RouterReport[] = [];
-  for (const row of validationRows) {
-    const validationContent = parseRowContent(row);
-    const reportPath = buildExpectedRouterReportPath(
-      routerVersion,
-      validationContent,
-      symbol
-    );
-    if (!reportPath) {
-      continue;
-    }
-    const report = loadJsonFileIfExists(reportPath);
-    if (report) {
-      routerReports.push(report as unknown as RouterReport);
-    }
-  }
+  const routerReportMap = await loadRouterReportsByValidationConfig(trainId);
+  const routerReports: RouterReport[] = validationRows
+    .map((row) => routerReportMap.get(String(row.config_key || '').trim()) ?? null)
+    .filter((item): item is RouterReport => Boolean(item));
 
   const beatDefaultRatio = routerReports.length > 0
     ? routerReports.filter((item) => item.comparison.router.totalPnl > item.comparison.defaultStrategy.totalPnl).length / routerReports.length
@@ -846,27 +772,35 @@ async function main(): Promise<void> {
     notes
   };
 
-  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   const baseName = path.basename(String(trainingRow.config_key), '.json');
-  const jsonPath = path.join(OUTPUT_DIR, `${baseName}.goal-tracking.json`);
-  const mdPath = path.join(OUTPUT_DIR, `${baseName}.goal-tracking.md`);
-  fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2) + '\n', 'utf8');
-  fs.writeFileSync(mdPath, renderMarkdown(report), 'utf8');
+  await saveTrainArtifact(db as unknown as mysql.Pool | mysql.Connection, {
+    artifactKey: `goal-tracking:${trainId}:${baseName}`,
+    artifactType: 'goal-tracking',
+    trainId,
+    configId: Number(trainingRow.id),
+    configKey: String(trainingRow.config_key),
+    symbol,
+    payload: report,
+    metadata: {
+      scoringModelVersion: SCORING_MODEL_VERSION,
+      routerVersion: routerVersion || null
+    }
+  });
 
   await upsertGoalTrackingRow({
     trainId,
     configId: Number(trainingRow.id),
     configKey: String(trainingRow.config_key),
     symbol,
-    reportPath: toRepoRelative(mdPath),
+    reportPath: null,
     report
   });
 
   console.log(`[goal-tracking] validation windows: ${validationWindows.length}`);
   console.log(`[goal-tracking] router reports: ${routerReports.length}`);
   console.log(`[goal-tracking] goal attainment: ${goalAttainmentPct}% (${status})`);
-  console.log(`Goal tracking JSON written: ${jsonPath}`);
-  console.log(`Goal tracking report written: ${mdPath}`);
+  console.log(`Goal tracking artifact saved: goal-tracking:${trainId}:${baseName}`);
+  console.log('Structured output is stored in DB; keep files only for AI summary markdown.');
 
   await db.end();
 }

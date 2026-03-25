@@ -142,6 +142,10 @@ export const trainConfigsAPI = {
     return api.post(`/train-configs/${id}/router-artifacts`, payload);
   },
 
+  saveAiSummary: (id, payload) => {
+    return api.post(`/train-configs/${id}/ai-summary`, payload);
+  },
+
   clearResults: (id) => {
     return api.post(`/train-configs/${id}/clear-results`);
   },

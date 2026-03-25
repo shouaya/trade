@@ -13,11 +13,17 @@ import {
   round,
   type PeriodFeature
 } from './rolling-features';
+import {
+  choosePeriodAction,
+  getDecisionFeatureEngineeringConfig,
+  decideDailyAction,
+  summarizeAggregateAction,
+  type RollingRouterAction
+} from '../modules/decision-engine';
 
 type JsonObject = any;
 
 export type RollingRouterLayer = 'monthly_guard' | 'weekly_guard' | 'daily_router' | 'loss_recheck';
-export type RollingRouterAction = 'trade' | 'reduce' | 'stop';
 
 export interface RollingStrategyResultRow {
   readonly strategy_name: string;
@@ -199,16 +205,6 @@ function rankPoolByPeriodPnl(
     });
 }
 
-function choosePeriodAction(bestPnl: number): { readonly type: RollingRouterAction; readonly risk: number } {
-  if (bestPnl <= 0) {
-    return { type: 'stop', risk: 0 };
-  }
-  if (bestPnl < 1000) {
-    return { type: 'reduce', risk: 0.5 };
-  }
-  return { type: 'trade', risk: 1 };
-}
-
 function toShortLabel(parameters: JsonObject): string {
   const rsi = parameters['rsi'] && typeof parameters['rsi'] === 'object' ? parameters['rsi'] as JsonObject : {};
   const risk = parameters['risk'] && typeof parameters['risk'] === 'object' ? parameters['risk'] as JsonObject : {};
@@ -276,16 +272,24 @@ interface SampleSummary {
 
 export function normalizeLayerSummary(
   layer: RollingRouterLayer,
-  summary: SampleSummary
+  summary: SampleSummary,
+  routerDecisionConfig: ReturnType<typeof getDecisionFeatureEngineeringConfig>['routerDecision']
 ): SampleSummary {
-  if (layer === 'loss_recheck' || summary.actionType !== 'stop') {
+  const normalized = summarizeAggregateAction({
+    layer,
+    stopShare: summary.actionType === 'stop' ? 1 : 0,
+    reduceShare: summary.actionType === 'reduce' ? 1 : 0,
+    averageRisk: summary.averageRisk
+  }, routerDecisionConfig);
+
+  if (normalized.actionType === summary.actionType && normalized.averageRisk === summary.averageRisk) {
     return summary;
   }
 
   return {
     ...summary,
-    actionType: 'reduce',
-    averageRisk: Math.max(summary.averageRisk, 0.5)
+    actionType: normalized.actionType,
+    averageRisk: normalized.averageRisk
   };
 }
 
@@ -342,9 +346,10 @@ function getSampleMetric(sample: PeriodDecisionSample, key: SplitMetricKey): num
 function buildAction(
   layer: RollingRouterLayer,
   summary: SampleSummary,
-  strategyKeyMap: ReadonlyMap<string, string>
+  strategyKeyMap: ReadonlyMap<string, string>,
+  routerDecisionConfig: ReturnType<typeof getDecisionFeatureEngineeringConfig>['routerDecision']
 ): RouterRule['action'] {
-  const normalizedSummary = normalizeLayerSummary(layer, summary);
+  const normalizedSummary = normalizeLayerSummary(layer, summary, routerDecisionConfig);
   const strategyKey = normalizedSummary.dominantStrategy
     ? strategyKeyMap.get(normalizedSummary.dominantStrategy) ?? null
     : null;
@@ -422,7 +427,8 @@ function aggregateByBucket(
     readonly enabled: boolean;
     readonly metrics: readonly SplitMetricKey[];
     readonly minSamplesPerBranch: number;
-  }
+  },
+  routerDecisionConfig: ReturnType<typeof getDecisionFeatureEngineeringConfig>['routerDecision']
 ): readonly RouterRule[] {
   const bucketMap = new Map<string, PeriodDecisionSample[]>();
 
@@ -448,7 +454,7 @@ function aggregateByBucket(
         when: {
           featureBucket: [featureBucket]
         },
-        action: buildAction(layer, summary, strategyKeyMap),
+        action: buildAction(layer, summary, strategyKeyMap, routerDecisionConfig),
         rationale: `${layer} learned from ${bucketSamples.length} rolling samples`
       });
       continue;
@@ -464,7 +470,7 @@ function aggregateByBucket(
       layer,
       priority: priority++,
       when: withMetricCondition(featureBucket, split.metricKey, split.threshold, false),
-      action: buildAction(layer, lowerSummary, strategyKeyMap),
+      action: buildAction(layer, lowerSummary, strategyKeyMap, routerDecisionConfig),
       rationale: `${layer} learned ${split.metricKey}<=${split.threshold} from ${lower.length} rolling samples`
     });
     rules.push({
@@ -472,7 +478,7 @@ function aggregateByBucket(
       layer,
       priority: priority++,
       when: withMetricCondition(featureBucket, split.metricKey, split.threshold, true),
-      action: buildAction(layer, upperSummary, strategyKeyMap),
+      action: buildAction(layer, upperSummary, strategyKeyMap, routerDecisionConfig),
       rationale: `${layer} learned ${split.metricKey}>${split.threshold} from ${upper.length} rolling samples`
     });
   }
@@ -489,7 +495,8 @@ function buildLossRules(
     readonly enabled: boolean;
     readonly metrics: readonly SplitMetricKey[];
     readonly minSamplesPerBranch: number;
-  }
+  },
+  routerDecisionConfig: ReturnType<typeof getDecisionFeatureEngineeringConfig>['routerDecision']
 ): readonly RouterRule[] {
   const samples: PeriodDecisionSample[] = [];
   for (let index = 1; index < dailyFeatures.length; index += 1) {
@@ -506,19 +513,27 @@ function buildLossRules(
       continue;
     }
 
-    const actionType: RollingRouterAction = currentStrategyPnl <= 0 ? 'stop' : 'reduce';
+    const actionType: RollingRouterAction = currentStrategyPnl <= routerDecisionConfig.lossRecheckAction.stopAtOrBelowCurrentPnl
+      ? 'stop'
+      : currentStrategyPnl <= routerDecisionConfig.lossRecheckAction.reduceAtOrBelowCurrentPnl
+        ? 'reduce'
+        : 'trade';
     samples.push({
       periodKey: dayFeature.key,
       feature: dayFeature,
       selectedStrategyName: previousStrategyName,
       actionType,
-      riskMultiplier: actionType === 'stop' ? 0 : 0.5,
+      riskMultiplier: actionType === 'stop'
+        ? 0
+        : actionType === 'reduce'
+          ? routerDecisionConfig.lossRecheckAction.reduceRisk
+          : routerDecisionConfig.lossRecheckAction.tradeRisk,
       avgPnl: round(currentStrategyPnl, 4),
       sampleSize: 1
     });
   }
 
-  return aggregateByBucket(samples, 'loss_recheck', strategyKeyMap, splitConfig).map((rule) => ({
+  return aggregateByBucket(samples, 'loss_recheck', strategyKeyMap, splitConfig, routerDecisionConfig).map((rule) => ({
     ...rule,
     when: {
       ...rule.when,
@@ -530,19 +545,19 @@ function buildLossRules(
 }
 
 export function buildRollingArtifactPackage(options: RollingArtifactBuilderOptions): RollingArtifactPackage {
-  const featureEngineering = (options.featureEngineering && typeof options.featureEngineering === 'object')
-    ? options.featureEngineering
-    : {};
-  const routerSplit = (featureEngineering['routerSplit'] && typeof featureEngineering['routerSplit'] === 'object')
-    ? featureEngineering['routerSplit'] as JsonObject
-    : {};
-  const openingWindowCount = Math.max(1, Number(featureEngineering['openingWindowMinutes'] || 60));
-  const volBaselineLookback = Math.max(1, Number(featureEngineering['volBaselineLookbackPeriods'] || 8));
+  const featureEngineeringConfig = getDecisionFeatureEngineeringConfig(
+    (options.featureEngineering && typeof options.featureEngineering === 'object')
+      ? options.featureEngineering
+      : null
+  );
+  const openingWindowCount = featureEngineeringConfig.openingWindowMinutes;
+  const volBaselineLookback = featureEngineeringConfig.volBaselineLookbackPeriods;
   const splitConfig = {
-    enabled: routerSplit['enabled'] !== false,
-    metrics: normalizeSplitMetricKeys(routerSplit['metrics']),
-    minSamplesPerBranch: Math.max(1, Number(routerSplit['minSamplesPerBranch'] || 2))
+    enabled: featureEngineeringConfig.routerSplit.enabled,
+    metrics: normalizeSplitMetricKeys(featureEngineeringConfig.routerSplit.metrics),
+    minSamplesPerBranch: featureEngineeringConfig.routerSplit.minSamplesPerBranch
   };
+  const routerDecisionConfig = featureEngineeringConfig.routerDecision;
   const strategyMetaList = normalizeStrategyRows(options.strategyRows);
   const strategyMeta = new Map(strategyMetaList.map((item) => [item.name, item] as const));
   const periodFeatureOptions = {
@@ -594,7 +609,7 @@ export function buildRollingArtifactPackage(options: RollingArtifactBuilderOptio
     monthPoolMap.set(feature.key, pool);
     const rankedCurrent = rankPoolByPeriodPnl(pool, currentMonthStrategyMap);
     const best = rankedCurrent[0] ?? null;
-    const action = choosePeriodAction(best?.pnl ?? 0);
+    const action = choosePeriodAction(best?.pnl ?? 0, routerDecisionConfig);
     monthPrimaryStrategyMap.set(feature.key, best?.strategyName ?? null);
     return [{
       month: feature.key,
@@ -655,7 +670,7 @@ export function buildRollingArtifactPackage(options: RollingArtifactBuilderOptio
       monthlyWeeklyAlignment: computeAlignmentScore(monthFeature, previousWeekFeature)
     };
     const best = ranked[0] ?? null;
-    const action = choosePeriodAction(best?.pnl ?? 0);
+    const action = choosePeriodAction(best?.pnl ?? 0, routerDecisionConfig);
     weeklySamples.push({
       periodKey: feature.key,
       feature: enrichedFeature,
@@ -671,7 +686,7 @@ export function buildRollingArtifactPackage(options: RollingArtifactBuilderOptio
     );
   }
 
-  const weeklyRules = aggregateByBucket(weeklySamples, 'weekly_guard', strategyKeyMap, splitConfig);
+  const weeklyRules = aggregateByBucket(weeklySamples, 'weekly_guard', strategyKeyMap, splitConfig, routerDecisionConfig);
 
   const dailySamples: PeriodDecisionSample[] = [];
   for (const feature of dailyOpeningFeatures) {
@@ -695,26 +710,20 @@ export function buildRollingArtifactPackage(options: RollingArtifactBuilderOptio
     };
     const best = ranked[0] ?? null;
     const weekBasePnl = weekBaseStrategyName ? round(strategyMap.get(weekBaseStrategyName) ?? 0, 4) : 0;
-    let actionType: RollingRouterAction = 'trade';
-    let riskMultiplier = 1;
-    let selectedStrategyName = best?.strategyName ?? weekBaseStrategyName ?? monthPrimaryStrategyMap.get(monthKey) ?? null;
-
-    if ((best?.pnl ?? 0) <= 0) {
-      actionType = 'stop';
-      riskMultiplier = 0;
-      selectedStrategyName = null;
-    } else if ((best?.pnl ?? 0) <= weekBasePnl + 200) {
-      actionType = 'reduce';
-      riskMultiplier = 0.5;
-      selectedStrategyName = weekBaseStrategyName ?? selectedStrategyName;
-    }
+    const dailyDecision = decideDailyAction({
+      bestPnl: best?.pnl ?? 0,
+      weekBasePnl,
+      bestStrategyName: best?.strategyName ?? null,
+      weekBaseStrategyName,
+      monthPrimaryStrategyName: monthPrimaryStrategyMap.get(monthKey) ?? null
+    }, routerDecisionConfig);
 
     dailySamples.push({
       periodKey: feature.key,
       feature: enrichedFeature,
-      selectedStrategyName,
-      actionType,
-      riskMultiplier,
+      selectedStrategyName: dailyDecision.selectedStrategyName,
+      actionType: dailyDecision.actionType,
+      riskMultiplier: dailyDecision.riskMultiplier,
       avgPnl: best?.pnl ?? 0,
       sampleSize: ranked.length
     });
@@ -730,9 +739,9 @@ export function buildRollingArtifactPackage(options: RollingArtifactBuilderOptio
     sampleSize: item.topStrategies.length
   }));
 
-  const monthlyRules = aggregateByBucket(monthlySamples, 'monthly_guard', strategyKeyMap, splitConfig);
-  const dailyRules = aggregateByBucket(dailySamples, 'daily_router', strategyKeyMap, splitConfig);
-  const lossRules = buildLossRules(dailyOpeningFeatures, dailyPnlMap, weeklyDecisionsByDay, strategyKeyMap, splitConfig);
+  const monthlyRules = aggregateByBucket(monthlySamples, 'monthly_guard', strategyKeyMap, splitConfig, routerDecisionConfig);
+  const dailyRules = aggregateByBucket(dailySamples, 'daily_router', strategyKeyMap, splitConfig, routerDecisionConfig);
+  const lossRules = buildLossRules(dailyOpeningFeatures, dailyPnlMap, weeklyDecisionsByDay, strategyKeyMap, splitConfig, routerDecisionConfig);
 
   return {
     explicitStrategies,

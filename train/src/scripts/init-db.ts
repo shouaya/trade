@@ -11,6 +11,7 @@ import {
   ensureBacktestResultsSchema,
   ensureTrainDataTraceSchema,
   ensureTrainConfigsSchema,
+  ensureTrainArtifactsSchema,
   ensureTrainGoalTrackingSchema,
   ensureTrainRunRequestsSchema
 } from '@money/database';
@@ -132,6 +133,12 @@ async function createTrainGoalTrackingTable(): Promise<void> {
   console.log('✅ train_goal_tracking 表创建成功');
 }
 
+async function createTrainArtifactsTable(): Promise<void> {
+  console.log('📊 创建 train_artifacts 表...');
+  await ensureTrainArtifactsSchema(db);
+  console.log('✅ train_artifacts 表创建成功');
+}
+
 async function main(): Promise<void> {
   console.log('='.repeat(80));
   console.log('🚀 开始初始化数据库');
@@ -159,6 +166,7 @@ async function main(): Promise<void> {
     await createTrainConfigsTable();
     await createTrainRunRequestsTable();
     await createTrainGoalTrackingTable();
+    await createTrainArtifactsTable();
 
     console.log('');
     console.log('='.repeat(80));
@@ -183,7 +191,8 @@ async function main(): Promise<void> {
       'router_config_details',
       'policy_config_details',
       'generic_config_details',
-      'train_run_requests'
+      'train_run_requests',
+      'train_artifacts'
     ];
     const results: TableCheckResult[] = [];
 

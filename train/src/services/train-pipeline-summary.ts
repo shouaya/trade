@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
+  TRAIN_ARTIFACTS_TABLE,
   ROLLING_POOL_DETAILS_TABLE,
   ROLLING_RULE_DETAILS_TABLE
 } from '@money/database';
@@ -27,14 +28,6 @@ function toRepoRelative(repoRoot: string, filePath: string): string {
   return toPosix(path.relative(repoRoot, filePath));
 }
 
-function safeStat(filePath: string): fs.Stats | null {
-  try {
-    return fs.statSync(filePath);
-  } catch {
-    return null;
-  }
-}
-
 function safeReadText(filePath: string): string | null {
   try {
     return fs.readFileSync(filePath, 'utf8');
@@ -57,6 +50,15 @@ function parseMaybeJson(value: unknown): any {
   } catch {
     return null;
   }
+}
+
+function extractTrainId(config: any): string | null {
+  return String(
+    config?.trainId
+    || config?.trainingMeta?.trainId
+    || config?.trainingContext?.trainId
+    || ''
+  ).trim() || null;
 }
 
 function listFiles(dirPath: string, predicate: (filePath: string) => boolean = () => true): string[] {
@@ -223,22 +225,6 @@ function matchValidationToTraining(training: any, validation: any): boolean {
   return fileText.includes(exactTrainConfig);
 }
 
-function findLatestMatch(files: readonly string[], matcher: (filePath: string) => boolean): any {
-  const matched = files
-    .filter(matcher)
-    .map((filePath) => {
-      const stat = safeStat(filePath);
-      return {
-        path: filePath,
-        modifiedAt: formatIso(stat?.mtime),
-        mtimeMs: stat?.mtimeMs || 0
-      };
-    })
-    .sort((left, right) => right.mtimeMs - left.mtimeMs);
-
-  return matched[0] || null;
-}
-
 function buildReportPreview(filePath: string): string | null {
   const raw = safeReadText(filePath);
   if (!raw) {
@@ -262,6 +248,68 @@ function buildReportPreview(filePath: string): string | null {
 
   const preview = lines.join('\n').slice(0, 1200).trim();
   return preview || null;
+}
+
+function stringifyPreview(value: unknown): string | null {
+  if (value == null) {
+    return null;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? trimmed.slice(0, 1200) : null;
+  }
+
+  try {
+    return JSON.stringify(value, null, 2).slice(0, 1200).trim() || null;
+  } catch {
+    return String(value).slice(0, 1200).trim() || null;
+  }
+}
+
+function buildArtifactPreview(artifact: any, repoRoot: string): string | null {
+  const summaryMarkdown = String(artifact?.summaryMarkdown || '').trim();
+  if (summaryMarkdown) {
+    return summaryMarkdown.slice(0, 1200);
+  }
+
+  const reportPath = String(artifact?.reportPath || '').trim();
+  if (reportPath) {
+    const absolutePath = path.isAbsolute(reportPath) ? reportPath : path.join(repoRoot, reportPath);
+    const filePreview = buildReportPreview(absolutePath);
+    if (filePreview) {
+      return filePreview;
+    }
+  }
+
+  return stringifyPreview(artifact?.payload ?? null);
+}
+
+function toArtifactSummary(artifact: any, repoRoot: string): any {
+  if (!artifact) {
+    return null;
+  }
+
+  return {
+    path: artifact.summaryPath || artifact.reportPath || null,
+    modifiedAt: artifact.updatedAt || null,
+    preview: buildArtifactPreview(artifact, repoRoot)
+  };
+}
+
+function getArtifactPath(artifact: any): string | null {
+  return artifact?.summaryPath
+    || artifact?.reportPath
+    || (artifact?.artifactKey ? `train_artifacts:${artifact.artifactKey}` : null);
+}
+
+function pickLatestArtifact(artifacts: readonly any[], matcher: (artifact: any) => boolean): any {
+  const matched = artifacts.filter(matcher).sort((left, right) => {
+    const rightTime = new Date(right.updatedAt || right.createdAt || 0).getTime();
+    const leftTime = new Date(left.updatedAt || left.createdAt || 0).getTime();
+    return rightTime - leftTime;
+  });
+  return matched[0] || null;
 }
 
 function buildStatus(stepDone: boolean, partial = false): string {
@@ -612,9 +660,9 @@ export function getSuggestedStageKey(stages: readonly any[]): string {
 }
 
 function buildNextAction(training: any, validationRecords: readonly any[], reports: any, routerFiles: any): any {
-  const costSensitivityPath = reports?.costSensitivity?.path || null;
-  const featureCausalityPath = reports?.featureCausality?.path || null;
-  const routerValidationPath = reports?.routerValidation?.path || null;
+  const costSensitivityPath = reports?.costSensitivity?.path || getArtifactPath(reports?.costSensitivity) || null;
+  const featureCausalityPath = reports?.featureCausality?.path || getArtifactPath(reports?.featureCausality) || null;
+  const routerValidationPath = reports?.routerValidation?.path || getArtifactPath(reports?.routerValidation) || null;
   const latestGenerateValidationRequest = training.latestGenerateValidationRequest || null;
   const hasActiveGenerateValidationRequest = isActiveRequestStatus(latestGenerateValidationRequest?.status);
   if (!training.trainingRun) {
@@ -742,7 +790,7 @@ function buildNextAction(training: any, validationRecords: readonly any[], repor
     title: '进入结果复盘',
     reason: '主流程产物已经齐全，可以开始看报告和策略差异。',
     commands: [
-      '先看 train/reports/regime-routing-results/ 与 train/reports/cost-sensitivity/ 的最新报告'
+      '先看 train_artifacts 表中的最新结构化产物，AI 总结 markdown 放在 train/reports/'
     ]
   };
 }
@@ -768,6 +816,7 @@ async function loadDbSummary(db: Queryable): Promise<any> {
     taskMap: new Map(),
     latestRequestMap: new Map(),
     latestActionRequestMap: new Map(),
+    artifacts: [],
     configRegistry: {
       training: [],
       validation: [],
@@ -875,6 +924,51 @@ async function loadDbSummary(db: Queryable): Promise<any> {
           result.latestActionRequestMap.set(actionKey, toRequestSummary(row));
         }
       }
+    }
+
+    if (tables.has(TRAIN_ARTIFACTS_TABLE)) {
+      const [rows] = await db.query(`
+        SELECT
+          id,
+          artifact_key,
+          artifact_type,
+          train_id,
+          config_id,
+          config_key,
+          symbol,
+          interval_type,
+          period_start_ms,
+          period_end_ms,
+          report_path,
+          summary_path,
+          summary_markdown,
+          payload_json,
+          metadata_json,
+          created_at,
+          updated_at
+        FROM ${TRAIN_ARTIFACTS_TABLE}
+        ORDER BY updated_at DESC, id DESC
+      `);
+
+      result.artifacts = rows.map((row: any) => ({
+        id: Number(row.id || 0),
+        artifactKey: String(row.artifact_key || ''),
+        artifactType: String(row.artifact_type || ''),
+        trainId: row.train_id ? String(row.train_id) : null,
+        configId: row.config_id == null ? null : Number(row.config_id),
+        configKey: row.config_key ? String(row.config_key) : null,
+        symbol: row.symbol ? String(row.symbol) : null,
+        intervalType: row.interval_type ? String(row.interval_type) : null,
+        periodStartMs: row.period_start_ms == null ? null : Number(row.period_start_ms),
+        periodEndMs: row.period_end_ms == null ? null : Number(row.period_end_ms),
+        reportPath: row.report_path ? String(row.report_path) : null,
+        summaryPath: row.summary_path ? String(row.summary_path) : null,
+        summaryMarkdown: row.summary_markdown ? String(row.summary_markdown) : null,
+        payload: parseMaybeJson(row.payload_json),
+        metadata: parseMaybeJson(row.metadata_json),
+        createdAt: formatIso(row.created_at),
+        updatedAt: formatIso(row.updated_at)
+      }));
     }
 
     if (tables.has('train_configs')) {
@@ -995,7 +1089,6 @@ async function loadDbSummary(db: Queryable): Promise<any> {
 export async function buildTrainingPipelineSummary(options: BuildTrainingPipelineSummaryOptions): Promise<any> {
   const { db, repoRoot, trainRoot } = options;
   const routerConfigDir = path.join(trainRoot, 'configs', 'generated', 'regime-routing');
-  const reportsRoot = path.join(trainRoot, 'reports');
 
   const dbSummary = await loadDbSummary(db);
   const trainingEntries = dbSummary.configRegistry.training
@@ -1035,7 +1128,7 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
   const routerFiles = routerRegistryKeys.length > 0
     ? routerRegistryKeys
     : listFiles(routerConfigDir, (filePath) => filePath.endsWith('.json'));
-  const reportFiles = listFiles(reportsRoot, (filePath) => filePath.endsWith('.md') || filePath.endsWith('.json'));
+  const artifactRows = Array.isArray(dbSummary.artifacts) ? dbSummary.artifacts : [];
 
   const pipelines = trainingEntries.map((trainingEntry: any) => {
     const config = trainingEntry.config;
@@ -1052,6 +1145,7 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
     const resultGroup = String(config.database?.tableName || '').trim();
     const symbol = String(config.market?.symbol || 'UNKNOWN').toUpperCase();
     const trainingYear = getYearFromConfig(config, fileName);
+    const trainId = extractTrainId(config);
     const topN = Number(config.output?.topN || 10);
     const runBucket = dbSummary.runMap.get(resultGroup) || {};
     const trainingRun = runBucket.training || null;
@@ -1104,6 +1198,7 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
       });
 
     const hasActiveValidationRequest = matchedValidations.some((item: any) => isActiveRequestStatus(item.latestRequest?.status));
+    const validationConfigKeys = matchedValidations.map((item: any) => String(item.path || ''));
 
     const routerConfigRef = config.regimeRouting?.routerConfigPath || null;
     const normalizedRouterConfigRef = routerConfigRef
@@ -1122,16 +1217,43 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
         || fs.existsSync(path.join(repoRoot, policyPath))
       : false;
 
-    const symbolReportMatcher = (segment: string) => (filePathCandidate: string) => {
-      const normalized = normalizeText(toRepoRelative(repoRoot, filePathCandidate));
-      return normalized.includes(`reports/${segment}`) && normalized.includes(normalizeText(symbol));
+    const matchesArtifact = (artifact: any, type: string): boolean => {
+      if (String(artifact?.artifactType || '') !== type) {
+        return false;
+      }
+      if (normalizeText(artifact?.symbol) !== normalizeText(symbol)) {
+        return false;
+      }
+      if (trainId && String(artifact?.trainId || '') === trainId) {
+        return true;
+      }
+      if (type === 'goal-tracking' && String(artifact?.configKey || '') === String(trainingEntry.path || '')) {
+        return true;
+      }
+      if ((type === 'cost-sensitivity' || type === 'router-validation')
+        && validationConfigKeys.includes(String(artifact?.configKey || ''))) {
+        return true;
+      }
+      if (type === 'feature-causality' && !trainId) {
+        return true;
+      }
+      return false;
     };
 
     const reportSummary = {
-      costSensitivity: findLatestMatch(reportFiles, symbolReportMatcher('cost-sensitivity')),
-      featureCausality: findLatestMatch(reportFiles, symbolReportMatcher('feature-causality')),
-      routerValidation: findLatestMatch(reportFiles, symbolReportMatcher('regime-routing-results')),
-      goalTracking: findLatestMatch(reportFiles, symbolReportMatcher('goal-tracking'))
+      costSensitivity: pickLatestArtifact(artifactRows, (artifact) => matchesArtifact(artifact, 'cost-sensitivity')),
+      featureCausality: pickLatestArtifact(artifactRows, (artifact) => matchesArtifact(artifact, 'feature-causality')),
+      routerValidation: pickLatestArtifact(artifactRows, (artifact) => matchesArtifact(artifact, 'router-validation')),
+      goalTracking: pickLatestArtifact(artifactRows, (artifact) => matchesArtifact(artifact, 'goal-tracking')),
+      aiSummary: pickLatestArtifact(artifactRows, (artifact) => {
+        if (String(artifact?.artifactType || '') !== 'ai-summary') {
+          return false;
+        }
+        if (trainId && String(artifact?.trainId || '') === trainId) {
+          return true;
+        }
+        return String(artifact?.configKey || '') === String(trainingEntry.path || '');
+      })
     };
 
     const steps = [
@@ -1198,13 +1320,13 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
         key: 'cost-sensitivity',
         title: 'Cost Report',
         status: buildStatus(Boolean(reportSummary.costSensitivity)),
-        detail: reportSummary.costSensitivity?.path ? toRepoRelative(repoRoot, reportSummary.costSensitivity.path) : '未找到'
+        detail: getArtifactPath(reportSummary.costSensitivity) || '未找到'
       },
       {
         key: 'feature-causality',
         title: 'Causal Audit',
         status: buildStatus(Boolean(reportSummary.featureCausality)),
-        detail: reportSummary.featureCausality?.path ? toRepoRelative(repoRoot, reportSummary.featureCausality.path) : '未找到'
+        detail: getArtifactPath(reportSummary.featureCausality) || '未找到'
       },
       {
         key: 'router',
@@ -1216,13 +1338,19 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
         key: 'router-validation',
         title: 'Router Validation',
         status: buildStatus(Boolean(reportSummary.routerValidation)),
-        detail: reportSummary.routerValidation?.path ? toRepoRelative(repoRoot, reportSummary.routerValidation.path) : '未找到'
+        detail: getArtifactPath(reportSummary.routerValidation) || '未找到'
       },
       {
         key: 'goal-tracking',
         title: 'Goal Tracking',
         status: buildStatus(Boolean(reportSummary.goalTracking)),
-        detail: reportSummary.goalTracking?.path ? toRepoRelative(repoRoot, reportSummary.goalTracking.path) : '未找到'
+        detail: getArtifactPath(reportSummary.goalTracking) || '未找到'
+      },
+      {
+        key: 'ai-summary',
+        title: 'AI Summary',
+        status: buildStatus(Boolean(reportSummary.aiSummary)),
+        detail: getArtifactPath(reportSummary.aiSummary) || '未找到'
       }
     ];
 
@@ -1247,26 +1375,11 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
     } : null;
 
     const reports = {
-      costSensitivity: reportSummary.costSensitivity ? {
-        path: toRepoRelative(repoRoot, reportSummary.costSensitivity.path),
-        modifiedAt: reportSummary.costSensitivity.modifiedAt,
-        preview: buildReportPreview(reportSummary.costSensitivity.path)
-      } : null,
-      featureCausality: reportSummary.featureCausality ? {
-        path: toRepoRelative(repoRoot, reportSummary.featureCausality.path),
-        modifiedAt: reportSummary.featureCausality.modifiedAt,
-        preview: buildReportPreview(reportSummary.featureCausality.path)
-      } : null,
-      routerValidation: reportSummary.routerValidation ? {
-        path: toRepoRelative(repoRoot, reportSummary.routerValidation.path),
-        modifiedAt: reportSummary.routerValidation.modifiedAt,
-        preview: buildReportPreview(reportSummary.routerValidation.path)
-      } : null,
-      goalTracking: reportSummary.goalTracking ? {
-        path: toRepoRelative(repoRoot, reportSummary.goalTracking.path),
-        modifiedAt: reportSummary.goalTracking.modifiedAt,
-        preview: buildReportPreview(reportSummary.goalTracking.path)
-      } : null
+      costSensitivity: toArtifactSummary(reportSummary.costSensitivity, repoRoot),
+      featureCausality: toArtifactSummary(reportSummary.featureCausality, repoRoot),
+      routerValidation: toArtifactSummary(reportSummary.routerValidation, repoRoot),
+      goalTracking: toArtifactSummary(reportSummary.goalTracking, repoRoot),
+      aiSummary: toArtifactSummary(reportSummary.aiSummary, repoRoot)
     };
 
     const router = {
@@ -1306,6 +1419,7 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
       latestTask,
       latestRequest: trainingLatestRequest,
       latestGenerateValidationRequest,
+      trainId,
       trainingRun,
       topStrategySnapshot,
       validationConfigs: matchedValidations,

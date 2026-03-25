@@ -941,6 +941,11 @@ function PipelineResultsPanel({ pipeline, onViewRequest, onOpenRouterStudio }) {
       key: 'goal-tracking',
       label: '目标达成追踪',
       data: pipeline.reports?.goalTracking
+    },
+    {
+      key: 'ai-summary',
+      label: 'AI 总结',
+      data: pipeline.reports?.aiSummary
     }
   ];
 
@@ -994,7 +999,7 @@ function PipelineResultsPanel({ pipeline, onViewRequest, onOpenRouterStudio }) {
 
       <div className="results-panel-card">
         <span>Reports</span>
-        <strong>{reportEntries.filter((item) => item.data).length}/3 已产出</strong>
+        <strong>{reportEntries.filter((item) => item.data).length}/{reportEntries.length} 已产出</strong>
         <div className="results-report-list">
           {reportEntries.map((item) => (
             <div key={item.key} className={`results-report-row ${item.data ? 'done' : 'todo'}`}>
