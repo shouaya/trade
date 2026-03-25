@@ -1,0 +1,21 @@
+{
+  "name": "TMP_VALID_CONFIG",
+  "executor": {
+    "options": {
+      "feeModel": {
+        "venueCode": "GMOCOIN",
+        "market": "exchange-leverage",
+        "productCode": "BTC_JPY",
+        "commissionRate": 0,
+        "basis": "notional",
+        "chargeOnEntry": true,
+        "chargeOnExit": true,
+        "leverageMultiplier": 2,
+        "dailyLeverageRate": 0.0004,
+        "liquidationFeeRate": 0.005,
+        "forcedCloseFeeRate": 0.005,
+        "settlementHourJst": 6
+      }
+    }
+  }
+}

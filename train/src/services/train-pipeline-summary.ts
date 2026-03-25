@@ -291,7 +291,7 @@ function toArtifactSummary(artifact: any, repoRoot: string): any {
   }
 
   return {
-    path: artifact.summaryPath || artifact.reportPath || null,
+    path: getArtifactPath(artifact),
     modifiedAt: artifact.updatedAt || null,
     preview: buildArtifactPreview(artifact, repoRoot)
   };
@@ -320,6 +320,34 @@ function buildStatus(stepDone: boolean, partial = false): string {
     return 'partial';
   }
   return 'todo';
+}
+
+function isCompletedRequestStatus(status: unknown): boolean {
+  return String(status || '') === 'completed';
+}
+
+function isCompletedTaskStatus(status: unknown): boolean {
+  return String(status || '') === 'completed';
+}
+
+function hasTrainingCompleted(pipeline: {
+  readonly trainingRun?: any;
+  readonly latestRequest?: any;
+  readonly latestTask?: any;
+  readonly latestGenerateValidationRequest?: any;
+  readonly topStrategySnapshot?: any;
+} | null | undefined): boolean {
+  if (!pipeline) {
+    return false;
+  }
+
+  return Boolean(
+    pipeline.trainingRun
+    || isCompletedRequestStatus(pipeline.latestRequest?.status)
+    || isCompletedTaskStatus(pipeline.latestTask?.status)
+    || pipeline.latestGenerateValidationRequest
+    || pipeline.topStrategySnapshot
+  );
 }
 
 function formatRange(timeRange: any): string {
@@ -355,6 +383,7 @@ export function buildFinalConfigState(pipeline: any): any {
   const latestArtifactRequest = pipeline?.latestGenerateValidationRequest || null;
   const isGenerating = latestArtifactRequest?.action === 'generate-validation'
     && isActiveRequestStatus(latestArtifactRequest?.status);
+  const trainingCompleted = hasTrainingCompleted(pipeline);
 
   if (pipeline?.topStrategySnapshot) {
     return {
@@ -386,10 +415,10 @@ export function buildFinalConfigState(pipeline: any): any {
     };
   }
 
-  if (pipeline?.trainingRun) {
+  if (trainingCompleted) {
     return {
       title: '等待生成最终策略 config',
-      detail: '训练完成后 worker 会自动排队生成，无需手动补一步。',
+      detail: 'rolling training manifest 已完成，接下来应生成 rolling package。',
       status: 'todo',
       canExport: false,
       requestId: null
@@ -414,7 +443,7 @@ export function buildMethodologyStages(pipeline: any, trainingConfig: any): any[
   const lotSize = trainingConfig?.strategy?.parameters?.risk?.lotSize?.[0];
   const hasTrainingConfig = Boolean(pipeline?.trainingConfigPath);
   const hasValidationConfig = validations.length > 0;
-  const hasTrainingRun = Boolean(pipeline?.trainingRun);
+  const trainingCompleted = hasTrainingCompleted(pipeline);
   const hasSnapshot = Boolean(pipeline?.topStrategySnapshot);
   const hasAnyValidationRun = validations.some((item: any) => Boolean(item.latestRun));
   const hasAllValidationRuns = validations.length > 0 && validations.every((item: any) => Boolean(item.latestRun));
@@ -440,27 +469,27 @@ export function buildMethodologyStages(pipeline: any, trainingConfig: any): any[
       title: '确认任务边界',
       status: hasTrainingConfig && hasValidationConfig ? 'done' : hasTrainingConfig ? 'partial' : 'todo',
       summary: hasValidationConfig
-        ? '训练区间与未来验证区间都已进入配置库，边界清晰。'
-        : '已有 training config，但未来 validation 配置还不完整。',
-      inputs: ['交易对', '训练区间', '验证区间', '既有 router / report'],
+        ? '训练区间内部 rolling 验证窗口已经进入配置库，边界清晰。'
+        : '已有 training config，但内部 rolling validation 配置还未生成。',
+      inputs: ['交易对', '训练区间', 'rolling 起点/窗口', '既有 router / report'],
       outputs: [
         pipeline?.trainingConfigPath || '等待 training config',
         hasValidationConfig ? `${validations.length} 份 validation config` : '等待 validation config'
       ],
-      gates: ['symbol 明确', '训练期与验证期分离', '命名不混淆旧结果'],
+      gates: ['symbol 明确', 'rolling 从训练期内部启动', '命名不混淆旧结果'],
       evidence: [
         pipeline?.symbol || 'UNKNOWN',
         trainingRange,
         hasValidationConfig ? `validation ${validations.length} 份` : '未匹配到 validation'
       ],
-      notes: '方法论要求先锁定 symbol、训练期、验证期，再开始推导。',
+      notes: '方法论要求先锁定 symbol、训练期以及 rolling 起点，再进入 history-only 月度学习。',
       actionKeys: ['generate-validation', 'prepare-validation']
     },
     {
       key: 'stage-1-diagnosis',
       label: '阶段 1',
       title: '波动与结构诊断',
-      status: hasFeatureCausality ? 'done' : hasTrainingRun || hasSnapshot ? 'partial' : 'todo',
+      status: hasFeatureCausality ? 'done' : trainingCompleted || hasSnapshot ? 'partial' : 'todo',
       summary: hasFeatureCausality
         ? '已有结构诊断类报告，可作为阶段 1 的证据入口。'
         : '当前缺少显式结构诊断报告，建议先补一份波动/因果分析。',
@@ -469,9 +498,9 @@ export function buildMethodologyStages(pipeline: any, trainingConfig: any): any[
       gates: ['能区分高低波', '能指出典型坏区间', '能解释至少几类结构差异'],
       evidence: hasFeatureCausality
         ? [pipeline.reports.featureCausality.path]
-        : hasTrainingRun
-          ? ['已有候选池结果，可回填结构诊断报告']
-          : ['等待候选池训练后补证据'],
+        : trainingCompleted
+          ? ['rolling manifest 已完成，可回填结构诊断报告']
+          : ['等待 rolling training manifest 完成后补证据'],
       notes: '当前系统没有单独的“波动诊断”文件类型，先用 feature causality / 分析报告近似承载。',
       actionKeys: ['feature-causality']
     },
@@ -498,18 +527,24 @@ export function buildMethodologyStages(pipeline: any, trainingConfig: any): any[
       key: 'stage-3-candidate-pool',
       label: '阶段 3',
       title: '训练候选池',
-      status: trainingRequestRunning ? 'running' : hasTrainingRun ? 'done' : 'todo',
-      summary: hasTrainingRun
+      status: trainingRequestRunning ? 'running' : trainingCompleted ? 'done' : 'todo',
+      summary: pipeline?.trainingRun
         ? `候选池已落库，当前记录 ${pipeline.trainingRun.strategyCount} 个策略结果。`
-        : trainingRequestRunning
-          ? '训练任务正在执行，等待候选池结果落库。'
-          : '还没有训练结果，先跑候选池。',
-      inputs: ['training config', '参数网格', '目标结果表'],
-      outputs: ['backtest_results', '训练期 TopN', 'trades'],
-      gates: ['候选池不能过少', '策略之间要有结构差异', '不能所有阶段一起亏'],
+        : trainingCompleted
+          ? 'rolling training manifest 已完成，后续会在 generate-validation 阶段逐月学习候选池。'
+          : trainingRequestRunning
+          ? '训练任务正在执行，等待 rolling manifest 完成。'
+          : '还没有训练结果，先跑 rolling training manifest。',
+      inputs: ['training config', '参数网格', 'train_id'],
+      outputs: ['train_run_requests', 'rolling manifest', '后续 generate-validation 输入'],
+      gates: ['参数空间不能过窄', '策略之间要有结构差异', '不再先做整段全量回测'],
       evidence: [
         pipeline?.resultGroup || '未配置结果表',
-        hasTrainingRun ? `${pipeline.trainingRun.runId} · ${pipeline.trainingRun.strategyCount} strategies` : '尚未落库',
+        pipeline?.trainingRun
+          ? `${pipeline.trainingRun.runId} · ${pipeline.trainingRun.strategyCount} strategies`
+          : trainingCompleted
+            ? `manifest ready · ${pipeline?.latestRequest?.requestId || pipeline?.latestTask?.taskId || 'n/a'}`
+            : '尚未落库',
         pipeline?.latestRequest?.requestId ? `queue ${pipeline.latestRequest.requestId}` : '暂无训练请求'
       ],
       notes: '这一步对应 `METHODOLOGY` 的主入口，训练 UI 的自动执行也从这里开始。',
@@ -519,10 +554,10 @@ export function buildMethodologyStages(pipeline: any, trainingConfig: any): any[
       key: 'stage-4-weekly-base',
       label: '阶段 4',
       title: '构建周级策略映射',
-      status: routerReady ? 'done' : hasTrainingRun ? 'partial' : 'todo',
+      status: routerReady ? 'done' : trainingCompleted ? 'partial' : 'todo',
       summary: routerReady
         ? '已存在可执行 router / policy，可视为周级 base policy 已固化。'
-        : hasTrainingRun
+        : trainingCompleted
           ? '候选池已具备，下一步应归纳 weekly base policy。'
           : '先完成候选池训练，再做周级映射。',
       inputs: ['周级特征', 'bucket 划分', '坏周 / 好周表现'],
@@ -665,11 +700,19 @@ function buildNextAction(training: any, validationRecords: readonly any[], repor
   const routerValidationPath = reports?.routerValidation?.path || getArtifactPath(reports?.routerValidation) || null;
   const latestGenerateValidationRequest = training.latestGenerateValidationRequest || null;
   const hasActiveGenerateValidationRequest = isActiveRequestStatus(latestGenerateValidationRequest?.status);
-  if (!training.trainingRun) {
+  if (!training.trainingCompleted) {
+    if (isActiveRequestStatus(training.latestRequest?.status)) {
+      return {
+        key: 'waiting-training',
+        title: '等待 rolling training manifest 完成',
+        reason: '训练请求已经在 worker 中执行，无需重复排队。',
+        commands: []
+      };
+    }
     return {
       key: 'run-training',
-      title: '先跑训练候选池',
-      reason: '数据库里还没有这个 training config 的训练结果。',
+      title: '先跑 rolling training manifest',
+      reason: '数据库里还没有看到这个 training config 的完成记录。',
       commands: [
         '优先直接在 UI 中点击“运行训练”。如需 CLI 离线执行，请先从配置库导出对应 training config。'
       ]
@@ -680,7 +723,7 @@ function buildNextAction(training: any, validationRecords: readonly any[], repor
     return {
       key: 'waiting-generate-validation',
       title: '等待 rolling package 生成',
-      reason: 'worker 正在根据训练结果生成 rolling 候选池 / mapping package 和 validation 配置。',
+      reason: 'worker 正在根据 training manifest 逐月学习 rolling 候选池 / mapping package 和 validation 配置。',
       commands: []
     };
   }
@@ -689,7 +732,7 @@ function buildNextAction(training: any, validationRecords: readonly any[], repor
     return {
       key: 'generate-validation',
       title: '生成 rolling package 和 validation 配置',
-      reason: '训练结果已经存在，但数据库里还没有看到对应的 rolling 候选池 / mapping package。',
+      reason: 'training manifest 已完成，但数据库里还没有看到对应的 rolling 候选池 / mapping package。',
       commands: [
         '优先直接在 UI 中点击“下一步”，系统会把 rolling package 与 validation config 直接写入数据库；只有需要离线保存时再手动导出。'
       ]
@@ -700,7 +743,7 @@ function buildNextAction(training: any, validationRecords: readonly any[], repor
     return {
       key: 'prepare-validation',
       title: '补生成 validation 配置',
-      reason: '已经有训练结果，但数据库里还没有找到匹配的 validation 配置记录。',
+      reason: 'rolling package 已存在，但数据库里还没有找到匹配的 validation 配置记录。',
       commands: [
         '重新触发一次“生成 Validation”，系统会把 validation config 和 rolling package 一起写入数据库。'
       ]
@@ -1163,6 +1206,14 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
       })
       .sort((left: any, right: any) => (right.stat?.mtimeMs || 0) - (left.stat?.mtimeMs || 0))[0] || null;
 
+    const trainingCompleted = hasTrainingCompleted({
+      trainingRun,
+      latestRequest: trainingLatestRequest,
+      latestTask,
+      latestGenerateValidationRequest,
+      topStrategySnapshot: snapshotMatch
+    });
+
     const matchedValidations = validationEntries
       .filter((entry: any) => !entry.config?.draftFromTraining)
       .filter((entry: any) => matchValidationToTraining({
@@ -1270,9 +1321,11 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
           ? 'running'
           : latestTask?.status === 'running'
             ? 'running'
-            : buildStatus(Boolean(trainingRun)),
+            : buildStatus(trainingCompleted),
         detail: trainingRun
           ? `${trainingRun.strategyCount} strategies · latest ${trainingRun.latestAt || 'n/a'}`
+          : trainingCompleted
+            ? `manifest completed · ${trainingLatestRequest?.requestId || latestTask?.taskId || 'n/a'}`
           : trainingLatestRequest
             ? `queue ${trainingLatestRequest.status}`
             : '尚未落库'
@@ -1394,6 +1447,9 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
       resultGroup,
       timeRange: config.timeRange,
       validationPlan: config.validationPlan || null,
+      latestRequest: trainingLatestRequest,
+      latestTask,
+      trainingCompleted,
       trainingRun,
       topStrategySnapshot,
       latestGenerateValidationRequest,
@@ -1420,6 +1476,7 @@ export async function buildTrainingPipelineSummary(options: BuildTrainingPipelin
       latestRequest: trainingLatestRequest,
       latestGenerateValidationRequest,
       trainId,
+      trainingCompleted,
       trainingRun,
       topStrategySnapshot,
       validationConfigs: matchedValidations,

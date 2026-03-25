@@ -773,30 +773,53 @@ async function main(): Promise<void> {
       trainId
     );
 
-    // 3. 确保数据库表
-    const resultGroup = resolveResultGroup(config);
-    const runId = createRunId(config);
-    await ensureBacktestTable();
-    if (config.database.resetTableBeforeRun) {
-      await resetBacktestTable(resultGroup);
-    }
-
-    // 4. 生成策略
-    const strategies = generateStrategies(config);
-
-    // 5. 加载K线数据
-    const klines = await loadKlines(config);
-
-    // 6. 执行训练
-    await runTraining(config, strategies, klines, config.executor.options, runId, trainId);
-
-    // 7. 查询Top策略
+    const runMode = resolveRunMode(config);
     const topN = config.output.topN ?? 10;
-    const topResults = await queryTopStrategies(resultGroup, topN, runId);
 
-    // 8. 保存Top策略
-    if (topResults.length > 0 && (config.output.persistTopStrategies ?? true)) {
-      await saveTopStrategies(topResults, config, trainId);
+    if (runMode === 'training') {
+      console.log('\n♻️  rolling training manifest mode');
+      console.log('   - 旧的整段候选池总回测已移除');
+      console.log('   - 月度 history-only 学习将在 generate-validation 阶段执行');
+      console.log(`   - train_id: ${trainId}`);
+      console.log(`   - topN: ${topN}`);
+    } else {
+      // 3. 确保数据库表
+      const resultGroup = resolveResultGroup(config);
+      const runId = createRunId(config);
+      await ensureBacktestTable();
+      if (config.database.resetTableBeforeRun) {
+        await resetBacktestTable(resultGroup);
+      }
+
+      // 4. 生成策略
+      const strategies = generateStrategies(config);
+
+      // 5. 加载K线数据
+      const klines = await loadKlines(config);
+
+      // 6. 执行验证
+      await runTraining(config, strategies, klines, config.executor.options, runId, trainId);
+
+      // 7. 查询Top策略
+      const topResults = await queryTopStrategies(resultGroup, topN, runId);
+
+      // 8. 保存Top策略
+      if (topResults.length > 0 && (config.output.persistTopStrategies ?? true)) {
+        await saveTopStrategies(topResults, config, trainId);
+      }
+
+      console.log(`📊 运行摘要:`);
+      console.log(`   - 配置: ${config.name}`);
+      console.log(`   - 策略数: ${strategies.length}`);
+      console.log(`   - Top N: ${topN} 个策略已保存`);
+      console.log(`   - 结果表: ${BACKTEST_RESULTS_TABLE}`);
+      console.log(`   - 逻辑分组: ${resultGroup}`);
+      console.log(`   - run_id: ${runId}`);
+      console.log(`   - train_id: ${trainId}`);
+      if (policyCatalog) {
+        console.log(`   - 路由策略表: ${policyCatalog.routerVersion} (${policyCatalog.catalogVersion})`);
+      }
+      console.log('');
     }
 
     // 9. 标记任务完成
@@ -811,12 +834,13 @@ async function main(): Promise<void> {
 
     console.log(`📊 训练摘要:`);
     console.log(`   - 配置: ${config.name}`);
-    console.log(`   - 策略数: ${strategies.length}`);
-    console.log(`   - Top N: ${topN} 个策略已保存`);
-    console.log(`   - 结果表: ${BACKTEST_RESULTS_TABLE}`);
-    console.log(`   - 逻辑分组: ${resultGroup}`);
-    console.log(`   - run_id: ${runId}`);
     console.log(`   - train_id: ${trainId}`);
+    console.log(`   - mode: ${runMode}`);
+    if (runMode === 'training') {
+      console.log(`   - rolling learner: history-only`);
+      console.log(`   - lookback months: 3`);
+      console.log(`   - Top N: ${topN}`);
+    }
     if (policyCatalog) {
       console.log(`   - 路由策略表: ${policyCatalog.routerVersion} (${policyCatalog.catalogVersion})`);
     }

@@ -50,6 +50,17 @@ function makeKlineRow(isoTime, open, high, low, close) {
   };
 }
 
+function makeWaveKlines(startIso, closes) {
+  const startTime = Date.parse(startIso);
+  return closes.map((close, index) => {
+    const previousClose = index === 0 ? close : closes[index - 1];
+    const open = previousClose;
+    const high = Math.max(open, close) + 1;
+    const low = Math.min(open, close) - 1;
+    return makeKlineRow(new Date(startTime + (index * 60_000)).toISOString(), open, high, low, close);
+  });
+}
+
 function createPlaceholderCheckedConnection(fixtures) {
   return {
     async query(sql, params = []) {
@@ -64,6 +75,9 @@ function createPlaceholderCheckedConnection(fixtures) {
       }
       if (text.includes('FROM trades')) {
         return [fixtures.trainingTrades, {}];
+      }
+      if (text.includes('SELECT MIN(open_time) AS min_open_time')) {
+        return [[{ min_open_time: fixtures.klines[0]?.open_time ?? null }], {}];
       }
       if (text.includes('FROM klines')) {
         return [fixtures.klines, {}];
@@ -231,9 +245,25 @@ test('feature flow runs training params to rolling artifacts and router outputs 
     strategy: {
       types: ['rsi_macd'],
       parameters: {
+        rsi: {
+          period: [2],
+          oversold: [60],
+          overbought: [81],
+        },
+        macd: {
+          fastPeriod: [2],
+          slowPeriod: [4],
+          signalPeriod: [2],
+          histogramThreshold: [0],
+        },
         risk: {
+          maxPositions: [1],
           lotSize: [0.008],
           maxHoldMinutes: [6, 8],
+        },
+        atr: {
+          slMultiplier: [1.5],
+          tpMultiplier: [1.5],
         },
       },
     },
@@ -340,12 +370,10 @@ test('feature flow runs training params to rolling artifacts and router outputs 
       { strategy_name: 'beta', exit_time: Date.parse('2025-02-05T03:00:00.000Z'), pnl: -300 },
     ],
     klines: [
-      makeKlineRow('2025-01-03T00:00:00.000Z', 100, 102, 99, 101),
-      makeKlineRow('2025-01-03T00:01:00.000Z', 101, 103, 100, 102),
-      makeKlineRow('2025-01-10T00:00:00.000Z', 102, 103, 100, 101),
-      makeKlineRow('2025-01-10T00:01:00.000Z', 101, 101.5, 99, 100),
-      makeKlineRow('2025-02-05T00:00:00.000Z', 100, 104, 99, 103),
-      makeKlineRow('2025-02-05T00:01:00.000Z', 103, 105, 102, 104),
+      ...makeWaveKlines('2024-12-16T00:00:00.000Z', [110, 108, 106, 104, 102, 100, 102, 104, 106, 108]),
+      ...makeWaveKlines('2025-01-03T00:00:00.000Z', [100, 98, 96, 94, 95, 97, 99, 101]),
+      ...makeWaveKlines('2025-01-10T00:00:00.000Z', [101, 103, 105, 107, 106, 104, 102, 100]),
+      ...makeWaveKlines('2025-02-05T00:00:00.000Z', [100, 97, 94, 92, 93, 96, 99, 103]),
     ],
   };
 
@@ -369,7 +397,7 @@ test('feature flow runs training params to rolling artifacts and router outputs 
 
   assert.equal(artifacts.validationConfigs.length, 2);
   assert.equal(artifacts.snapshot.content.trainId, 'train-feature-001');
-  assert.equal(artifacts.snapshot.content.rollingPlan.monthlyPools.length, 1);
+  assert.equal(artifacts.snapshot.content.rollingPlan.monthlyPools.length, 2);
   assert.equal(artifacts.snapshot.content.rollingPlan.monthlyPools[0].sourceMonth, '2025-01');
   assert.ok(artifacts.snapshot.content.rollingRouter.rules.length >= 1);
   assert.equal(artifacts.validationConfigs[0].content.validationTarget.evaluationTimeRange.startIso, '2025-01-03T00:00:00.000Z');
@@ -383,12 +411,17 @@ test('feature flow runs training params to rolling artifacts and router outputs 
     await upsertTrainConfig(registryDb, item.configKey, item.content, { explicitType: 'validation' });
   }
 
-  assert.equal(registryDb.state.rollingPools.length, 1);
+  assert.equal(registryDb.state.rollingPools.length, 2);
   assert.ok(registryDb.state.rollingRules.length >= 1);
 
   const firstValidation = artifacts.validationConfigs[0];
   const firstValidationPath = path.join(trainRoot, firstValidation.configKey);
   writeJson(firstValidationPath, firstValidation.content);
+  const validationStrategyNames = Array.isArray(firstValidation.content?.strategy?.explicitStrategies)
+    ? firstValidation.content.strategy.explicitStrategies.map((item) => String(item.name || '')).filter(Boolean)
+    : [];
+  const primaryStrategyName = validationStrategyNames[0] || 'alpha';
+  const secondaryStrategyName = validationStrategyNames[1] || primaryStrategyName;
 
   const routerBuildResult = await runBuildRouterArtifacts({
     trainConfigPath: trainingConfigPath,
@@ -412,12 +445,16 @@ test('feature flow runs training params to rolling artifacts and router outputs 
   assert.ok(updatedTraining.content.regimeRouting.policyCatalogPath);
 
   const validationTrades = [
-    { strategy_name: 'alpha', exit_time: Date.parse('2025-01-03T12:00:00.000Z'), pnl: 80 },
-    { strategy_name: 'beta', exit_time: Date.parse('2025-01-03T12:00:00.000Z'), pnl: -20 },
-    { strategy_name: 'alpha', exit_time: Date.parse('2025-01-10T12:00:00.000Z'), pnl: -30 },
-    { strategy_name: 'beta', exit_time: Date.parse('2025-01-10T12:00:00.000Z'), pnl: 60 },
+    { strategy_name: primaryStrategyName, exit_time: Date.parse('2025-01-03T12:00:00.000Z'), pnl: 80 },
+    { strategy_name: secondaryStrategyName, exit_time: Date.parse('2025-01-03T12:00:00.000Z'), pnl: -20 },
+    { strategy_name: primaryStrategyName, exit_time: Date.parse('2025-01-10T12:00:00.000Z'), pnl: -30 },
+    { strategy_name: secondaryStrategyName, exit_time: Date.parse('2025-01-10T12:00:00.000Z'), pnl: 60 },
   ];
-  const validationKlines = fixtures.klines.slice(0, 4);
+  const validationKlines = fixtures.klines.filter((row) => {
+    const openTime = Number(row.open_time);
+    return openTime >= Date.parse('2025-01-03T00:00:00.000Z')
+      && openTime <= Date.parse('2025-01-10T00:07:00.000Z');
+  });
   const originalQuery = dbModule.default.query;
   dbModule.default.query = async (sql, params = []) => {
     const text = String(sql);

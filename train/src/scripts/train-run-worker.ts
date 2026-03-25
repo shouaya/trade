@@ -273,20 +273,14 @@ async function resolveCommand(
     const fileName = path.basename(configKey);
     const trainingYear = getYearFromConfig(config, fileName);
     const market = config['market'] as Record<string, any> | undefined;
-    const database = config['database'] as Record<string, any> | undefined;
     const output = config['output'] as Record<string, any> | undefined;
     const validationPlan = config['validationPlan'] as Record<string, any> | undefined;
     const symbol = String(market?.['symbol'] || 'UNKNOWN').toUpperCase();
-    const sourceTable = String(database?.['tableName'] || '').trim();
     const topN = Number(output?.['topN'] || 10);
     const validationProfile = normalizeValidationProfile(validationPlan?.['profile']);
 
     if (!trainingYear) {
       throw new Error('training year is missing');
-    }
-
-    if (!sourceTable) {
-      throw new Error('sourceTable/result_group is missing');
     }
 
     return {
@@ -296,7 +290,6 @@ async function resolveCommand(
         `--trainConfig=${exportPath}`,
         `--trainConfigRef=${configKey}`,
         `--symbol=${symbol}`,
-        `--sourceTable=${sourceTable}`,
         `--outPrefix=${deriveValidationPrefix(fileName, symbol, topN)}`,
         `--strategyPrefix=${trainingYear}-${symbol}-VAL-`,
         `--descriptionPrefix=${trainingYear} ${symbol} validation`,

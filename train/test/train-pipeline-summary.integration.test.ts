@@ -520,7 +520,7 @@ test('buildTrainingPipelineSummary surfaces running training state before artifa
     assert.equal(pipeline.steps[1].status, 'running');
     assert.equal(pipeline.topStrategySnapshot, null);
     assert.equal(pipeline.validationConfigs.length, 0);
-    assert.equal(pipeline.nextAction.key, 'run-training');
+    assert.equal(pipeline.nextAction.key, 'waiting-training');
     assert.equal(pipeline.finalConfigState.status, 'todo');
     assert.equal(pipeline.suggestedStageKey, 'stage-3-candidate-pool');
   } finally {

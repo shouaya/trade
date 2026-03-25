@@ -23,6 +23,23 @@ test('train pipeline summary exposes final config state for running generation r
   assert.match(state.detail, /runreq-42/);
 });
 
+test('train pipeline summary exposes final config state for completed rolling manifest without snapshot', () => {
+  const state = buildFinalConfigState({
+    latestRequest: {
+      requestId: 'trainreq-42',
+      status: 'completed',
+    },
+    latestTask: {
+      taskId: 'task-42',
+      status: 'completed',
+    },
+  });
+
+  assert.equal(state.status, 'todo');
+  assert.equal(state.canExport, false);
+  assert.match(state.detail, /rolling training manifest 已完成/);
+});
+
 test('train pipeline summary builds methodology stages from core pipeline dto', () => {
   const pipeline = {
     symbol: 'BTCJPY',

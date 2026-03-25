@@ -12,6 +12,23 @@ interface CliArgs {
   readonly tradeCreatedAt?: string;
 }
 
+const TRAIN_ROOT = path.resolve(__dirname, '..', '..');
+
+function toPosix(value: string): string {
+  return value.replace(/\\/g, '/');
+}
+
+function resolveArtifactConfigKey(filePath: string): string | null {
+  const resolvedPath = path.resolve(filePath);
+  const relativePath = toPosix(path.relative(TRAIN_ROOT, resolvedPath));
+  if (relativePath && !relativePath.startsWith('../') && relativePath !== '..') {
+    return relativePath;
+  }
+
+  const normalizedInput = toPosix(String(filePath || '').trim()).replace(/^\.\/+/, '');
+  return normalizedInput.startsWith('configs/') ? normalizedInput : null;
+}
+
 function loadTrainIdFromValidationConfig(validationPath: string): string | null {
   try {
     const payload = JSON.parse(fs.readFileSync(path.resolve(validationPath), 'utf8'));
@@ -95,6 +112,7 @@ async function main(): Promise<void> {
 
   const report = await runRouterValidation(runOptions);
   const trainId = loadTrainIdFromValidationConfig(args.validation);
+  const configKey = resolveArtifactConfigKey(args.validation);
   const reportPayload = trainId
     ? {
         ...report,
@@ -106,6 +124,7 @@ async function main(): Promise<void> {
     artifactKey: `router-validation:${report.routerVersion}:${report.period.startTimeMs}:${report.period.endTimeMs}`,
     artifactType: 'router-validation',
     trainId,
+    configKey,
     symbol: report.symbol,
     periodStartMs: report.period.startTimeMs,
     periodEndMs: report.period.endTimeMs,
