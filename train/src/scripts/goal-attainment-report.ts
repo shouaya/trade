@@ -11,6 +11,7 @@ import {
   buildTrainConfigContentSelectSql,
   buildTrainConfigDetailJoinsSql
 } from '../services/train-config-registry';
+import { resolveEvaluationTimeRange } from '../services/validation-range';
 
 const TRAIN_ROOT = path.resolve(__dirname, '..', '..');
 const OUTPUT_DIR = path.resolve(__dirname, '../../reports/goal-tracking');
@@ -229,7 +230,12 @@ function buildExpectedRouterReportPath(
   fallbackSymbol: string
 ): string | null {
   const symbol = String(validationContent?.market?.symbol || fallbackSymbol || '').trim().toUpperCase();
-  const timeRange = (validationContent?.timeRange ?? {}) as JsonObject;
+  let timeRange;
+  try {
+    timeRange = resolveEvaluationTimeRange(validationContent);
+  } catch {
+    return null;
+  }
   const startLabel = formatIsoDateOnly(timeRange.startIso || timeRange.startTimeMs);
   const endLabel = formatIsoDateOnly(timeRange.endIso || timeRange.endTimeMs);
   if (!symbol || !routerVersion || !startLabel || !endLabel) {
@@ -283,14 +289,14 @@ async function loadDerivedRows(trainId: string): Promise<readonly RegistryRow[]>
 }
 
 export function resolveValidationWindowRange(validationContent: JsonObject | null | undefined): ValidationWindowRange | null {
-  const startTimeMs = Number(
-    validationContent?.timeRange?.startTimeMs
-    ?? (validationContent?.timeRange?.startIso ? Date.parse(String(validationContent.timeRange.startIso)) : Number.NaN)
-  );
-  const endTimeMs = Number(
-    validationContent?.timeRange?.endTimeMs
-    ?? (validationContent?.timeRange?.endIso ? Date.parse(String(validationContent.timeRange.endIso)) : Number.NaN)
-  );
+  let range;
+  try {
+    range = resolveEvaluationTimeRange(validationContent);
+  } catch {
+    return null;
+  }
+  const startTimeMs = Number(range.startTimeMs);
+  const endTimeMs = Number(range.endTimeMs);
 
   if (!Number.isFinite(startTimeMs) || !Number.isFinite(endTimeMs)) {
     return null;

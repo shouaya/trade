@@ -24,6 +24,13 @@ import { generateStrategyCombinations } from '../services/strategy-parameter-gen
 import { loadRouterPolicyCatalogFromRefs, summarizePolicyCatalog } from '../services/router-policy-catalog';
 import { ensureTrainConfigRegistryTable, upsertTrainConfigFromFile } from '../services/train-config-registry';
 import { validateFeeModelConfig } from '../services/fee-model';
+import {
+  narrowBacktestResultToEvaluationRange,
+  resolveEvaluationTimeRange,
+  resolveExecutionTimeRange,
+  type TimeRangeLike
+} from '../services/validation-range';
+import { resolveSymbolSpecFromSymbol } from '../services/simulator-core';
 import type * as mysql from 'mysql2/promise';
 import type {
   Strategy,
@@ -95,6 +102,14 @@ interface TrainingConfig {
     readonly descriptionPrefix?: string;
     readonly persistTopStrategies?: boolean;
     readonly persistTrades?: boolean;
+  };
+  readonly validationTarget?: {
+    readonly evaluationTimeRange?: TimeRangeLike;
+    readonly executionTimeRange?: TimeRangeLike;
+    readonly startTimeMs?: number;
+    readonly endTimeMs?: number;
+    readonly startIso?: string;
+    readonly endIso?: string;
   };
 }
 
@@ -273,7 +288,7 @@ async function findLatestRunId(resultGroup: string): Promise<string | null> {
  */
 async function loadKlines(config: TrainingConfig): Promise<readonly KlineData[]> {
   const { symbol, intervalType } = config.market;
-  const { startTimeMs, endTimeMs } = config.timeRange;
+  const { startTimeMs, endTimeMs } = resolveExecutionTimeRange(config);
 
   console.log(`\n📊 加载K线数据...`);
   console.log(`   - 品种: ${symbol}`);
@@ -406,7 +421,8 @@ async function saveStrategyResult(
   strategy: Strategy,
   result: BacktestResult,
   executorVersion: string,
-  executorOptions: ExecutorOptions
+  executorOptions: ExecutorOptions,
+  resultPeriod: TimeRangeLike
 ): Promise<void> {
   const stats = result.stats;
   const score = calculateScore(stats);
@@ -463,8 +479,8 @@ async function saveStrategyResult(
       resolveRunMode(config),
       config.market.symbol,
       config.market.intervalType,
-      config.timeRange.startTimeMs,
-      config.timeRange.endTimeMs,
+      resultPeriod.startTimeMs,
+      resultPeriod.endTimeMs,
       strategy.name,
       strategy.type,
       stats.totalTrades,
@@ -537,6 +553,8 @@ async function runTraining(
   const resultGroup = resolveResultGroup(config);
   const executorVersion = config.executor.version;
   const persistTrades = config.output.persistTrades ?? true;
+  const evaluationRange = resolveEvaluationTimeRange(config);
+  const symbolSpec = resolveSymbolSpecFromSymbol(config.market.symbol, executorOptions.symbolSpec);
 
   console.log(`\n🚀 开始执行 ${strategies.length} 个策略回测...\n`);
 
@@ -553,27 +571,28 @@ async function runTraining(
 
     try {
       const executor = new StrategyExecutor(strategy, klines, executorOptions);
-      const result = await executor.execute();
+      const rawResult = await executor.execute();
+      const result = narrowBacktestResultToEvaluationRange(rawResult, evaluationRange, symbolSpec.initialCapital);
 
-      if (result && result.trades && result.trades.length > 0) {
-        validCount++;
-        totalTrades += result.trades.length;
-
-        // 添加策略名称
-        const tradesWithName = result.trades.map(t => ({
+      if (rawResult.trades && rawResult.trades.length > 0) {
+        const tradesWithName = rawResult.trades.map(t => ({
           ...t,
           strategy_name: strategy.name
         }));
         allTrades = allTrades.concat(tradesWithName);
 
-        // 批量保存交易
         if (persistTrades && allTrades.length >= TRADE_BATCH_SIZE) {
           await saveTrades(allTrades, tradeBatchCreatedAt, trainId);
           allTrades = [];
         }
+      }
+
+      if (result && result.trades && result.trades.length > 0) {
+        validCount++;
+        totalTrades += result.trades.length;
 
         // 保存策略结果
-        await saveStrategyResult(config, resultGroup, runId, trainId, strategy, result, executorVersion, executorOptions);
+        await saveStrategyResult(config, resultGroup, runId, trainId, strategy, result, executorVersion, executorOptions, evaluationRange);
       }
 
       // 显示进度

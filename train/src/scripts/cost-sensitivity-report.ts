@@ -7,6 +7,13 @@ import db from '../configs/database';
 import { StrategyExecutor } from '../services/strategy-executor';
 import { validateFeeModelConfig } from '../services/fee-model';
 import { generateStrategyCombinations } from '../services/strategy-parameter-generator';
+import {
+  narrowBacktestResultToEvaluationRange,
+  resolveEvaluationTimeRange,
+  resolveExecutionTimeRange,
+  type TimeRangeLike
+} from '../services/validation-range';
+import { resolveSymbolSpecFromSymbol } from '../services/simulator-core';
 import type {
   Strategy,
   KlineData,
@@ -62,6 +69,14 @@ interface ConfigFile {
   };
   readonly output?: {
     readonly topN?: number;
+  };
+  readonly validationTarget?: {
+    readonly evaluationTimeRange?: TimeRangeLike;
+    readonly executionTimeRange?: TimeRangeLike;
+    readonly startTimeMs?: number;
+    readonly endTimeMs?: number;
+    readonly startIso?: string;
+    readonly endIso?: string;
   };
 }
 
@@ -204,6 +219,7 @@ function buildStrategyLabel(strategyName: string): string {
 }
 
 async function loadKlines(config: ConfigFile): Promise<readonly KlineData[]> {
+  const executionRange = resolveExecutionTimeRange(config);
   const [klines] = await db.query<mysql.RowDataPacket[]>(
     `SELECT
        id,
@@ -232,8 +248,8 @@ async function loadKlines(config: ConfigFile): Promise<readonly KlineData[]> {
     [
       config.market.symbol,
       config.market.intervalType,
-      config.timeRange.startTimeMs,
-      config.timeRange.endTimeMs
+      executionRange.startTimeMs,
+      executionRange.endTimeMs
     ]
   );
 
@@ -383,13 +399,14 @@ function buildMarkdown(
   scenarioResults: readonly StrategyScenarioResult[],
   stressMultiplier: number
 ): string {
+  const evaluationRange = resolveEvaluationTimeRange(config);
   const lines: string[] = [];
   const configuredTopN = Number(config.output?.topN || 0);
   lines.push(`# ${config.market.symbol} Cost Sensitivity Report`);
   lines.push('');
   lines.push(`- Config: \`${configPath}\``);
   lines.push(`- Validation / training name: \`${config.name}\``);
-  lines.push(`- Period: \`${new Date(config.timeRange.startTimeMs).toISOString()}\` -> \`${new Date(config.timeRange.endTimeMs).toISOString()}\``);
+  lines.push(`- Period: \`${new Date(evaluationRange.startTimeMs).toISOString()}\` -> \`${new Date(evaluationRange.endTimeMs).toISOString()}\``);
   lines.push(`- Strategies tested: \`${strategies.length}\``);
   if (configuredTopN > 0) {
     lines.push(`- Rolling pool TopN per month: \`${configuredTopN}\``);
@@ -470,8 +487,10 @@ async function main(): Promise<void> {
   const config = loadJson<ConfigFile>(resolvedConfigPath);
   const strategies = selectStrategies(config, args);
   const klines = await loadKlines(config);
+  const evaluationRange = resolveEvaluationTimeRange(config);
   const feeModel = pickFeeModel(config, args.commissionRate);
   const scenarioDefs = buildScenarioOptions(config.executor?.options ?? {}, feeModel, args.stressMultiplier);
+  const symbolSpec = resolveSymbolSpecFromSymbol(config.market.symbol, config.executor?.options?.symbolSpec);
 
   const scenarioResults: StrategyScenarioResult[] = [];
   for (const strategy of strategies) {
@@ -481,7 +500,8 @@ async function main(): Promise<void> {
     for (const scenario of scenarioDefs) {
       console.log(`  - scenario: ${scenario.label}`);
       const executor = new StrategyExecutor(strategy, klines, scenario.options);
-      const result = await executor.execute();
+      const rawResult = await executor.execute();
+      const result = narrowBacktestResultToEvaluationRange(rawResult, evaluationRange, symbolSpec.initialCapital);
       scenarios.push(toScenarioStats(scenario.name, scenario.label, result));
     }
 
@@ -506,7 +526,7 @@ async function main(): Promise<void> {
     configName: config.name,
     symbol: config.market.symbol,
     intervalType: config.market.intervalType,
-    period: config.timeRange,
+    period: evaluationRange,
     stressMultiplier: args.stressMultiplier,
     rollingPoolTopN: Number(config.output?.topN || 0) || null,
     strategyCount: strategies.length,

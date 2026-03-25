@@ -279,32 +279,156 @@ test('runRouterValidation applies rolling rules, monthly pools, and loss guards'
     const [day1, day2, day3] = report.dailyRoutes;
     assert.equal(day1.selectedStrategyName, 'beta');
     assert.equal(day1.dayRuleId, 'day_vol_route');
-    assert.equal(day1.monthRuleId, 'month_pool_bias');
-    assert.equal(day1.weekRuleId, 'week_alignment_cap');
-    assert.equal(day1.effectiveRiskMultiplier, 0.2);
+    assert.equal(day1.monthRuleId, null);
+    assert.equal(day1.weekRuleId, null);
+    assert.equal(day1.effectiveRiskMultiplier, 0.5);
     assert.equal(day1.positiveStrategyRatio, 0);
-    assert.equal(day1.routedPnl, -10);
+    assert.equal(day1.routedPnl, -25);
 
     assert.equal(day2.lossRuleId, 'loss_pause');
     assert.equal(day2.selectedStrategyKey, null);
     assert.equal(day2.effectiveRiskMultiplier, 0);
-    assert.equal(day2.previousDayRoutedPnl, -10);
+    assert.equal(day2.previousDayRoutedPnl, -25);
     assert.equal(day2.consecutiveLossDaysBefore, 1);
     assert.equal(day2.routedPnl, 0);
 
     assert.equal(day3.selectedStrategyName, 'beta');
     assert.equal(day3.positiveStrategyRatio, 100);
-    assert.equal(day3.routedPnl, 4);
+    assert.equal(day3.routedPnl, 10);
     assert.equal(day3.oracleBestOfDayPnl, 20);
 
-    assert.equal(report.comparison.router.totalPnl, -6);
+    assert.equal(report.comparison.router.totalPnl, -15);
     assert.equal(report.comparison.defaultStrategy.totalPnl, 20);
     assert.equal(report.comparison.rank1Strategy.totalPnl, 20);
     assert.equal(report.comparison.top10EqualWeight.totalPnl, 35);
     assert.equal(report.comparison.oracleBestOfDay.totalPnl, 140);
     assert.equal(report.comparison.router.negativeDays, 1);
     assert.equal(report.comparison.router.tradedDays, 2);
-    assert.equal(report.comparison.router.finalEquity, 999994);
+    assert.equal(report.comparison.router.finalEquity, 999985);
+  } finally {
+    dbModule.default.query = originalQuery;
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('runRouterValidation uses opening-window daily features instead of full-day hindsight buckets', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'money-router-opening-'));
+  const validationPath = path.join(tempDir, 'validation.json');
+  const routerPath = path.join(tempDir, 'router.json');
+
+  writeJson(validationPath, {
+    name: 'OPENING_WINDOW_CAUSAL_VALIDATION',
+    timeRange: {
+      startTimeMs: Date.parse('2025-02-01T00:00:00.000Z'),
+      endTimeMs: Date.parse('2025-02-01T23:59:00.000Z'),
+    },
+    market: {
+      symbol: 'BTCJPY',
+      intervalType: '1min',
+    },
+    strategy: {
+      explicitStrategies: [
+        {
+          rank: 1,
+          name: 'alpha',
+          type: 'rsi_macd',
+          parameters: {
+            atr: { slMultiplier: 2, tpMultiplier: 4 },
+            rsi: { oversold: 25, overbought: 75 },
+            risk: { maxHoldMinutes: 6 },
+          },
+        },
+        {
+          rank: 2,
+          name: 'beta',
+          type: 'rsi_macd',
+          parameters: {
+            atr: { slMultiplier: 2, tpMultiplier: 4 },
+            rsi: { oversold: 30, overbought: 70 },
+            risk: { maxHoldMinutes: 8 },
+          },
+        },
+      ],
+    },
+    rollingPlan: {
+      monthlyPools: [
+        {
+          month: '2025-02',
+          topStrategies: [{ strategyName: 'alpha' }, { strategyName: 'beta' }],
+        },
+      ],
+    },
+    featureEngineering: {
+      openingWindowMinutes: 1,
+      volBaselineLookbackPeriods: 1,
+    },
+  });
+
+  writeJson(routerPath, {
+    symbol: 'BTCJPY',
+    routerVersion: 'btcjpy_router_opening_only',
+    executionModel: {
+      precedence: ['monthly_guard', 'weekly_guard', 'daily_router', 'loss_recheck'],
+      defaultFallback: {
+        action: 'trade',
+        riskMultiplier: 1,
+        strategyKey: 'rank1',
+      },
+    },
+    strategyCatalog: {
+      rank1: { strategyName: 'alpha', shortLabel: 'TOP1', role: 'default-fallback' },
+      rank2: { strategyName: 'beta', shortLabel: 'TOP2', role: 'candidate' },
+    },
+    rules: [
+      {
+        id: 'opening-range-route',
+        layer: 'daily_router',
+        priority: 1,
+        when: {
+          featureBucket: ['range-low-vol'],
+        },
+        action: {
+          type: 'trade',
+          strategyKey: 'rank2',
+        },
+      },
+    ],
+  });
+
+  const trades = [
+    { strategy_name: 'alpha', exit_time: Date.parse('2025-02-01T12:00:00.000Z'), pnl: -10 },
+    { strategy_name: 'beta', exit_time: Date.parse('2025-02-01T12:00:00.000Z'), pnl: 50 },
+  ];
+
+  const klines = [
+    makeKlineRow('2025-02-01T00:00:00.000Z', 100, 100.2, 99.9, 100.05),
+    makeKlineRow('2025-02-01T00:01:00.000Z', 100.05, 104.5, 99.8, 104),
+  ];
+
+  const originalQuery = dbModule.default.query;
+  dbModule.default.query = async (sql) => {
+    const text = String(sql);
+    if (text.includes('FROM trades') && text.includes('ORDER BY exit_time ASC')) {
+      return [trades, {}];
+    }
+    if (text.includes('FROM klines')) {
+      return [klines, {}];
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  };
+
+  try {
+    const report = await runRouterValidation({
+      validationConfigPath: validationPath,
+      routerConfigPath: routerPath,
+      tradeCreatedAt: '2026-03-25 00:00:00',
+    });
+
+    assert.equal(report.dailyRoutes.length, 1);
+    assert.equal(report.dailyRoutes[0].featureBucket, 'range-low-vol');
+    assert.equal(report.dailyRoutes[0].selectedStrategyName, 'beta');
+    assert.equal(report.dailyRoutes[0].routedPnl, 50);
+    assert.equal(report.comparison.router.totalPnl, 50);
   } finally {
     dbModule.default.query = originalQuery;
     fs.rmSync(tempDir, { recursive: true, force: true });

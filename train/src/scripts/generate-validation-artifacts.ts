@@ -206,13 +206,15 @@ function buildValidationDefinitions(trainConfig: JsonObject, profile: string, cu
     }
     const startMs = toUtcStartOfDay(startIso);
     const endMs = toUtcEndOfDay(endIso);
+    const executionStartMs = toUtcStartOfMonth(Date.UTC(new Date(startMs).getUTCFullYear(), new Date(startMs).getUTCMonth() - 1, 1, 0, 0, 0));
     return [{
       suffix: `custom_${formatCompactDate(startMs)}_to_${formatCompactDate(endMs)}_validation`,
       label: `custom ${formatIsoDate(startMs)} -> ${formatIsoDate(endMs)}`,
       shortLabel: 'custom-range',
       tableToken: `custom_${formatCompactDate(startMs)}_${formatCompactDate(endMs)}`,
       descriptionLabel: `自定义验证 ${formatIsoDate(startMs)} -> ${formatIsoDate(endMs)}`,
-      timeRange: buildTimeRange(startMs, endMs)
+      evaluationTimeRange: buildTimeRange(startMs, endMs),
+      executionTimeRange: buildTimeRange(executionStartMs, endMs)
     }];
   }
 
@@ -227,13 +229,15 @@ function buildValidationDefinitions(trainConfig: JsonObject, profile: string, cu
     const segmentStartMs = Math.max(rollingStartMs, cursorMs);
     const segmentEndMs = Math.min(rollingEndMs, toUtcEndOfMonth(cursorMs));
     if (segmentStartMs <= segmentEndMs) {
+      const executionStartMs = toUtcStartOfMonth(Date.UTC(cursorDate.getUTCFullYear(), cursorDate.getUTCMonth() - 1, 1, 0, 0, 0));
       definitions.push({
         suffix: `rolling_${monthToken}_validation`,
         label: `rolling ${formatIsoDate(segmentStartMs)} -> ${formatIsoDate(segmentEndMs)}`,
         shortLabel: 'rolling-window',
         tableToken: `rolling_${monthToken}`,
         descriptionLabel: `训练期 Rolling 验证 ${formatIsoDate(segmentStartMs)} -> ${formatIsoDate(segmentEndMs)}`,
-        timeRange: buildTimeRange(segmentStartMs, segmentEndMs)
+        evaluationTimeRange: buildTimeRange(segmentStartMs, segmentEndMs),
+        executionTimeRange: buildTimeRange(executionStartMs, segmentEndMs)
       });
     }
     cursorMs = Date.UTC(cursorDate.getUTCFullYear(), cursorDate.getUTCMonth() + 1, 1, 0, 0, 0);
@@ -335,7 +339,7 @@ function buildArtifacts(args: Args, trainConfig: JsonObject, rollingPackage: Ret
       ...(trainId ? { trainId } : {}),
       name: `${args.symbol}_ROLLING_${String(definition.shortLabel).toUpperCase().replace(/-/g, '_')}_FROM_${trainingYear}_VALIDATION`,
       description: `${args.symbol} ${definition.descriptionLabel} - 基于 ${trainingYear} rolling candidate pool / mapping`,
-      timeRange: definition.timeRange,
+      timeRange: definition.executionTimeRange,
       market: {
         symbol: args.symbol,
         intervalType: trainConfig.market.intervalType
@@ -366,9 +370,13 @@ function buildArtifacts(args: Args, trainConfig: JsonObject, rollingPackage: Ret
       validationProfile: args.profile,
       validationTarget: {
         label: definition.label,
-        cutoffDate: String(definition.timeRange.endIso).slice(0, 10),
-        startIso: definition.timeRange.startIso,
-        endIso: definition.timeRange.endIso
+        cutoffDate: String(definition.evaluationTimeRange.endIso).slice(0, 10),
+        startIso: definition.evaluationTimeRange.startIso,
+        endIso: definition.evaluationTimeRange.endIso,
+        startTimeMs: definition.evaluationTimeRange.startTimeMs,
+        endTimeMs: definition.evaluationTimeRange.endTimeMs,
+        evaluationTimeRange: definition.evaluationTimeRange,
+        executionTimeRange: definition.executionTimeRange
       }
     }
   }));
@@ -410,8 +418,8 @@ function buildArtifacts(args: Args, trainConfig: JsonObject, rollingPackage: Ret
     },
     validationTargets: validationDefinitions.map((definition) => ({
       label: definition.label,
-      startIso: definition.timeRange.startIso,
-      endIso: definition.timeRange.endIso
+      startIso: definition.evaluationTimeRange.startIso,
+      endIso: definition.evaluationTimeRange.endIso
     })),
     validationProfile: args.profile,
     strategies: rollingPackage.explicitStrategies.map((strategy, index) => ({

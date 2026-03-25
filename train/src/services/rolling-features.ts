@@ -191,6 +191,23 @@ export function computeAlignmentScore(parent: PeriodFeature | null, child: Perio
   return 0;
 }
 
+export function buildLaggedFeatureMap(
+  features: readonly PeriodFeature[]
+): ReadonlyMap<string, PeriodFeature> {
+  const lagged = new Map<string, PeriodFeature>();
+  const sorted = [...features].sort((left, right) => left.key.localeCompare(right.key));
+
+  for (let index = 1; index < sorted.length; index += 1) {
+    const current = sorted[index];
+    const previous = sorted[index - 1];
+    if (current && previous) {
+      lagged.set(current.key, previous);
+    }
+  }
+
+  return lagged;
+}
+
 export function buildPeriodFeatures<T extends RollingFeatureKlineLike>(
   klines: readonly T[],
   getKey: (timestampMs: number) => string,
@@ -297,4 +314,29 @@ export function buildPeriodFeatures<T extends RollingFeatureKlineLike>(
       volExpansionRatio: round(volExpansionRatio, 4)
     };
   });
+}
+
+export function buildOpeningWindowPeriodFeatures<T extends RollingFeatureKlineLike>(
+  klines: readonly T[],
+  getKey: (timestampMs: number) => string,
+  detectBucket: (returnPct: number, realizedVolPct: number) => string,
+  options: PeriodFeatureBuildOptions = {}
+): readonly PeriodFeature[] {
+  const openingWindowCount = Math.max(1, Number(options.openingWindowCount ?? 60));
+  const grouped = new Map<string, T[]>();
+
+  for (const row of klines) {
+    const key = getKey(Number(row.open_time));
+    const bucket = grouped.get(key) ?? [];
+    bucket.push(row);
+    grouped.set(key, bucket);
+  }
+
+  const truncatedRows: T[] = [];
+  for (const rows of grouped.values()) {
+    const sortedRows = [...rows].sort((left, right) => Number(left.open_time) - Number(right.open_time));
+    truncatedRows.push(...sortedRows.slice(0, openingWindowCount));
+  }
+
+  return buildPeriodFeatures(truncatedRows, getKey, detectBucket, options);
 }

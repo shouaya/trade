@@ -4,6 +4,8 @@ import type * as mysql from 'mysql2/promise';
 import db from '../configs/database';
 import { loadRouterPolicyCatalogByRouterConfig, type RouterPolicyCatalog } from './router-policy-catalog';
 import {
+  buildLaggedFeatureMap,
+  buildOpeningWindowPeriodFeatures,
   buildPeriodFeatures,
   buildPoolHealthMetrics,
   computeAlignmentScore,
@@ -16,6 +18,7 @@ import {
   round,
   type PeriodFeature
 } from './rolling-features';
+import { resolveEvaluationTimeRange, resolveExecutionTimeRange } from './validation-range';
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const JPY_INITIAL_CAPITAL = 1_000_000;
@@ -540,8 +543,10 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
   }
 
   const symbol = validationConfig.market.symbol.toUpperCase();
-  const startTimeMs = validationConfig.timeRange.startTimeMs;
-  const endTimeMs = validationConfig.timeRange.endTimeMs;
+  const evaluationRange = resolveEvaluationTimeRange(validationConfig);
+  const executionRange = resolveExecutionTimeRange(validationConfig);
+  const startTimeMs = evaluationRange.startTimeMs;
+  const endTimeMs = evaluationRange.endTimeMs;
   const strategyNames = validationConfig.strategy.explicitStrategies.map((strategy) => strategy.name);
 
   const createdAt = options.tradeCreatedAt
@@ -549,8 +554,8 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
     : await findTradeBatch(db, strategyNames, symbol, startTimeMs, endTimeMs);
 
   const [trades, klines] = await Promise.all([
-    loadTrades(db, strategyNames, symbol, startTimeMs, endTimeMs, createdAt),
-    loadKlines(db, symbol, validationConfig.market.intervalType, startTimeMs, endTimeMs)
+    loadTrades(db, strategyNames, symbol, executionRange.startTimeMs, executionRange.endTimeMs, createdAt),
+    loadKlines(db, symbol, validationConfig.market.intervalType, executionRange.startTimeMs, executionRange.endTimeMs)
   ]);
 
   const openingWindowCount = Math.max(1, Number(validationConfig.featureEngineering?.openingWindowMinutes || 60));
@@ -560,11 +565,19 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
     volBaselineLookback
   };
   const dailyFeatures = buildPeriodFeatures(klines, getJstDayKey, detectDailyFeatureBucket, periodFeatureOptions);
+  const dailyOpeningFeatures = buildOpeningWindowPeriodFeatures(
+    klines,
+    getJstDayKey,
+    detectDailyFeatureBucket,
+    periodFeatureOptions
+  );
   const weeklyFeatures = buildPeriodFeatures(klines, getIsoWeekKey, detectWeeklyFeatureBucket, periodFeatureOptions);
   const monthlyFeatures = buildPeriodFeatures(klines, getJstMonthKey, detectMonthlyFeatureBucket, periodFeatureOptions);
+  const laggedDailyFeatureMap = buildLaggedFeatureMap(dailyFeatures);
+  const laggedWeeklyFeatureMap = buildLaggedFeatureMap(weeklyFeatures);
+  const laggedMonthlyFeatureMap = buildLaggedFeatureMap(monthlyFeatures);
 
-  const weeklyMap = new Map(weeklyFeatures.map((item) => [item.key, item] as const));
-  const monthlyMap = new Map(monthlyFeatures.map((item) => [item.key, item] as const));
+  const dailyFeatureMap = new Map(dailyFeatures.map((item) => [item.key, item] as const));
   const dailyTradeMap = buildPeriodStrategyPnlMap(trades, getJstDayKey);
   const weeklyTradeMap = buildPeriodStrategyPnlMap(trades, getIsoWeekKey);
   const monthlyTradeMap = buildPeriodStrategyPnlMap(trades, getJstMonthKey);
@@ -602,20 +615,31 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
   let previousDayRoutedPnl = 0;
   let consecutiveLossDays = 0;
 
-  for (const dayFeature of dailyFeatures) {
+  const evaluationDays = dailyOpeningFeatures.filter((dayFeature) => {
+    const dayStartTimeMs = Date.parse(`${dayFeature.key}T00:00:00.000Z`) - JST_OFFSET_MS;
+    const dayEndTimeMs = dayStartTimeMs + (24 * 60 * 60 * 1000) - 1;
+    return dayEndTimeMs >= evaluationRange.startTimeMs && dayStartTimeMs <= evaluationRange.endTimeMs;
+  });
+
+  for (const dayFeature of evaluationDays) {
     const month = dayFeature.key.slice(0, 7);
     const week = getIsoWeekKey(Date.parse(`${dayFeature.key}T00:00:00.000Z`) - JST_OFFSET_MS);
-    const monthFeatureBase = monthlyMap.get(month) ?? null;
-    const weekFeatureBase = weeklyMap.get(week) ?? null;
+    const completedDayFeature = dailyFeatureMap.get(dayFeature.key) ?? dayFeature;
+    const monthFeatureBase = laggedMonthlyFeatureMap.get(month) ?? null;
+    const weekFeatureBase = laggedWeeklyFeatureMap.get(week) ?? null;
+    const previousDayFeatureBase = laggedDailyFeatureMap.get(dayFeature.key) ?? null;
     const candidatePool = monthlyPoolMap.get(month) ?? validationConfig.strategy.explicitStrategies.map((strategy) => strategy.name);
+    const previousMonthTradeMap = monthFeatureBase ? (monthlyTradeMap.get(monthFeatureBase.key) ?? new Map<string, number>()) : new Map<string, number>();
+    const previousWeekTradeMap = weekFeatureBase ? (weeklyTradeMap.get(weekFeatureBase.key) ?? new Map<string, number>()) : new Map<string, number>();
+    const previousDayTradeMap = previousDayFeatureBase ? (dailyTradeMap.get(previousDayFeatureBase.key) ?? new Map<string, number>()) : new Map<string, number>();
     const monthPoolHealth = buildPoolHealthMetrics(
-      candidatePool.map((name) => round(monthlyTradeMap.get(month)?.get(name) ?? 0, 2))
+      validationConfig.strategy.explicitStrategies.map((strategy) => round(previousMonthTradeMap.get(strategy.name) ?? 0, 2))
     );
     const weekPoolHealth = buildPoolHealthMetrics(
-      candidatePool.map((name) => round(weeklyTradeMap.get(week)?.get(name) ?? 0, 2))
+      candidatePool.map((name) => round(previousWeekTradeMap.get(name) ?? 0, 2))
     );
     const dayPoolHealth = buildPoolHealthMetrics(
-      candidatePool.map((name) => round(dailyTradeMap.get(dayFeature.key)?.get(name) ?? 0, 2))
+      candidatePool.map((name) => round(previousDayTradeMap.get(name) ?? 0, 2))
     );
     const monthFeature: PeriodFeature | null = monthFeatureBase
       ? {
@@ -728,7 +752,12 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
       oracleBestOfDayPnl: oracleBestPnl
     });
 
-    previousDayFeature = dayFeatureWithContext;
+    previousDayFeature = {
+      ...completedDayFeature,
+      positiveStrategyRatio: dayPoolHealth.positiveStrategyRatio,
+      bestVsMedianGap: dayPoolHealth.bestVsMedianGap,
+      weeklyDailyAlignment: computeAlignmentScore(weekFeatureBase, completedDayFeature)
+    };
     previousDayRoutedPnl = routedPnl;
     consecutiveLossDays = routedPnl < 0 ? consecutiveLossDays + 1 : 0;
   }
@@ -740,8 +769,8 @@ export async function runRouterValidation(options: RouterValidationRunOptions): 
     tradeCreatedAt: createdAt,
     policyCatalog,
     period: {
-      startTimeMs,
-      endTimeMs
+      startTimeMs: evaluationRange.startTimeMs,
+      endTimeMs: evaluationRange.endTimeMs
     },
     comparison: {
       router: computeMetrics('router', 'Router', routerPnls, initialCapital, weekKeys),

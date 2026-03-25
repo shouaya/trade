@@ -341,8 +341,12 @@ test('feature flow runs training params to rolling artifacts and router outputs 
 
   assert.equal(artifacts.validationConfigs.length, 2);
   assert.equal(artifacts.snapshot.content.trainId, 'train-feature-001');
-  assert.ok(artifacts.snapshot.content.rollingPlan.monthlyPools.length >= 2);
+  assert.equal(artifacts.snapshot.content.rollingPlan.monthlyPools.length, 1);
+  assert.equal(artifacts.snapshot.content.rollingPlan.monthlyPools[0].sourceMonth, '2025-01');
   assert.ok(artifacts.snapshot.content.rollingRouter.rules.length >= 1);
+  assert.equal(artifacts.validationConfigs[0].content.validationTarget.evaluationTimeRange.startIso, '2025-01-03T00:00:00.000Z');
+  assert.equal(artifacts.validationConfigs[0].content.validationTarget.executionTimeRange.startIso, '2024-12-01T00:00:00.000Z');
+  assert.equal(artifacts.validationConfigs[0].content.timeRange.startIso, '2024-12-01T00:00:00.000Z');
 
   const registryDb = createRegistryDb();
   await upsertTrainConfig(registryDb, trainingConfigKey, trainingConfig, { explicitType: 'training' });
@@ -351,7 +355,7 @@ test('feature flow runs training params to rolling artifacts and router outputs 
     await upsertTrainConfig(registryDb, item.configKey, item.content, { explicitType: 'validation' });
   }
 
-  assert.ok(registryDb.state.rollingPools.length >= 2);
+  assert.equal(registryDb.state.rollingPools.length, 1);
   assert.ok(registryDb.state.rollingRules.length >= 1);
 
   const firstValidation = artifacts.validationConfigs[0];

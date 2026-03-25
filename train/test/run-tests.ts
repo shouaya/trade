@@ -11,6 +11,7 @@ require('./goal-attainment-report.test.ts');
 require('./ut-feature-baselines.test.ts');
 require('./rolling-artifact-builder.test.ts');
 require('./rolling-features.test.ts');
+require('./validation-range.test.ts');
 require('./market-feature-scenarios.test.ts');
 require('./router-policy-catalog.test.ts');
 require('./router-artifact-builder.test.ts');

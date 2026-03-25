@@ -1,4 +1,6 @@
 import {
+  buildLaggedFeatureMap,
+  buildOpeningWindowPeriodFeatures,
   buildPeriodFeatures,
   buildPoolHealthMetrics,
   computeAlignmentScore,
@@ -180,6 +182,21 @@ function buildMonthPool(
       ...item,
       rank: index + 1
     }));
+}
+
+function rankPoolByPeriodPnl(
+  pool: readonly PoolItem[],
+  strategyMap: ReadonlyMap<string, number>
+): readonly { readonly strategyName: string; readonly pnl: number }[] {
+  return pool
+    .map((entry) => ({
+      strategyName: entry.strategyName,
+      pnl: round(strategyMap.get(entry.strategyName) ?? 0, 4)
+    }))
+    .sort((left, right) => {
+      if (right.pnl !== left.pnl) return right.pnl - left.pnl;
+      return left.strategyName.localeCompare(right.strategyName);
+    });
 }
 
 function choosePeriodAction(bestPnl: number): { readonly type: RollingRouterAction; readonly risk: number } {
@@ -533,31 +550,55 @@ export function buildRollingArtifactPackage(options: RollingArtifactBuilderOptio
     volBaselineLookback
   };
   const dailyFeatures = buildPeriodFeatures(options.klines, getJstDayKey, detectDailyFeatureBucket, periodFeatureOptions);
+  const dailyOpeningFeatures = buildOpeningWindowPeriodFeatures(
+    options.klines,
+    getJstDayKey,
+    detectDailyFeatureBucket,
+    periodFeatureOptions
+  );
   const weeklyFeatures = buildPeriodFeatures(options.klines, getIsoWeekKey, detectWeeklyFeatureBucket, periodFeatureOptions);
   const monthlyFeatures = buildPeriodFeatures(options.klines, getJstMonthKey, detectMonthlyFeatureBucket, periodFeatureOptions);
+  const laggedDailyFeatureMap = buildLaggedFeatureMap(dailyFeatures);
+  const laggedWeeklyFeatureMap = buildLaggedFeatureMap(weeklyFeatures);
+  const laggedMonthlyFeatureMap = buildLaggedFeatureMap(monthlyFeatures);
   const dailyPnlMap = buildPeriodStrategyPnlMap(options.trades, getJstDayKey);
   const weeklyPnlMap = buildPeriodStrategyPnlMap(options.trades, getIsoWeekKey);
   const monthlyPnlMap = buildPeriodStrategyPnlMap(options.trades, getJstMonthKey);
 
-  const weeklyFeatureMap = new Map(weeklyFeatures.map((item) => [item.key, item] as const));
-  const monthlyFeatureMap = new Map(monthlyFeatures.map((item) => [item.key, item] as const));
+  const weekToMonthMap = new Map<string, string>();
+  for (const feature of dailyFeatures) {
+    const dayTimeMs = Date.parse(`${feature.key}T00:00:00.000Z`) - (9 * 60 * 60 * 1000);
+    const weekKey = getIsoWeekKey(dayTimeMs);
+    if (!weekToMonthMap.has(weekKey)) {
+      weekToMonthMap.set(weekKey, feature.key.slice(0, 7));
+    }
+  }
   const monthPoolMap = new Map<string, readonly PoolItem[]>();
   const monthPrimaryStrategyMap = new Map<string, string | null>();
-  const monthlyPools = monthlyFeatures.map((feature) => {
-    const fullMonthPnls = Array.from(strategyMeta.values()).map((item) => round((monthlyPnlMap.get(feature.key)?.get(item.name) ?? 0), 4));
+  const monthlyPools = monthlyFeatures.flatMap((feature) => {
+    const previousMonthFeature = laggedMonthlyFeatureMap.get(feature.key) ?? null;
+    if (!previousMonthFeature) {
+      return [];
+    }
+
+    const previousMonthStrategyMap = monthlyPnlMap.get(previousMonthFeature.key) ?? new Map<string, number>();
+    const currentMonthStrategyMap = monthlyPnlMap.get(feature.key) ?? new Map<string, number>();
+    const fullMonthPnls = Array.from(strategyMeta.values()).map((item) => round((previousMonthStrategyMap.get(item.name) ?? 0), 4));
     const health = buildPoolHealthMetrics(fullMonthPnls);
     const enrichedFeature: PeriodFeature = {
-      ...feature,
+      ...previousMonthFeature,
       positiveStrategyRatio: health.positiveStrategyRatio,
       bestVsMedianGap: health.bestVsMedianGap
     };
-    const pool = buildMonthPool(monthlyPnlMap.get(feature.key) ?? new Map<string, number>(), strategyMeta, options.topN);
+    const pool = buildMonthPool(previousMonthStrategyMap, strategyMeta, options.topN);
     monthPoolMap.set(feature.key, pool);
-    const best = pool[0];
-    const action = choosePeriodAction(best?.totalPnl ?? 0);
+    const rankedCurrent = rankPoolByPeriodPnl(pool, currentMonthStrategyMap);
+    const best = rankedCurrent[0] ?? null;
+    const action = choosePeriodAction(best?.pnl ?? 0);
     monthPrimaryStrategyMap.set(feature.key, best?.strategyName ?? null);
-    return {
+    return [{
       month: feature.key,
+      sourceMonth: previousMonthFeature.key,
       featureBucket: feature.featureBucket,
       trendEfficiency: enrichedFeature.trendEfficiency,
       volExpansionRatio: enrichedFeature.volExpansionRatio,
@@ -568,9 +609,10 @@ export function buildRollingArtifactPackage(options: RollingArtifactBuilderOptio
       selectedStrategyName: best?.strategyName ?? null,
       actionType: action.type,
       riskCap: action.risk,
+      currentBestPnl: best?.pnl ?? 0,
       topStrategies: pool,
       feature: enrichedFeature
-    };
+    }];
   });
 
   const monthlySelectedStrategies = Array.from(new Set(
@@ -595,32 +637,29 @@ export function buildRollingArtifactPackage(options: RollingArtifactBuilderOptio
   const weeklySelectedStrategyByWeek = new Map<string, string | null>();
   const weeklyDecisionsByDay = new Map<string, string | null>();
   for (const feature of weeklyFeatures) {
-    const candidateMonth = feature.key.slice(0, 7);
-    const monthFeature = monthlyFeatureMap.get(candidateMonth) ?? null;
-    const pool = monthPoolMap.get(candidateMonth) ?? [];
-    const strategyMap = weeklyPnlMap.get(feature.key) ?? new Map<string, number>();
-    const ranked = pool
-      .map((entry) => ({
-        strategyName: entry.strategyName,
-        pnl: round(strategyMap.get(entry.strategyName) ?? 0, 4)
-      }))
-      .sort((left, right) => {
-        if (right.pnl !== left.pnl) return right.pnl - left.pnl;
-        return left.strategyName.localeCompare(right.strategyName);
-      });
-    const health = buildPoolHealthMetrics(ranked.map((item) => item.pnl));
+    const previousWeekFeature = laggedWeeklyFeatureMap.get(feature.key) ?? null;
+    if (!previousWeekFeature) {
+      continue;
+    }
+    const candidateMonth = weekToMonthMap.get(feature.key) ?? null;
+    const monthFeature = candidateMonth ? (laggedMonthlyFeatureMap.get(candidateMonth) ?? null) : null;
+    const pool = candidateMonth ? (monthPoolMap.get(candidateMonth) ?? []) : [];
+    const previousWeekStrategyMap = weeklyPnlMap.get(previousWeekFeature.key) ?? new Map<string, number>();
+    const currentWeekStrategyMap = weeklyPnlMap.get(feature.key) ?? new Map<string, number>();
+    const ranked = rankPoolByPeriodPnl(pool, currentWeekStrategyMap);
+    const health = buildPoolHealthMetrics(pool.map((entry) => round(previousWeekStrategyMap.get(entry.strategyName) ?? 0, 4)));
     const enrichedFeature: PeriodFeature = {
-      ...feature,
+      ...previousWeekFeature,
       positiveStrategyRatio: health.positiveStrategyRatio,
       bestVsMedianGap: health.bestVsMedianGap,
-      monthlyWeeklyAlignment: computeAlignmentScore(monthFeature, feature)
+      monthlyWeeklyAlignment: computeAlignmentScore(monthFeature, previousWeekFeature)
     };
     const best = ranked[0] ?? null;
     const action = choosePeriodAction(best?.pnl ?? 0);
     weeklySamples.push({
       periodKey: feature.key,
       feature: enrichedFeature,
-      selectedStrategyName: best?.strategyName ?? monthPrimaryStrategyMap.get(candidateMonth) ?? null,
+      selectedStrategyName: best?.strategyName ?? (candidateMonth ? monthPrimaryStrategyMap.get(candidateMonth) ?? null : null),
       actionType: action.type,
       riskCap: action.risk,
       avgPnl: best?.pnl ?? 0,
@@ -628,32 +667,26 @@ export function buildRollingArtifactPackage(options: RollingArtifactBuilderOptio
     });
     weeklySelectedStrategyByWeek.set(
       feature.key,
-      best?.strategyName ?? monthPrimaryStrategyMap.get(candidateMonth) ?? null
+      best?.strategyName ?? (candidateMonth ? monthPrimaryStrategyMap.get(candidateMonth) ?? null : null)
     );
   }
 
   const weeklyRules = aggregateByBucket(weeklySamples, 'weekly_guard', strategyKeyMap, splitConfig);
 
   const dailySamples: PeriodDecisionSample[] = [];
-  for (const feature of dailyFeatures) {
+  for (const feature of dailyOpeningFeatures) {
     const monthKey = feature.key.slice(0, 7);
     const dayTimeMs = Date.parse(`${feature.key}T00:00:00.000Z`) - (9 * 60 * 60 * 1000);
     const weekKey = getIsoWeekKey(dayTimeMs);
-    const weekFeature = weeklyFeatureMap.get(weekKey);
+    const weekFeature = laggedWeeklyFeatureMap.get(weekKey) ?? null;
     const weekBaseStrategyName = weeklySelectedStrategyByWeek.get(weekKey) ?? null;
     weeklyDecisionsByDay.set(feature.key, weekBaseStrategyName);
     const pool = monthPoolMap.get(monthKey) ?? [];
     const strategyMap = dailyPnlMap.get(feature.key) ?? new Map<string, number>();
-    const ranked = pool
-      .map((entry) => ({
-        strategyName: entry.strategyName,
-        pnl: round(strategyMap.get(entry.strategyName) ?? 0, 4)
-      }))
-      .sort((left, right) => {
-        if (right.pnl !== left.pnl) return right.pnl - left.pnl;
-        return left.strategyName.localeCompare(right.strategyName);
-      });
-    const health = buildPoolHealthMetrics(ranked.map((item) => item.pnl));
+    const ranked = rankPoolByPeriodPnl(pool, strategyMap);
+    const previousDayFeature = laggedDailyFeatureMap.get(feature.key) ?? null;
+    const previousDayStrategyMap = previousDayFeature ? (dailyPnlMap.get(previousDayFeature.key) ?? new Map<string, number>()) : new Map<string, number>();
+    const health = buildPoolHealthMetrics(pool.map((entry) => round(previousDayStrategyMap.get(entry.strategyName) ?? 0, 4)));
     const enrichedFeature: PeriodFeature = {
       ...feature,
       positiveStrategyRatio: health.positiveStrategyRatio,
@@ -693,13 +726,13 @@ export function buildRollingArtifactPackage(options: RollingArtifactBuilderOptio
     selectedStrategyName: item.selectedStrategyName,
     actionType: item.actionType,
     riskCap: item.riskCap,
-    avgPnl: item.topStrategies[0]?.totalPnl ?? 0,
+    avgPnl: Number(item.currentBestPnl ?? 0),
     sampleSize: item.topStrategies.length
   }));
 
   const monthlyRules = aggregateByBucket(monthlySamples, 'monthly_guard', strategyKeyMap, splitConfig);
   const dailyRules = aggregateByBucket(dailySamples, 'daily_router', strategyKeyMap, splitConfig);
-  const lossRules = buildLossRules(dailyFeatures, dailyPnlMap, weeklyDecisionsByDay, strategyKeyMap, splitConfig);
+  const lossRules = buildLossRules(dailyOpeningFeatures, dailyPnlMap, weeklyDecisionsByDay, strategyKeyMap, splitConfig);
 
   return {
     explicitStrategies,

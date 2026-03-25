@@ -66,6 +66,7 @@ test('rolling artifact builder creates month week day mapping package from train
   assert.ok(result.monthlyRules.length >= 1);
   assert.ok(result.weeklyRules.length >= 1);
   assert.ok(result.dailyRules.length >= 1);
+  assert.ok(result.weeklyRules.some((rule) => rule.action && rule.action.strategyKey), 'weekly rules should inherit a real strategy from the mapped month pool');
   assert.ok(result.routerRules.length >= result.monthlyRules.length);
   assert.equal(typeof result.defaultStrategyKey, 'string');
 });
@@ -138,7 +139,17 @@ test('rolling artifact builder respects routerSplit featureEngineering defaults'
     }
   });
 
-  assert.ok(splitEnabled.dailyRules.some((rule) => rule.when && rule.when.positiveStrategyRatio));
+  assert.ok(splitEnabled.dailyRules.length > 0);
+  assert.ok(splitEnabled.routerRules.every((rule) => {
+    const when = rule.when || {};
+    return !when.trendEfficiency
+      && !when.volExpansionRatio
+      && !when.openingImpulse
+      && !when.reversalStrength
+      && !when.bestVsMedianGap
+      && !when.monthlyWeeklyAlignment
+      && !when.weeklyDailyAlignment;
+  }));
 
   const splitDisabled = buildRollingArtifactPackage({
     topN: 2,
